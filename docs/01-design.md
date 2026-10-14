@@ -262,6 +262,13 @@ recorder.pendingAuthor(block);                               // 尚未存檔的�
 - Fabric：mixin 到 chunk 儲存的讀取（`ChunkStorage.read`／IO worker）。
 - Paper：以反射包裝 chunk 系統的 region 儲存讀取。這是最大的不確定點（§10 風險 2）。備案是「整個 region 預先合成」：玩家接近某個 region 之前，就把整個 region 的 32×32 chunk 寫成 region 檔案；傳送時先完成合成再傳送。
 
+**Paper 26.2 的實作（已驗證）**：採用「整個 region 合成」，但時機是**伺服器第一次開啟該 region 檔的當下**，不必預測玩家位置：
+- `RegionFileStorage` 每次取 region 檔都先在持有儲存鎖的情況下查 `regionCache`（`Long2ObjectLinkedOpenHashMap`）。`ChunkDataController` 與讀取方法都是 final，所以改在 `WorldInitEvent` 以反射把這個欄位換成子類別：快取沒命中、檔案又不存在時，先把整個 region 合成好（起點 region＋分支最新提交的覆寫），再交回 Paper 照常開檔。方塊（`region/`）與實體（`entities/`）各掛一個。
+- 合成出來的 chunk 拿掉 `isLightOn` 與 `Heightmaps`，讓 Paper 載入時重算光照與高度圖；有改動的 section 拿掉光照陣列，方塊實體補回座標。沒有覆寫的 chunk 原樣複製位元組。
+- 先寫到 `.buildgit-tmp/` 再原子搬移，伺服器不會讀到寫了一半的檔案。
+- 起點世界沒有、只有覆寫的 chunk：讓產生器產生，在 `ChunkLoadEvent.isNewChunk()` 當下以不觸發更新的寫入套上覆寫（系統寫入，不標記）。
+- 合成只在 region 檔不存在時發生，所以分支世界之後的存檔、重啟都和一般世界一樣。
+
 ### 4.3 主分支
 
 `main` 的工作世界就是伺服器原本的世界，不需要合成。`init` 時：
@@ -274,6 +281,8 @@ recorder.pendingAuthor(block);                               // 尚未存檔的�
 ### 4.4 進出分支
 
 `/bg go <分支>` 把玩家傳送到該分支工作世界的**相同座標與相同維度**，物品欄與遊戲模式不變。
+
+Paper 的世界名稱是 `bg_<分支>`、`bg_<分支>_nether`、`bg_<分支>_the_end`，以 `WorldCreator.copy(主世界)` 建立（同種子、同產生器）。分支的來源與建立時間記在 `buildgit/branches.yml`。每個分支有自己的標記表與標記日誌（`worktree/<分支>/`），追蹤器依世界找到對應的表，並把分支世界對應回主世界的維度 id，所以覆寫表的路徑在所有分支都相同。
 
 ## 5. 提交、合併、還原
 
@@ -312,6 +321,7 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
   1. 建立合併提交；
   2. 把變更寫進目標工作世界中已載入或已存檔過的 chunk，用不觸發更新的寫入，未讀取過的 chunk 不必處理（§4.2）；
   3. 寫入期間停用追蹤，避免系統寫入被當成玩家變更。
+- **Paper 的套用**：以目標分支合併前的 tree 對合併結果算差異，逐 chunk 用 `getChunkAtAsync` 載入後寫入（結果是「與起點相同」的格子，從起點世界讀回內容）；實體等 chunk 的實體載入完成後才增刪。目前的 `publish` 先自動存檔草稿與目標，取代「先要求提交」。
 - **形狀修補**：合併後，邊界上的格子可能形狀不一致，例如柵欄連到已被刪除的方塊。對「合併結果有變的格子的鄰居」重新計算形狀；真的變了的格子，以作者 `merge` 收進同一個合併提交。
 
 ### 5.3 衝突：對照世界
@@ -483,7 +493,7 @@ BuildGit/
 
 1. **core**：物件儲存、覆寫表、提交、三方合併、changeset，以 JUnit 驗證。
 2. **原型**：風險 1–4。
-3. **Paper 26.2**：追蹤、WorldEdit／FAWE 與 Axiom 整合、公開 API、主世界的存檔與歷史（已完成）；接著做分支世界、合併、衝突世界。
+3. **Paper 26.2**：追蹤、WorldEdit／FAWE 與 Axiom 整合、公開 API、主世界的存檔與歷史、分支世界（try／go／back／publish）與無衝突合併（已完成）；接著做衝突世界、合併後形狀修補、還原。
 4. **Fabric 26.2**：同上。
 5. （併入第 3 步）
 6. **1.21.11**：兩個平台的舊版適配。
@@ -522,3 +532,6 @@ BuildGit/
 | 23 | 2026-10-14 | zstd-jni 不打包，改由 `plugin.yml` 的 `libraries` 從 Maven Central 下載（插件 jar 從 7.5 MB 降為 220 KB） |
 | 24 | 2026-10-14 | 連帶只標記真的改變的格子：候選格延到最外層更新結束後比對狀態 |
 | 25 | 2026-10-14 | init 之後新生成的 chunk，在生成當下補進起點世界（§2.3 的備案），不依賴生成確定性 |
+| 26 | 2026-10-14 | Paper 分支世界的合成掛在 `RegionFileStorage.regionCache`（反射換成子類別）：第一次開 region 檔時整個 region 合成，之後就是一般世界 |
+| 27 | 2026-10-14 | 存檔讀不到的 chunk 一律載入（必要時生成）後再讀，絕不當成空氣；讀不到就整個存檔失敗並把標記放回 |
+| 28 | 2026-10-14 | 衝突世界（§5.3）完成前，`publish` 有衝突時只列出衝突、不併回 |

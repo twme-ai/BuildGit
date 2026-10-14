@@ -43,6 +43,15 @@ public final class OverlayReader {
     return result;
   }
 
+  /** region 內有覆寫的 chunk 座標（{x, z}）。 */
+  public List<int[]> chunksInRegion(String dimension, int regionX, int regionZ) throws IOException {
+    var dim = store.tree(root).get(dimension);
+    var region = store.tree(store.tree(dim).get("r." + regionX + "." + regionZ));
+    var result = new ArrayList<int[]>();
+    for (var name : region.entries().keySet()) result.add(Tree.coords(name));
+    return result;
+  }
+
   /** null：與起點相同；{@code Optional.empty()}：起點的實體已被移除。 */
   public Optional<EntityState> entity(String dimension, UUID uuid) throws IOException {
     var dim = store.tree(root).get(dimension);

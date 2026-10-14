@@ -2,6 +2,11 @@ prefix: "<dark_aqua>[BuildGit]</dark_aqua> "
 
 help: |-
   <gray>Commands:</gray>
+  <aqua>/bg try <name></aqua> <gray>— open a draft and teleport to the same spot</gray>
+  <aqua>/bg publish</aqua> <gray>— publish the current draft into its source</gray>
+  <aqua>/bg back</aqua> <gray>— return to the source world without publishing</gray>
+  <aqua>/bg go <draft|main></aqua> <gray>— go to a draft or main</gray>
+  <aqua>/bg branch list</aqua> <gray>— list drafts</gray>
   <aqua>/bg status</aqua> <gray>— unsaved changes</gray>
   <aqua>/bg save [message]</aqua> <gray>— save (milestone)</gray>
   <aqua>/bg log [count]</aqua> <gray>— save history</gray>
@@ -18,7 +23,7 @@ already-initialized: "<red>Version control is already active.</red>"
 init-start: "<gray>Saving the world and copying the starting point; the server will pause briefly…</gray>"
 init-done: "<green>Version control started. Changes made by players are now recorded.</green> <gray>(starting point <size> MB)</gray>"
 init-failed: "<red>Initialization failed: <error></red>"
-status-header: "<gold>main</gold> <gray>latest save</gray> <yellow><head></yellow>"
+status-header: "<branch> <gray>latest save</gray> <yellow><head></yellow>"
 status-clean: "<gray>No unsaved changes.</gray>"
 status-pending: "<gray>Unsaved: </gray><white><cells></white> <gray>blocks, </gray><white><entities></white> <gray>entities</gray>"
 status-author: "  <gray>-</gray> <white><author></white> <gray><cells> blocks</gray>"
@@ -52,3 +57,21 @@ mark-done: "<green>Recorded <cells> blocks.</green>"
 mark-too-large: "<red>Area too large (max <max> blocks).</red>"
 reloaded: "<green>Configuration reloaded.</green>"
 usage-mark: "<red>Usage: /bg mark <x1> <y1> <z1> <x2> <y2> <z2></red>"
+branch-main: "<gold>main</gold>"
+branch-draft: "<light_purple>draft <name></light_purple>"
+usage-try: "<red>Usage: /bg try <name></red>"
+usage-go: "<red>Usage: /bg go <draft|main></red>"
+usage-branch: "<red>Usage: /bg branch list</red>"
+branch-bad-name: "<red>Draft names may only use lowercase letters, digits, _ and - (max 32), and cannot be main.</red>"
+try-created: "<green>Created draft</green> <light_purple><name></light_purple><gray>; teleporting to the same spot…</gray>"
+try-existing: "<gray>Draft</gray> <light_purple><name></light_purple> <gray>already exists; teleporting…</gray>"
+branch-failed: "<red>Failed: <error></red>"
+branch-unknown: "<red>Unknown draft: <name></red>"
+go-done: "<gray>Now in</gray> <branch>"
+not-in-draft: "<red>You are not in a draft world.</red>"
+publish-start: "<gray>Publishing draft</gray> <light_purple><name></light_purple> <gray>into</gray> <target><gray>…</gray>"
+publish-nothing: "<gray>The draft has nothing new to publish.</gray>"
+publish-done: "<green>Published into</green> <target> <yellow><id></yellow> <gray>— <cells> blocks, <entities> entities</gray>"
+publish-conflicts: "<red>Conflicts, nothing published:</red> <white><cells></white> <gray>blocks and</gray> <white><entities></white> <gray>entities were changed on both sides. A conflict editor is in development; make the two sides agree first and retry.</gray>"
+conflict-cell: "  <light_purple>conflict</light_purple> <white><pos></white> <dark_gray><dimension></dark_gray>"
+branch-entry: "<branch> <yellow><head></yellow> <gray><players> players</gray>"

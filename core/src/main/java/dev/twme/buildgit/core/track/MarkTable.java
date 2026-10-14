@@ -138,6 +138,10 @@ public final class MarkTable {
       this.id = id;
     }
 
+    public MarkTable table() {
+      return MarkTable.this;
+    }
+
     public String id() {
       return id;
     }

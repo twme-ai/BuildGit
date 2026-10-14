@@ -42,6 +42,11 @@ public final class LiveReader {
     return ((CraftWorld) world).getWorldPath();
   }
 
+  /** 目前伺服器版本的資料版本，新建的存檔資料要標上它。 */
+  public static int dataVersion() {
+    return net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version();
+  }
+
   public static void saveNow(World world) {
     // flush=true：等 IO 執行緒把資料寫進 region 檔，複製起點世界前必須如此。
     ((CraftWorld) world).getHandle().save(null, true, false);

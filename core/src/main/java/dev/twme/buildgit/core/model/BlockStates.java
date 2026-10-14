@@ -19,4 +19,22 @@ public final class BlockStates {
     }
     return b.append(']').toString();
   }
+
+  /** 名稱與屬性，{@link #format} 的反向。 */
+  public record Parsed(String name, TreeMap<String, String> properties) {}
+
+  public static Parsed parse(String state) {
+    var props = new TreeMap<String, String>();
+    int open = state.indexOf('[');
+    if (open < 0) return new Parsed(state, props);
+    if (!state.endsWith("]")) throw new IllegalArgumentException("方塊狀態格式錯誤：" + state);
+    String body = state.substring(open + 1, state.length() - 1);
+    if (!body.isEmpty())
+      for (String pair : body.split(",")) {
+        int eq = pair.indexOf('=');
+        if (eq <= 0) throw new IllegalArgumentException("方塊狀態格式錯誤：" + state);
+        props.put(pair.substring(0, eq), pair.substring(eq + 1));
+      }
+    return new Parsed(state.substring(0, open), props);
+  }
 }

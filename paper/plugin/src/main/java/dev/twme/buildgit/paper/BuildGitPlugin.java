@@ -48,7 +48,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     saveDefaultConfig();
     settings = Settings.load(getConfig(), getLogger());
     messages = new Messages(this, settings.language());
-    tracker = new Tracker(settings);
+    tracker = new Tracker(settings, Bukkit::getCurrentTick);
     workspace = new Workspace(this, tracker);
 
     var pm = getServer().getPluginManager();
@@ -137,6 +137,12 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
   @EventHandler(priority = EventPriority.MONITOR)
   public void onChunkLoad(org.bukkit.event.world.ChunkLoadEvent e) {
     if (e.isNewChunk()) workspace.newChunk(e.getChunk());
+  }
+
+  /** 分支世界在讀取任何 chunk 之前掛上合成讀取。 */
+  @EventHandler(priority = EventPriority.LOWEST)
+  public void onWorldInit(org.bukkit.event.world.WorldInitEvent e) {
+    workspace.worldInit(e.getWorld());
   }
 
   @EventHandler

@@ -59,7 +59,13 @@ public final class RegionFile implements Closeable {
   }
 
   /** @return chunk 的 NBT；不存在時回傳 null */
-  public synchronized Nbt.Compound read(int index) throws IOException {
+  public Nbt.Compound read(int index) throws IOException {
+    var bytes = readBytes(index);
+    return bytes == null ? null : Nbt.read(bytes);
+  }
+
+  /** @return chunk 未壓縮的 NBT 位元組；不存在時回傳 null */
+  public synchronized byte[] readBytes(int index) throws IOException {
     if (!has(index)) return null;
     int location = locations[index];
     long offset = (long) (location >>> 8) * 4096;
@@ -86,7 +92,7 @@ public final class RegionFile implements Closeable {
     return decode(compression & 127, bytes);
   }
 
-  static Nbt.Compound decode(int compression, byte[] bytes) throws IOException {
+  static byte[] decode(int compression, byte[] bytes) throws IOException {
     InputStream raw = new ByteArrayInputStream(bytes);
     try (InputStream in =
         switch (compression) {
@@ -99,7 +105,7 @@ public final class RegionFile implements Closeable {
         }) {
       byte[] b = in.readNBytes(Nbt.MAX_BYTES + 1);
       if (b.length > Nbt.MAX_BYTES) throw new IOException("chunk 解壓後超過限制");
-      return Nbt.read(b);
+      return b;
     }
   }
 

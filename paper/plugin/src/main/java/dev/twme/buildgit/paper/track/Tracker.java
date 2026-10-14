@@ -20,7 +20,9 @@ import org.bukkit.entity.EntityType;
  */
 public final class Tracker {
   private volatile Settings settings;
-  private volatile MarkTable table;
+  private final java.util.function.LongSupplier clock;
+  /** 正在由 BuildGit 自己寫入世界（合併、套用覆寫）的執行緒：這期間的變化不是玩家造成的。 */
+  private volatile Thread systemWriter;
   /** Bukkit 世界 UUID → 標記表的維度。只有受版本控制的世界在這裡。 */
   private final Map<UUID, MarkTable.Dimension> worlds = new ConcurrentHashMap<>();
   private final Map<UUID, Author> authors = new ConcurrentHashMap<>();
@@ -44,8 +46,9 @@ public final class Tracker {
 
   private record PendingSpawn(UUID world, Author author, long until) {}
 
-  public Tracker(Settings settings) {
+  public Tracker(Settings settings, java.util.function.LongSupplier clock) {
     this.settings = settings;
+    this.clock = clock;
   }
 
   public Settings settings() {
@@ -58,38 +61,64 @@ public final class Tracker {
 
   // ---- 受追蹤的世界 ----
 
-  /** 換上新的標記表並指定受追蹤的世界（啟用或 init 之後）。 */
-  public void attach(MarkTable table, Collection<World> tracked) {
-    this.table = table;
+  /**
+   * 開始追蹤一個分支的世界，標記寫進該分支的標記表。
+   *
+   * @param tracked 世界 → 版本中的維度 id（分支世界對應到主世界的維度）
+   */
+  public void attach(MarkTable table, Map<World, String> tracked) {
+    tracked.forEach((w, dim) -> worlds.put(w.getUID(), table.dimension(dim)));
+  }
+
+  /** 停止追蹤這個標記表的所有世界。 */
+  public void detach(MarkTable table) {
+    worlds.values().removeIf(d -> d.table() == table);
+  }
+
+  public void detachAll() {
     worlds.clear();
-    for (var w : tracked) worlds.put(w.getUID(), table.dimension(dimensionId(w)));
   }
 
-  public void detach() {
-    worlds.clear();
-    table = null;
-  }
-
-  public MarkTable table() {
-    return table;
-  }
-
+  /** 世界本身的維度 key。版本中的維度用 {@link #logicalDimension}。 */
   public static String dimensionId(World world) {
     return world.getKey().toString();
   }
 
-  /** @return 世界不受追蹤時為 null */
+  /** 世界在版本中的維度 id：分支世界對應到主世界的維度。 */
+  public String logicalDimension(World world) {
+    var d = worlds.get(world.getUID());
+    return d != null ? d.id() : dimensionId(world);
+  }
+
+  /** @return 世界不受追蹤、或目前執行緒正在做系統寫入時為 null */
   public MarkTable.Dimension dimension(World world) {
-    return world == null ? null : worlds.get(world.getUID());
+    if (world == null || systemWriter == Thread.currentThread()) return null;
+    return worlds.get(world.getUID());
   }
 
   public boolean isTracked(World world) {
     return dimension(world) != null;
   }
 
+  /** 世界屬於哪個標記表（不受系統寫入影響）。 */
+  public MarkTable tableOf(World world) {
+    var d = world == null ? null : worlds.get(world.getUID());
+    return d == null ? null : d.table();
+  }
+
+  /** 在目前執行緒做系統寫入：期間不標記任何變化。不可巢狀於其他執行緒的系統寫入。 */
+  public void systemWrite(Runnable body) {
+    var previous = systemWriter;
+    systemWriter = Thread.currentThread();
+    try {
+      body.run();
+    } finally {
+      systemWriter = previous;
+    }
+  }
+
   public long now() {
-    var t = table;
-    return t == null ? 0 : t.now();
+    return clock.getAsLong();
   }
 
   // ---- 作者 ----
@@ -269,7 +298,7 @@ public final class Tracker {
     var here = dimension(entity.getWorld());
     if (here == null) return;
     for (var d : worlds.values()) {
-      if (d == here) continue;
+      if (d == here || d.table() != here.table()) continue;
       var a = d.entityAuthor(entity.getUniqueId());
       if (a == null) continue;
       d.markEntity(entity.getUniqueId(), a);

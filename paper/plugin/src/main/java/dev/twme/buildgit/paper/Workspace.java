@@ -1,55 +1,94 @@
 package dev.twme.buildgit.paper;
 
 import dev.twme.buildgit.core.anvil.AnvilSource;
+import dev.twme.buildgit.core.anvil.RegionSynthesizer;
 import dev.twme.buildgit.core.model.Author;
+import dev.twme.buildgit.core.model.BlockPos;
 import dev.twme.buildgit.core.model.Cell;
 import dev.twme.buildgit.core.model.EntityState;
 import dev.twme.buildgit.core.model.SectionKey;
+import dev.twme.buildgit.core.overlay.ThreeWayMerge;
+import dev.twme.buildgit.core.overlay.TreeDiff;
 import dev.twme.buildgit.core.repo.Repository;
-import dev.twme.buildgit.core.repo.StateSource;
 import dev.twme.buildgit.core.store.ObjectId;
-import dev.twme.buildgit.core.track.MarkJournal;
-import dev.twme.buildgit.core.track.MarkTable;
-import dev.twme.buildgit.core.track.Marks;
+import dev.twme.buildgit.core.store.RefStore;
 import dev.twme.buildgit.paper.nms.LiveReader;
+import dev.twme.buildgit.paper.nms.LiveWriter;
+import dev.twme.buildgit.paper.nms.RegionHook;
 import dev.twme.buildgit.paper.track.Tracker;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.World;
+import org.bukkit.WorldCreator;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
- * 伺服器上的版本庫與主世界的工作區（設計 §2.1）：{@code <伺服器根目錄>/buildgit/}。
+ * 伺服器上的版本庫（設計 §2.1）：{@code <伺服器根目錄>/buildgit/}，以及每個分支的工作區與世界。
  *
- * <p>目前只處理主分支：主世界與它的地獄、終界。分支世界之後加入。
+ * <p>主分支的世界是伺服器原本的主世界與地獄、終界。其他分支（草稿）的世界由這裡建立，
+ * 內容在第一次讀到時由「起點世界＋分支覆寫表」合成（§4.2）。
  */
 public final class Workspace {
+  /** 草稿名稱同時用在世界名稱，所以只允許小寫英數、底線與連字號。 */
+  public static final Pattern BRANCH_NAME = Pattern.compile("[a-z0-9][a-z0-9_-]{0,31}");
+  private static final String WORLD_PREFIX = "bg_";
+
   private final JavaPlugin plugin;
   private final Tracker tracker;
   private final Path dir;
   private Repository repo;
-  private MarkTable table;
-  private MarkJournal journal;
   private AnvilSource genesis;
   private GenesisRecorder genesisRecorder;
-  private final Set<UUID> mainWorldIds = new HashSet<>();
-  private boolean uncleanShutdown;
-  private final AtomicBoolean committing = new AtomicBoolean();
-  private long lastSaveTick;
+  private final Map<String, Worktree> worktrees = new LinkedHashMap<>();
+  /** 世界 UUID → 所屬工作區。 */
+  private final Map<UUID, Worktree> owners = new HashMap<>();
+  /** 正在建立的分支世界：世界名稱 → (分支, 維度)。在 WorldInitEvent 掛上合成讀取。 */
+  private final Map<String, BranchWorld> creating = new HashMap<>();
+  private final Map<String, RegionSynthesizer> synthesizers = new ConcurrentHashMap<>();
+
+  private record BranchWorld(String branch, String dimension) {}
 
   public Workspace(JavaPlugin plugin, Tracker tracker) {
     this.plugin = plugin;
     this.tracker = tracker;
     this.dir = Path.of("").toAbsolutePath().resolve("buildgit");
+  }
+
+  Path dir() {
+    return dir;
+  }
+
+  Logger log() {
+    return plugin.getLogger();
+  }
+
+  Tracker tracker() {
+    return tracker;
+  }
+
+  AnvilSource genesis() {
+    return genesis;
+  }
+
+  void async(Runnable r) {
+    Bukkit.getScheduler().runTaskAsynchronously(plugin, r);
+  }
+
+  void sync(Runnable r) {
+    if (Bukkit.isPrimaryThread()) r.run();
+    else Bukkit.getScheduler().runTask(plugin, r);
   }
 
   public boolean isOpen() {
@@ -60,12 +99,17 @@ public final class Workspace {
     return repo;
   }
 
-  public MarkTable table() {
-    return table;
+  public Worktree main() {
+    return worktrees.get(Repository.MAIN);
   }
 
-  public boolean uncleanShutdown() {
-    return uncleanShutdown;
+  /** 世界所屬的工作區；不受版本控制時為 null。 */
+  public Worktree worktree(World world) {
+    return world == null ? null : owners.get(world.getUID());
+  }
+
+  public Worktree worktree(String branch) {
+    return worktrees.get(branch);
   }
 
   /** 主分支的世界：伺服器的主世界與同名的地獄、終界。 */
@@ -85,13 +129,9 @@ public final class Workspace {
     return result;
   }
 
-  private Path genesisDir(String dimension) {
+  Path genesisDir(String dimension) {
     int colon = dimension.indexOf(':');
     return dir.resolve("genesis").resolve(dimension.substring(0, colon)).resolve(dimension.substring(colon + 1));
-  }
-
-  private Path lockFile() {
-    return dir.resolve("worktree/main/running");
   }
 
   // ---- 開啟 ----
@@ -100,41 +140,24 @@ public final class Workspace {
   public void open() throws IOException {
     if (!Repository.exists(dir)) return;
     repo = Repository.open(dir);
-    table = new MarkTable(() -> Bukkit.getCurrentTick());
-    var journalDir = dir.resolve("worktree/main");
-    Files.createDirectories(journalDir);
-    uncleanShutdown = Files.exists(lockFile());
-    // 開新檔之前先列出舊檔，重播後由下次提交一併刪除。
-    var old = new MarkJournal(journalDir);
-    var files = old.files();
-    old.close();
-    MarkJournal.replay(files, table);
-    journal = new MarkJournal(journalDir);
-    // 空的那一個（上面開了又關）也會在下次提交時刪掉。
-    Files.writeString(lockFile(), String.valueOf(ProcessHandle.current().pid()));
     genesis = new AnvilSource(d -> {
       var p = genesisDir(d);
       return Files.isDirectory(p) ? p : null;
     });
     genesisRecorder = new GenesisRecorder(this::genesisDir, genesis, plugin.getLogger());
-    mainWorldIds.clear();
-    mainWorlds().forEach(w -> mainWorldIds.add(w.getUID()));
-    tracker.attach(table, mainWorlds());
-    lastSaveTick = Bukkit.getCurrentTick();
-    if (table.cellCount() > 0) plugin.getLogger().info("從標記日誌恢復 " + table.cellCount() + " 格未存的變更");
+    var main = new Worktree(this, Repository.MAIN);
+    worktrees.put(Repository.MAIN, main);
+    for (var w : mainWorlds()) {
+      main.addWorld(Tracker.dimensionId(w), w);
+      owners.put(w.getUID(), main);
+    }
   }
 
   public void close() {
-    tracker.detach();
-    try {
-      if (journal != null) {
-        journal.flush(table);
-        journal.close();
-      }
-      Files.deleteIfExists(lockFile());
-    } catch (IOException e) {
-      plugin.getLogger().log(Level.SEVERE, "無法寫入標記日誌", e);
-    }
+    worktrees.values().forEach(Worktree::close);
+    worktrees.clear();
+    owners.clear();
+    tracker.detachAll();
     if (genesisRecorder != null) genesisRecorder.close();
     if (genesis != null) genesis.close();
     repo = null;
@@ -142,20 +165,17 @@ public final class Workspace {
 
   /** 定期把標記寫到磁碟（非同步執行緒）。 */
   public void flushJournal() {
-    var j = journal;
-    var t = table;
-    if (j == null || t == null) return;
-    try {
-      j.flush(t);
-    } catch (IOException e) {
-      plugin.getLogger().log(Level.SEVERE, "無法寫入標記日誌", e);
-    }
+    for (var w : List.copyOf(worktrees.values())) w.flushJournal();
   }
 
-  /** 主世界剛生成一個 chunk：補進起點世界（設計 §2.3）。主執行緒呼叫。 */
-  public void newChunk(Chunk chunk) {
-    if (genesisRecorder == null || !mainWorldIds.contains(chunk.getWorld().getUID())) return;
-    genesisRecorder.record(Tracker.dimensionId(chunk.getWorld()), chunk);
+  public void autosaveTick(Consumer<Worktree.SaveResult> done) {
+    if (repo == null) return;
+    for (var w : List.copyOf(worktrees.values())) w.autosaveTick(done);
+  }
+
+  /** 存檔讀取起點世界之前呼叫（背景執行緒）：等新生成 chunk 的寫入完成。 */
+  void awaitGenesis() {
+    genesisRecorder.awaitIdle();
   }
 
   // ---- init ----
@@ -193,189 +213,283 @@ public final class Workspace {
     return size;
   }
 
-  // ---- 存檔 ----
-
-  public record SaveResult(Optional<ObjectId> commit, int cells, int entities) {}
+  // ---- 新生成的 chunk ----
 
   /**
-   * 存檔（設計 §5.1）。主執行緒上取走標記並讀取被標記的格子（未載入的 chunk 以非同步方式載入），
-   * 雜湊與寫入物件在背景執行緒進行。
-   *
-   * @return false 表示已有存檔在進行
+   * 受追蹤的世界剛生成一個 chunk（主執行緒）：
+   * 1. 生成結果補進起點世界（設計 §2.3），已有的不覆寫；
+   * 2. 分支世界裡，這個 chunk 若在覆寫表中有內容（起點世界沒有、所以沒被合成），套用上去。
    */
-  public boolean save(Author committer, String message, int flags, Consumer<SaveResult> done, Consumer<Throwable> failed) {
-    if (!committing.compareAndSet(false, true)) return false;
-    MarkJournal.Drained drained;
-    try {
-      drained = journal.drainForCommit(table);
-    } catch (IOException e) {
-      committing.set(false);
-      failed.accept(e);
-      return true;
-    }
-    var snapshot = new Snapshot();
-    Marks marks;
-    var futures = new ArrayList<CompletableFuture<?>>();
-    try {
-      marks = defer(drained.marks());
-      readEntities(marks, snapshot);
-      for (var entry : chunks(marks).entrySet()) {
-        var key = entry.getKey();
-        var world = world(key.dimension);
-        if (world.isChunkLoaded(key.x, key.z)) read(world.getChunkAt(key.x, key.z), entry.getValue(), marks, snapshot);
-        else
-          futures.add(world.getChunkAtAsync(key.x, key.z, false).thenAccept(chunk -> {
-            if (chunk != null) read(chunk, entry.getValue(), marks, snapshot);
+  public void newChunk(Chunk chunk) {
+    var owner = worktree(chunk.getWorld());
+    if (owner == null) return;
+    String dim = tracker.logicalDimension(chunk.getWorld());
+    genesisRecorder.record(dim, chunk);
+    if (owner == main()) return;
+    var world = chunk.getWorld();
+    int cx = chunk.getX(), cz = chunk.getZ();
+    async(() -> {
+      try {
+        var overlay = repo.reader(repo.head(owner.branch())).chunk(dim, cx, cz);
+        if (overlay.isEmpty()) return;
+        sync(() -> tracker.systemWrite(() -> {
+          overlay.forEach((sy, section) -> section.cells().forEach((index, cell) -> {
+            int x = cx << 4 | index & 15, y = sy << 4 | index >> 8, z = cz << 4 | index >> 4 & 15;
+            try {
+              LiveWriter.setCell(world, x, y, z, cell);
+            } catch (IOException e) {
+              log().log(Level.WARNING, "無法套用覆寫 " + x + " " + y + " " + z, e);
+            }
           }));
-      }
-    } catch (RuntimeException e) {
-      committing.set(false);
-      try {
-        journal.restore(table, drained);
-      } catch (IOException io) {
-        e.addSuppressed(io);
-      }
-      failed.accept(e);
-      return true;
-    }
-    CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-        .thenApplyAsync(ignored -> {
-          try {
-            genesisRecorder.awaitIdle();
-            var head = repo.head(Repository.MAIN);
-            var id = repo.commit(new Repository.CommitRequest(Repository.MAIN, head, marks, snapshot, genesis, committer,
-                System.currentTimeMillis(), message, flags, new TreeMap<>()));
-            journal.delete(drained.previousFiles());
-            if (id.isEmpty()) return new SaveResult(id, 0, 0);
-            // 標記可能比實際變化多（多記無害）；回報實際寫進版本的數量。
-            var changes = repo.changeset(repo.commit(id.get()).changeset());
-            return new SaveResult(id, changes.cells().size(), changes.entities().size());
-          } catch (IOException e) {
-            throw new UncheckedIOException(e);
-          }
-        }, runnable -> Bukkit.getScheduler().runTaskAsynchronously(plugin, runnable))
-        .whenComplete((result, error) -> Bukkit.getScheduler().runTask(plugin, () -> {
-          committing.set(false);
-          if (error == null) {
-            lastSaveTick = Bukkit.getCurrentTick();
-            done.accept(result);
-            return;
-          }
-          try {
-            journal.restore(table, drained);
-          } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "存檔失敗後無法寫回標記", e);
-          }
-          failed.accept(error instanceof java.util.concurrent.CompletionException c && c.getCause() != null ? c.getCause() : error);
         }));
-    return true;
+      } catch (IOException e) {
+        log().log(Level.WARNING, "無法讀取 chunk " + cx + "," + cz + " 的覆寫", e);
+      }
+    });
   }
 
-  private World world(String dimension) {
-    for (var w : Bukkit.getWorlds()) if (Tracker.dimensionId(w).equals(dimension)) return w;
-    return null;
+  // ---- 分支 ----
+
+  /** branches.yml：分支 → 來源分支。 */
+  private YamlConfiguration branchesFile() {
+    return YamlConfiguration.loadConfiguration(dir.resolve("branches.yml").toFile());
+  }
+
+  /** 草稿的來源分支（併回的目標）；不知道時為 main。 */
+  public String source(String branch) {
+    return branchesFile().getString(branch + ".source", Repository.MAIN);
+  }
+
+  public SortedMap<String, ObjectId> branches() throws IOException {
+    return repo.refs().list();
+  }
+
+  /** 建立分支，指向來源分支的最新存檔。 */
+  public void createBranch(String name, String from) throws IOException {
+    if (!BRANCH_NAME.matcher(name).matches() || !RefStore.validName(name)) throw new IOException("名稱只能用小寫英數、底線、連字號：" + name);
+    repo.createBranch(name, repo.head(from));
+    var yaml = branchesFile();
+    yaml.set(name + ".source", from);
+    yaml.set(name + ".created", System.currentTimeMillis());
+    yaml.save(dir.resolve("branches.yml").toFile());
+  }
+
+  /** 草稿某維度的世界名稱。 */
+  static String worldName(String branch, String dimension) {
+    String base = WORLD_PREFIX + branch;
+    return switch (dimension) {
+      case "minecraft:the_nether" -> base + "_nether";
+      case "minecraft:the_end" -> base + "_the_end";
+      default -> base;
+    };
   }
 
   /**
-   * 現在讀不到的標記留在標記表，等下一次存檔：
-   * 世界沒有載入的 section 不能當成空氣；沒有載入的被追蹤實體不能當成被移除。
+   * 開啟分支的工作區與世界（主執行緒）。世界不存在時建立：種子與產生器設定照抄主世界，不複製任何 region 檔。
    */
-  private Marks defer(Marks marks) {
-    var sections = new TreeMap<SectionKey, Marks.Section>();
-    marks.sections().forEach((key, section) -> {
-      if (world(key.dimension()) != null) {
-        sections.put(key, section);
-        return;
+  public Worktree openBranch(String branch) throws IOException {
+    if (branch.equals(Repository.MAIN)) return main();
+    var existing = worktrees.get(branch);
+    if (existing != null) return existing;
+    repo.head(branch); // 不存在時丟出例外
+    var wt = new Worktree(this, branch);
+    worktrees.put(branch, wt);
+    try {
+      for (var mainWorld : mainWorlds()) {
+        String dim = Tracker.dimensionId(mainWorld);
+        String name = worldName(branch, dim);
+        var world = Bukkit.getWorld(name);
+        if (world == null) {
+          creating.put(name, new BranchWorld(branch, dim));
+          try {
+            world = new WorldCreator(name).copy(mainWorld).createWorld();
+          } finally {
+            creating.remove(name);
+          }
+          if (world == null) throw new IOException("無法建立世界 " + name);
+        }
+        wt.addWorld(dim, world);
+        owners.put(world.getUID(), wt);
       }
-      var d = table.dimension(key.dimension());
-      var cells = section.cells();
-      for (int i = cells.nextSetBit(0); i >= 0; i = cells.nextSetBit(i + 1)) {
-        var pos = key.pos(i);
-        d.markCell(pos.x(), pos.y(), pos.z(), section.author(marks, i));
-      }
-    });
-    var entities = new TreeMap<String, SortedMap<UUID, Integer>>();
-    marks.entities().forEach((dim, map) -> {
-      var keep = new TreeMap<UUID, Integer>();
-      map.forEach((uuid, author) -> {
-        boolean absent = world(dim) == null || tracker.isUnloaded(uuid) && Bukkit.getEntity(uuid) == null;
-        if (absent) table.dimension(dim).markEntity(uuid, marks.authors().get(author));
-        else keep.put(uuid, author);
-      });
-      if (!keep.isEmpty()) entities.put(dim, keep);
-    });
-    return new Marks(marks.authors(), sections, entities);
+    } catch (IOException | RuntimeException e) {
+      worktrees.remove(branch);
+      wt.close();
+      throw e;
+    }
+    return wt;
   }
 
-  private record ChunkKey(String dimension, int x, int z) {}
-
-  private static Map<ChunkKey, List<SectionKey>> chunks(Marks marks) {
-    var result = new LinkedHashMap<ChunkKey, List<SectionKey>>();
-    for (var key : marks.sections().keySet())
-      result.computeIfAbsent(new ChunkKey(key.dimension(), key.chunkX(), key.chunkZ()), k -> new ArrayList<>()).add(key);
-    return result;
+  /** 世界初始化（任何 chunk 讀取之前）：分支世界掛上合成讀取。 */
+  public void worldInit(World world) {
+    var bw = creating.get(world.getName());
+    if (bw == null) return;
+    try {
+      RegionHook.install(world,
+          (target, rx, rz) -> synthesizer(bw).blocks(target, rx, rz),
+          (target, rx, rz) -> synthesizer(bw).entities(target, rx, rz),
+          plugin.getLogger());
+    } catch (ReflectiveOperationException | RuntimeException e) {
+      // 沒有合成讀取的分支世界會變成全新生成的世界：拒絕使用比給錯內容好。
+      throw new IllegalStateException("無法在 " + world.getName() + " 掛上合成讀取", e);
+    }
   }
 
-  private final LiveReader reader = new LiveReader();
+  /** 分支目前最新存檔的合成器；分支前進後換新的。IO 執行緒呼叫。 */
+  private RegionSynthesizer synthesizer(BranchWorld bw) throws IOException {
+    var head = repo.head(bw.branch());
+    String key = bw.branch() + "/" + bw.dimension();
+    var s = synthesizers.get(key);
+    if (s != null && s.overlay().root().equals(repo.commit(head).tree())) return s;
+    var g = genesisDir(bw.dimension());
+    s = new RegionSynthesizer(Files.isDirectory(g) ? g : null, repo.reader(head), bw.dimension(), LiveReader.dataVersion());
+    synthesizers.put(key, s);
+    return s;
+  }
 
-  private void read(Chunk chunk, List<SectionKey> keys, Marks marks, Snapshot snapshot) {
-    for (var key : keys) {
+  // ---- 併回（設計 §5.2、§6.2） ----
+
+  public sealed interface MergeOutcome {
+    record UpToDate() implements MergeOutcome {}
+
+    record Merged(ObjectId commit, int cells, int entities) implements MergeOutcome {}
+
+    record Conflicts(List<ThreeWayMerge.CellConflict> cells, List<ThreeWayMerge.EntityConflict> entities) implements MergeOutcome {}
+  }
+
+  /**
+   * 把 {@code source} 合併進 {@code target}，並寫進目標分支的世界。
+   * 兩邊都必須沒有未存的變更（呼叫前先存檔）。主執行緒呼叫，結果在主執行緒回呼。
+   */
+  public void merge(String target, String source, Author committer, Consumer<MergeOutcome> done, Consumer<Throwable> failed) {
+    var wt = worktrees.get(target);
+    if (wt == null || !wt.lock()) {
+      failed.accept(new IOException("目標分支正在存檔或合併：" + target));
+      return;
+    }
+    CompletableFuture.supplyAsync(() -> {
       try {
-        snapshot.cells.put(key, reader.readSection(chunk, key.sectionY(), marks.sections().get(key).cells()));
+        var ours = repo.head(target);
+        var theirs = repo.head(source);
+        if (repo.isAncestor(theirs, ours)) return new Plan(new MergeOutcome.UpToDate(), null);
+        var result = repo.mergeTrees(repo.mergeBase(ours, theirs), ours, theirs, null);
+        if (!result.clean()) return new Plan(new MergeOutcome.Conflicts(result.cellConflicts(), result.entityConflicts()), null);
+        awaitGenesis();
+        var id = repo.commitTree(target, List.of(ours, theirs), result.tree(), null, genesis, Author.MERGE, committer,
+            System.currentTimeMillis(), "併回 " + source, 0, new TreeMap<>(Map.of("Merged-From", source))).orElseThrow();
+        var diff = TreeDiff.collect(repo.overlays(), repo.commit(ours).tree(), result.tree());
+        return new Plan(new MergeOutcome.Merged(id, diff.cells().size(), diff.entities().size()), resolve(diff));
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
-    }
+    }, this::async).whenComplete((plan, error) -> sync(() -> {
+      if (error != null) {
+        wt.unlock();
+        failed.accept(error instanceof java.util.concurrent.CompletionException c && c.getCause() != null ? c.getCause() : error);
+        return;
+      }
+      if (plan.writes() == null) {
+        wt.unlock();
+        done.accept(plan.outcome());
+        return;
+      }
+      apply(wt, plan.writes()).whenComplete((ignored, applyError) -> {
+        wt.unlock();
+        if (applyError != null) log().log(Level.SEVERE, "合併已提交，但寫入世界時失敗；未寫入的部分會在下次讀取時不一致", applyError);
+        done.accept(plan.outcome());
+      });
+    }));
   }
 
-  private void readEntities(Marks marks, Snapshot snapshot) {
-    marks.entities().forEach((dim, map) -> {
-      for (var uuid : map.keySet()) {
-        var entity = Bukkit.getEntity(uuid);
-        Optional<EntityState> state = Optional.empty();
-        if (entity != null && !entity.isDead() && Tracker.dimensionId(entity.getWorld()).equals(dim)) {
-          try {
-            state = Optional.of(LiveReader.readEntity(entity));
-          } catch (IOException e) {
-            throw new UncheckedIOException(e);
-          }
-        }
-        snapshot.entities.put(dim + "/" + uuid, state);
+  private record Plan(MergeOutcome outcome, Writes writes) {}
+
+  /** 要寫進世界的最終內容（已把「回到起點」換成起點世界的實際內容）。 */
+  private record Writes(Map<String, Map<Long, List<CellWrite>>> cells, List<EntityWrite> entities) {}
+
+  private record CellWrite(BlockPos pos, Cell cell) {}
+
+  /** state 為 empty 表示移除；chunkX/Z 是要載入的 chunk（實體目前或將要所在的位置）。 */
+  private record EntityWrite(String dimension, UUID uuid, Optional<EntityState> state, int chunkX, int chunkZ) {}
+
+  private Writes resolve(TreeDiff.Result diff) throws IOException {
+    var cells = new HashMap<String, Map<Long, List<CellWrite>>>();
+    for (var c : diff.cells()) {
+      var cell = c.after();
+      if (cell == null) {
+        var all = new BitSet();
+        all.set(c.pos().sectionIndex());
+        cell = genesis.readSection(SectionKey.of(c.dimension(), c.pos()), all)[c.pos().sectionIndex()];
+        if (cell == null) cell = Cell.AIR;
       }
+      long key = chunkKey(c.pos().x() >> 4, c.pos().z() >> 4);
+      cells.computeIfAbsent(c.dimension(), k -> new HashMap<>()).computeIfAbsent(key, k -> new ArrayList<>()).add(new CellWrite(c.pos(), cell));
+    }
+    var entities = new ArrayList<EntityWrite>();
+    for (var e : diff.entities()) {
+      var after = e.after() != null ? e.after() : genesis.readEntity(e.dimension(), e.uuid());
+      var before = e.before() != null ? e.before() : genesis.readEntity(e.dimension(), e.uuid());
+      // 先在舊位置移除，再在新位置放置。
+      if (before.isPresent() && before.get().position() != null) {
+        var p = before.get().position();
+        entities.add(new EntityWrite(e.dimension(), e.uuid(), Optional.empty(), (int) Math.floor(p[0]) >> 4, (int) Math.floor(p[2]) >> 4));
+      }
+      if (after.isPresent() && after.get().position() != null) {
+        var p = after.get().position();
+        entities.add(new EntityWrite(e.dimension(), e.uuid(), after, (int) Math.floor(p[0]) >> 4, (int) Math.floor(p[2]) >> 4));
+      }
+    }
+    return new Writes(cells, entities);
+  }
+
+  private static long chunkKey(int x, int z) {
+    return (long) x << 32 | z & 0xFFFFFFFFL;
+  }
+
+  /** 逐 chunk 載入並寫入（主執行緒）。實體等該 chunk 的實體載入後才處理。 */
+  private CompletableFuture<Void> apply(Worktree wt, Writes writes) {
+    var futures = new ArrayList<CompletableFuture<?>>();
+    writes.cells().forEach((dim, byChunk) -> {
+      var world = wt.world(dim);
+      if (world == null) return;
+      byChunk.forEach((key, list) -> futures.add(world.getChunkAtAsync((int) (key >> 32), (int) (long) key, true).thenAccept(chunk ->
+          tracker.systemWrite(() -> {
+            for (var w : list)
+              try {
+                LiveWriter.setCell(world, w.pos().x(), w.pos().y(), w.pos().z(), w.cell());
+              } catch (IOException e) {
+                throw new UncheckedIOException(e);
+              }
+          }))));
+    });
+    CompletableFuture<Void> blocks = CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
+    return blocks.thenCompose(ignored -> {
+      CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+      for (var e : writes.entities()) {
+        var world = wt.world(e.dimension());
+        if (world == null) continue;
+        chain = chain.thenCompose(x -> world.getChunkAtAsync(e.chunkX(), e.chunkZ(), true)).thenCompose(this::entitiesLoaded).thenAccept(chunk ->
+            tracker.systemWrite(() -> {
+              try {
+                if (e.state().isEmpty()) LiveWriter.removeEntity(world, e.uuid());
+                else LiveWriter.spawnEntity(world, e.state().get());
+              } catch (IOException ex) {
+                throw new UncheckedIOException(ex);
+              }
+            }));
+      }
+      return chain;
     });
   }
 
-  /** 存檔當下讀好的工作世界內容，交給背景執行緒的提交使用。 */
-  private static final class Snapshot implements StateSource {
-    final Map<SectionKey, Cell[]> cells = new java.util.concurrent.ConcurrentHashMap<>();
-    final Map<String, Optional<EntityState>> entities = new HashMap<>();
-
-    @Override
-    public Cell[] readSection(SectionKey key, BitSet wanted) {
-      var c = cells.get(key);
-      if (c != null) return c;
-      // chunk 不存在（從未生成）：沒有方塊。
-      var air = new Cell[4096];
-      Arrays.fill(air, Cell.AIR);
-      return air;
-    }
-
-    @Override
-    public Optional<EntityState> readEntity(String dimension, UUID uuid) {
-      return entities.getOrDefault(dimension + "/" + uuid, Optional.empty());
-    }
-  }
-
-  // ---- 自動存檔（設計 §6.3） ----
-
-  /** 每秒呼叫：所有人停手夠久，或離上次存檔太久，就自動存檔。 */
-  public void autosaveTick(Consumer<SaveResult> done) {
-    if (table == null || committing.get() || table.isEmpty()) return;
-    var settings = tracker.settings();
-    long now = Bukkit.getCurrentTick();
-    boolean idle = settings.autosaveIdleTicks() > 0 && now - table.lastChange() >= settings.autosaveIdleTicks();
-    boolean overdue = settings.autosaveMaxTicks() > 0 && now - lastSaveTick >= settings.autosaveMaxTicks();
-    if (!idle && !overdue) return;
-    save(Author.SYSTEM, "autosave", dev.twme.buildgit.core.repo.Commit.AUTO, done, e -> plugin.getLogger().log(Level.WARNING, "自動存檔失敗", e));
+  /** Paper 的實體與方塊分開載入：等這個 chunk 的實體載入完成（最多約 5 秒）。 */
+  private CompletableFuture<Chunk> entitiesLoaded(Chunk chunk) {
+    var result = new CompletableFuture<Chunk>();
+    var tries = new int[] {0};
+    Runnable[] check = new Runnable[1];
+    check[0] = () -> {
+      if (chunk.isEntitiesLoaded() || ++tries[0] > 100) result.complete(chunk);
+      else Bukkit.getScheduler().runTaskLater(plugin, check[0], 1);
+    };
+    sync(check[0]);
+    return result;
   }
 }

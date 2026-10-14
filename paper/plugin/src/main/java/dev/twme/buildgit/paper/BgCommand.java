@@ -27,7 +27,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 
-/** {@code /bg} 指令（設計 §6、§7）。目前提供主世界的存檔、歷史與檢查。 */
+/** {@code /bg} 指令（設計 §6、§7）：存檔、歷史、檢查，以及草稿（分支世界）的三步流程。 */
 final class BgCommand implements TabExecutor, Listener {
   private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault());
   private static final int MAX_MARK = 1 << 22;
@@ -62,6 +62,9 @@ final class BgCommand implements TabExecutor, Listener {
           case "save" -> "buildgit.save";
           case "inspect", "i" -> "buildgit.inspect";
           case "mark" -> "buildgit.mark";
+          case "try" -> "buildgit.try";
+          case "go", "back" -> "buildgit.go";
+          case "publish" -> "buildgit.publish";
           default -> "buildgit.view";
         };
     if (!sender.hasPermission(permission)) {
@@ -81,11 +84,16 @@ final class BgCommand implements TabExecutor, Listener {
         }
         case "status" -> status(sender);
         case "save" -> save(sender, String.join(" ", rest));
-        case "log" -> log(sender, rest.length > 0 ? parseInt(rest[0], 10) : 10);
+        case "log" -> log(sender, current(sender).branch(), rest.length > 0 ? parseInt(rest[0], 10) : 10);
         case "show" -> show(sender, rest);
         case "inspect", "i" -> toggleInspect(sender);
         case "blame" -> blame(sender);
         case "mark" -> mark(sender, rest);
+        case "try" -> tryDraft(sender, rest);
+        case "go" -> go(sender, rest);
+        case "back" -> back(sender);
+        case "publish" -> publish(sender, rest);
+        case "branch" -> branch(sender, rest);
         default -> msg().send(sender, "help");
       }
     } catch (IOException e) {
@@ -118,23 +126,34 @@ final class BgCommand implements TabExecutor, Listener {
     }
   }
 
+  /** 指令作用的分支：玩家所在世界的分支；主控台或不受控的世界為主分支。 */
+  private Worktree current(CommandSender sender) {
+    var wt = sender instanceof Player p ? ws().worktree(p.getWorld()) : null;
+    return wt != null ? wt : ws().main();
+  }
+
+  private net.kyori.adventure.text.Component branchLabel(String branch) {
+    return branch.equals(Repository.MAIN) ? msg().get("branch-main") : msg().get("branch-draft", "name", branch);
+  }
+
   private void status(CommandSender sender) throws IOException {
     var repo = ws().repo();
-    msg().send(sender, "status-header", "head", repo.head(Repository.MAIN).abbrev());
-    var table = ws().table();
+    var wt = current(sender);
+    msg().send(sender, "status-header", "branch", branchLabel(wt.branch()), "head", repo.head(wt.branch()).abbrev());
+    var table = wt.table();
     if (table.isEmpty()) msg().send(sender, "status-clean");
     else {
       msg().send(sender, "status-pending", "cells", table.cellCount(), "entities", table.entityCount());
       table.cellsByAuthor().forEach((a, n) -> msg().send(sender, "status-author", "author", a.name(), "cells", n));
     }
-    if (ws().uncleanShutdown()) msg().send(sender, "status-unclean");
+    if (wt.uncleanShutdown()) msg().send(sender, "status-unclean");
   }
 
   private void save(CommandSender sender, String message) {
     var author = sender instanceof Player p ? plugin.tracker().author(p) : dev.twme.buildgit.core.model.Author.SYSTEM;
     msg().send(sender, "save-start");
     boolean started =
-        ws().save(author, message.isBlank() ? "save" : message, 0,
+        current(sender).save(author, message.isBlank() ? "save" : message, 0,
             r -> {
               if (r.commit().isEmpty()) msg().send(sender, "save-nothing");
               else msg().send(sender, "save-done", "id", r.commit().get().abbrev(), "cells", r.cells(), "entities", r.entities());
@@ -146,9 +165,9 @@ final class BgCommand implements TabExecutor, Listener {
     if (!started) msg().send(sender, "save-busy");
   }
 
-  private void log(CommandSender sender, int limit) throws IOException {
+  private void log(CommandSender sender, String branch, int limit) throws IOException {
     var repo = ws().repo();
-    var ids = repo.history(repo.head(Repository.MAIN), limit);
+    var ids = repo.history(repo.head(branch), limit);
     if (ids.isEmpty()) msg().send(sender, "log-empty");
     for (var id : ids) {
       var c = repo.commit(id);
@@ -160,7 +179,8 @@ final class BgCommand implements TabExecutor, Listener {
 
   private ObjectId resolve(String prefix) throws IOException {
     var repo = ws().repo();
-    for (var id : repo.history(repo.head(Repository.MAIN), 10_000)) if (id.hex().startsWith(prefix.toLowerCase(Locale.ROOT))) return id;
+    for (var head : repo.refs().list().values())
+      for (var id : repo.history(head, 10_000)) if (id.hex().startsWith(prefix.toLowerCase(Locale.ROOT))) return id;
     return null;
   }
 
@@ -168,7 +188,7 @@ final class BgCommand implements TabExecutor, Listener {
     var repo = ws().repo();
     boolean listCells = Arrays.asList(args).contains("--cells");
     args = Arrays.stream(args).filter(a -> !a.equals("--cells")).toArray(String[]::new);
-    var id = args.length == 0 ? repo.head(Repository.MAIN) : resolve(args[0]);
+    var id = args.length == 0 ? repo.head(current(sender).branch()) : resolve(args[0]);
     if (id == null) {
       msg().send(sender, "unknown-commit", "id", args[0]);
       return;
@@ -275,11 +295,12 @@ final class BgCommand implements TabExecutor, Listener {
       return;
     }
     var repo = ws().repo();
-    var dim = Tracker.dimensionId(block.getWorld());
+    var dim = d.id();
+    var branch = ws().worktree(block.getWorld()).branch();
     var at = new BlockPos(block.getX(), block.getY(), block.getZ());
     Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
       try {
-        var blame = repo.blame(repo.head(Repository.MAIN), dim, at);
+        var blame = repo.blame(repo.head(branch), dim, at);
         Bukkit.getScheduler().runTask(plugin, () -> {
           if (blame.isEmpty()) {
             msg().send(player, "inspect-none", "pos", pos);
@@ -312,9 +333,166 @@ final class BgCommand implements TabExecutor, Listener {
   @Override
   public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
     if (args.length == 1) {
-      var all = List.of("status", "save", "log", "show", "inspect", "blame", "mark", "init", "reload");
+      var all = List.of("try", "go", "back", "publish", "status", "save", "log", "show", "inspect", "blame", "branch", "mark", "init", "reload");
       return all.stream().filter(s -> s.startsWith(args[0].toLowerCase(Locale.ROOT))).toList();
     }
+    if (args.length == 2 && (args[0].equalsIgnoreCase("go") || args[0].equalsIgnoreCase("try")) && ws().isOpen()) {
+      try {
+        return ws().branches().keySet().stream().filter(s -> s.startsWith(args[1])).toList();
+      } catch (IOException e) {
+        return List.of();
+      }
+    }
+    if (args.length == 2 && args[0].equalsIgnoreCase("branch")) return List.of("list");
     return List.of();
+  }
+
+  // ---- 草稿（設計 §6.2） ----
+
+  /** 傳送到另一個分支的世界：同一個維度、同一個座標。 */
+  private void teleport(Player player, Worktree to) {
+    String dim = plugin.tracker().logicalDimension(player.getWorld());
+    var world = to.world(dim);
+    if (world == null) world = to.worlds().values().iterator().next();
+    var loc = player.getLocation().clone();
+    loc.setWorld(world);
+    player.teleportAsync(loc);
+  }
+
+  private dev.twme.buildgit.core.model.Author author(CommandSender sender) {
+    return sender instanceof Player p ? plugin.tracker().author(p) : dev.twme.buildgit.core.model.Author.SYSTEM;
+  }
+
+  /** 有未存的變更就先自動存檔，存好（或本來就沒有）再繼續。 */
+  private void autosaveThen(CommandSender sender, Worktree wt, Runnable next) {
+    if (wt.table().isEmpty()) {
+      next.run();
+      return;
+    }
+    boolean started = wt.save(author(sender), "autosave", Commit.AUTO, r -> next.run(), e -> {
+      plugin.getLogger().log(Level.WARNING, "自動存檔失敗", e);
+      msg().send(sender, "save-failed", "error", String.valueOf(e.getMessage()));
+    });
+    if (!started) msg().send(sender, "save-busy");
+  }
+
+  /** 主控台也可以用：從主世界開草稿並載入世界，不傳送。 */
+  private void tryDraft(CommandSender sender, String[] args) {
+    if (args.length != 1) {
+      msg().send(sender, "usage-try");
+      return;
+    }
+    String name = args[0].toLowerCase(Locale.ROOT);
+    var from = sender instanceof Player p ? ws().worktree(p.getWorld()) : ws().main();
+    if (from == null) {
+      msg().send(sender, "inspect-untracked");
+      return;
+    }
+    if (name.equals(Repository.MAIN) || !Workspace.BRANCH_NAME.matcher(name).matches()) {
+      msg().send(sender, "branch-bad-name");
+      return;
+    }
+    autosaveThen(sender, from, () -> {
+      try {
+        boolean exists = ws().branches().containsKey(name);
+        if (!exists) ws().createBranch(name, from.branch());
+        msg().send(sender, exists ? "try-existing" : "try-created", "name", name);
+        var draft = ws().openBranch(name);
+        if (sender instanceof Player p) teleport(p, draft);
+      } catch (IOException | RuntimeException e) {
+        plugin.getLogger().log(Level.WARNING, "try 失敗", e);
+        msg().send(sender, "branch-failed", "error", String.valueOf(e.getMessage()));
+      }
+    });
+  }
+
+  private void go(CommandSender sender, String[] args) throws IOException {
+    if (!(sender instanceof Player p)) {
+      msg().send(sender, "players-only");
+      return;
+    }
+    if (args.length != 1) {
+      msg().send(sender, "usage-go");
+      return;
+    }
+    String name = args[0].toLowerCase(Locale.ROOT);
+    if (!ws().branches().containsKey(name)) {
+      msg().send(p, "branch-unknown", "name", name);
+      return;
+    }
+    teleport(p, ws().openBranch(name));
+    msg().send(p, "go-done", "branch", branchLabel(name));
+  }
+
+  private void back(CommandSender sender) throws IOException {
+    if (!(sender instanceof Player p)) {
+      msg().send(sender, "players-only");
+      return;
+    }
+    var wt = ws().worktree(p.getWorld());
+    if (wt == null || wt.branch().equals(Repository.MAIN)) {
+      msg().send(p, "not-in-draft");
+      return;
+    }
+    String source = ws().source(wt.branch());
+    teleport(p, ws().openBranch(source));
+    msg().send(p, "go-done", "branch", branchLabel(source));
+  }
+
+  /** 玩家：併回所在的草稿；主控台：{@code /bg publish <草稿>}。 */
+  private void publish(CommandSender sender, String[] args) {
+    Worktree draft;
+    try {
+      draft = sender instanceof Player pl ? ws().worktree(pl.getWorld())
+          : args.length == 1 && ws().branches().containsKey(args[0]) ? ws().openBranch(args[0]) : null;
+    } catch (IOException e) {
+      msg().send(sender, "branch-failed", "error", String.valueOf(e.getMessage()));
+      return;
+    }
+    if (draft == null || draft.branch().equals(Repository.MAIN)) {
+      msg().send(sender, "not-in-draft");
+      return;
+    }
+    CommandSender p = sender;
+    String targetBranch = ws().source(draft.branch());
+    Worktree target;
+    try {
+      target = ws().openBranch(targetBranch);
+    } catch (IOException e) {
+      msg().send(p, "branch-failed", "error", String.valueOf(e.getMessage()));
+      return;
+    }
+    msg().send(p, "publish-start", "name", draft.branch(), "target", branchLabel(targetBranch));
+    autosaveThen(p, draft, () -> autosaveThen(p, target, () -> ws().merge(targetBranch, draft.branch(), author(p), outcome -> {
+      switch (outcome) {
+        case Workspace.MergeOutcome.UpToDate u -> msg().send(p, "publish-nothing");
+        case Workspace.MergeOutcome.Merged m -> {
+          msg().send(p, "publish-done", "id", m.commit().abbrev(), "cells", m.cells(), "entities", m.entities(),
+              "target", branchLabel(targetBranch));
+          if (p instanceof Player pl && pl.isOnline() && ws().worktree(pl.getWorld()) == draft) teleport(pl, target);
+        }
+        case Workspace.MergeOutcome.Conflicts c -> {
+          msg().send(p, "publish-conflicts", "cells", c.cells().size(), "entities", c.entities().size());
+          c.cells().stream().limit(10).forEach(x -> msg().send(p, "conflict-cell",
+              "pos", x.pos().x() + " " + x.pos().y() + " " + x.pos().z(), "dimension", x.dimension()));
+        }
+      }
+    }, e -> {
+      plugin.getLogger().log(Level.WARNING, "併回失敗", e);
+      msg().send(p, "branch-failed", "error", String.valueOf(e.getMessage()));
+    })));
+  }
+
+  private void branch(CommandSender sender, String[] args) throws IOException {
+    if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
+      for (var e : ws().branches().entrySet()) {
+        var wt = ws().worktree(e.getKey());
+        int players = 0;
+        if (wt != null) for (var w : wt.worlds().values()) players += w.getPlayers().size();
+        msg().send(sender, "branch-entry", "branch", branchLabel(e.getKey()), "head", e.getValue().abbrev(), "players", players);
+      }
+      return;
+    }
+    msg().send(sender, "usage-branch");
   }
 }

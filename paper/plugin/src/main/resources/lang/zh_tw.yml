@@ -2,6 +2,11 @@ prefix: "<dark_aqua>[BuildGit]</dark_aqua> "
 
 help: |-
   <gray>指令：</gray>
+  <aqua>/bg try <名稱></aqua> <gray>— 開草稿並傳送到同一個位置</gray>
+  <aqua>/bg publish</aqua> <gray>— 把目前的草稿併回來源</gray>
+  <aqua>/bg back</aqua> <gray>— 不併回，回到來源世界</gray>
+  <aqua>/bg go <草稿|main></aqua> <gray>— 到某個草稿或主世界</gray>
+  <aqua>/bg branch list</aqua> <gray>— 列出草稿</gray>
   <aqua>/bg status</aqua> <gray>— 未存的變更</gray>
   <aqua>/bg save [訊息]</aqua> <gray>— 存檔（里程碑）</gray>
   <aqua>/bg log [數量]</aqua> <gray>— 存檔歷史</gray>
@@ -18,7 +23,7 @@ already-initialized: "<red>已經開始版本控制了。</red>"
 init-start: "<gray>正在存檔並複製起點世界，伺服器會暫停一下…</gray>"
 init-done: "<green>已開始版本控制。從現在起，玩家造成的變更都會被記錄。</green> <gray>（起點世界 <size> MB）</gray>"
 init-failed: "<red>初始化失敗：<error></red>"
-status-header: "<gold>主世界</gold> <gray>最新存檔</gray> <yellow><head></yellow>"
+status-header: "<branch> <gray>最新存檔</gray> <yellow><head></yellow>"
 status-clean: "<gray>沒有未存的變更。</gray>"
 status-pending: "<gray>未存：</gray><white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體</gray>"
 status-author: "  <gray>-</gray> <white><author></white> <gray><cells> 格</gray>"
@@ -52,3 +57,21 @@ mark-done: "<green>已補記 <cells> 格。</green>"
 mark-too-large: "<red>範圍太大（上限 <max> 格）。</red>"
 reloaded: "<green>設定已重新載入。</green>"
 usage-mark: "<red>用法：/bg mark <x1> <y1> <z1> <x2> <y2> <z2></red>"
+branch-main: "<gold>主世界</gold>"
+branch-draft: "<light_purple>草稿 <name></light_purple>"
+usage-try: "<red>用法：/bg try <名稱></red>"
+usage-go: "<red>用法：/bg go <草稿名稱|main></red>"
+usage-branch: "<red>用法：/bg branch list</red>"
+branch-bad-name: "<red>草稿名稱只能用小寫英數、底線、連字號（最多 32 字），且不能是 main。</red>"
+try-created: "<green>已開出草稿</green> <light_purple><name></light_purple><gray>，正在傳送到同一個位置…</gray>"
+try-existing: "<gray>草稿</gray> <light_purple><name></light_purple> <gray>已存在，正在傳送…</gray>"
+branch-failed: "<red>失敗：<error></red>"
+branch-unknown: "<red>找不到草稿：<name></red>"
+go-done: "<gray>已到</gray> <branch>"
+not-in-draft: "<red>你不在草稿世界裡。</red>"
+publish-start: "<gray>正在把草稿</gray> <light_purple><name></light_purple> <gray>併回</gray> <target><gray>…</gray>"
+publish-nothing: "<gray>草稿沒有新的變更需要併回。</gray>"
+publish-done: "<green>已併回</green> <target> <yellow><id></yellow> <gray>— <cells> 格、<entities> 個實體</gray>"
+publish-conflicts: "<red>有衝突，沒有併回：</red><white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體兩邊都改了。衝突處理介面還在開發中；請先在其中一邊改成一致再試。</gray>"
+conflict-cell: "  <light_purple>衝突</light_purple> <white><pos></white> <dark_gray><dimension></dark_gray>"
+branch-entry: "<branch> <yellow><head></yellow> <gray><players> 位玩家</gray>"

@@ -29,6 +29,20 @@ permissions:
   buildgit.mark:
     description: 手動補記範圍
     default: op
+  buildgit.go:
+    description: 進出草稿世界（go、back）
+    default: op
+  buildgit.try:
+    description: 開草稿
+    default: op
+    children:
+      buildgit.go: true
+      buildgit.save: true
+  buildgit.publish:
+    description: 把草稿併回
+    default: op
+    children:
+      buildgit.try: true
   buildgit.admin:
     description: 初始化與重新載入
     default: op
@@ -36,3 +50,4 @@ permissions:
       buildgit.save: true
       buildgit.inspect: true
       buildgit.mark: true
+      buildgit.publish: true
