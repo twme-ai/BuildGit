@@ -173,6 +173,20 @@ public final class AnvilSource implements StateSource, Closeable {
     closeRegions();
   }
 
+  /** 這個 chunk 剛被寫進目錄（例如補進起點世界的新生成 chunk）：丟掉快取的內容與 region 標頭。 */
+  public synchronized void invalidate(String dimension, int chunkX, int chunkZ) {
+    chunks.remove(dimension + "/" + chunkX + "/" + chunkZ);
+    Path dir = dimensions.apply(dimension);
+    if (dir == null) return;
+    var r = regions.remove(dir.resolve("region").resolve(RegionFile.fileName(chunkX, chunkZ)));
+    if (r != null)
+      try {
+        r.close();
+      } catch (IOException ignored) {
+        // 唯讀檔案
+      }
+  }
+
   private void closeRegions() {
     for (var r : regions.values())
       try {

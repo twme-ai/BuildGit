@@ -40,6 +40,8 @@ public final class Workspace {
   private MarkTable table;
   private MarkJournal journal;
   private AnvilSource genesis;
+  private GenesisRecorder genesisRecorder;
+  private final Set<UUID> mainWorldIds = new HashSet<>();
   private boolean uncleanShutdown;
   private final AtomicBoolean committing = new AtomicBoolean();
   private long lastSaveTick;
@@ -114,6 +116,9 @@ public final class Workspace {
       var p = genesisDir(d);
       return Files.isDirectory(p) ? p : null;
     });
+    genesisRecorder = new GenesisRecorder(this::genesisDir, genesis, plugin.getLogger());
+    mainWorldIds.clear();
+    mainWorlds().forEach(w -> mainWorldIds.add(w.getUID()));
     tracker.attach(table, mainWorlds());
     lastSaveTick = Bukkit.getCurrentTick();
     if (table.cellCount() > 0) plugin.getLogger().info("從標記日誌恢復 " + table.cellCount() + " 格未存的變更");
@@ -130,6 +135,7 @@ public final class Workspace {
     } catch (IOException e) {
       plugin.getLogger().log(Level.SEVERE, "無法寫入標記日誌", e);
     }
+    if (genesisRecorder != null) genesisRecorder.close();
     if (genesis != null) genesis.close();
     repo = null;
   }
@@ -144,6 +150,12 @@ public final class Workspace {
     } catch (IOException e) {
       plugin.getLogger().log(Level.SEVERE, "無法寫入標記日誌", e);
     }
+  }
+
+  /** 主世界剛生成一個 chunk：補進起點世界（設計 §2.3）。主執行緒呼叫。 */
+  public void newChunk(Chunk chunk) {
+    if (genesisRecorder == null || !mainWorldIds.contains(chunk.getWorld().getUID())) return;
+    genesisRecorder.record(Tracker.dimensionId(chunk.getWorld()), chunk);
   }
 
   // ---- init ----
@@ -229,6 +241,7 @@ public final class Workspace {
     CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
         .thenApplyAsync(ignored -> {
           try {
+            genesisRecorder.awaitIdle();
             var head = repo.head(Repository.MAIN);
             var id = repo.commit(new Repository.CommitRequest(Repository.MAIN, head, marks, snapshot, genesis, committer,
                 System.currentTimeMillis(), message, flags, new TreeMap<>()));

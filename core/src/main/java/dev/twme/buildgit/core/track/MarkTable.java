@@ -19,6 +19,9 @@ public final class MarkTable {
   private final List<Author> authors = new ArrayList<>();
   private final Map<Author, Integer> authorIndex = new HashMap<>();
   private final Map<String, Dimension> dimensions = new HashMap<>();
+
+  /** 連帶判斷的結果：作者與因果鏈的起點。 */
+  public record Probe(Author author, boolean hasOrigin, int originX, int originZ, long since) {}
   /** 最後一次標記真的有變化的時刻；自動存檔以它判斷玩家是否停手。 */
   private volatile long lastChange = Long.MIN_VALUE;
 
@@ -220,20 +223,28 @@ public final class MarkTable {
     }
 
     /**
-     * 連帶變化：這一格剛被遊戲改變（鄰居更新、形狀更新、流體、紅石）。
-     * 若這一格或六個相鄰格在 {@code window} 刻內被標記過，且離那次標記的起點不超過 {@code maxDistance}，
-     * 就把這一格記在同一位作者名下。
+     * 連帶變化：這一格或 6 個鄰居在 {@code window} 內被標記過、且離起點不超過 {@code maxDistance}，
+     * 就把這一格記給同一位作者。
      *
-     * @return 作者；不是玩家造成的變化時回傳 null
+     * @return 作者；不是連帶變化時為 null
      */
     public Author cascade(int x, int y, int z, long window, int maxDistance) {
+      var p = probe(x, y, z, window, maxDistance);
+      if (p == null) return null;
+      apply(x, y, z, p);
+      return p.author();
+    }
+
+    /**
+     * 只判斷、不標記：這一格若現在改變，是否算連帶變化。用於「先記下候選、確認真的改變後再標記」，
+     * 避免只是收到更新通知、內容沒變的格子也成為傳染源。
+     */
+    public Probe probe(int x, int y, int z, long window, int maxDistance) {
       long now = now();
       if (lastTouch < now - window) return null;
       synchronized (MarkTable.this) {
         long since = now - window;
-        SectionMarks source = null;
-        int sourceCell = -1;
-        for (int d = 0; d < 7 && source == null; d++) {
+        for (int d = 0; d < 7; d++) {
           int nx = x, ny = y, nz = z;
           switch (d) {
             case 1 -> nx--;
@@ -249,17 +260,21 @@ public final class MarkTable {
           int cell = ((ny & 15) << 8) | ((nz & 15) << 4) | (nx & 15);
           if (!s.cells.get(cell)) continue;
           if (s.hasOrigin() && Math.max(Math.abs(x - s.originX), Math.abs(z - s.originZ)) > maxDistance) continue;
-          source = s;
-          sourceCell = cell;
+          return new Probe(authors.get(s.author(cell)), s.hasOrigin(), s.originX, s.originZ, since);
         }
-        if (source == null) return null;
-        short a = source.author(sourceCell);
+        return null;
+      }
+    }
+
+    /** 以 {@link #probe} 的結果標記：沿用來源的作者與起點，距離上限才會沿著因果鏈累計。 */
+    public void apply(int x, int y, int z, Probe p) {
+      synchronized (MarkTable.this) {
+        long now = now();
         var target = section(key(x >> 4, y >> 4, z >> 4));
-        // 目標 section 沒有起點、或它的起點已過時，就沿用來源的起點，距離上限才會沿著因果鏈累計。
-        if (target != source && (!target.hasOrigin() || target.touched < since)) target.origin(source.originX, source.originZ);
-        markLocked(x, y, z, a, now);
+        // 目標 section 沒有起點、或它的起點已過時，就沿用來源的起點。
+        if (p.hasOrigin() && (!target.hasOrigin() || target.touched < p.since())) target.origin(p.originX(), p.originZ());
+        markLocked(x, y, z, author(p.author()), now);
         lastTouch = now;
-        return authors.get(a);
       }
     }
 

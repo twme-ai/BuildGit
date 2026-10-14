@@ -5,7 +5,7 @@ help: |-
   <aqua>/bg status</aqua> <gray>— 未存的變更</gray>
   <aqua>/bg save [訊息]</aqua> <gray>— 存檔（里程碑）</gray>
   <aqua>/bg log [數量]</aqua> <gray>— 存檔歷史</gray>
-  <aqua>/bg show <存檔></aqua> <gray>— 這次存檔改了什麼</gray>
+  <aqua>/bg show <存檔> [--cells]</aqua> <gray>— 這次存檔改了什麼（--cells 列出每一格）</gray>
   <aqua>/bg inspect</aqua> <gray>— 檢查模式：點方塊看是誰改的</gray>
   <aqua>/bg blame</aqua> <gray>— 看著的方塊是誰改的</gray>
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— 手動補記一個範圍</gray>
@@ -35,6 +35,8 @@ log-empty: "<gray>還沒有任何存檔。</gray>"
 show-header: "<yellow><id></yellow> <white><author></white> <gray><time></gray> <message>"
 show-line: "  <gray>-</gray> <white><author></white> <gray><cells> 格</gray>"
 show-entities: "  <gray>實體 <entities> 個</gray>"
+show-cell: "  <gray><kind></gray> <white><pos></white> <dark_gray><dimension></dark_gray> <gray><author></gray>"
+show-more: "  <gray>…還有 <count> 格</gray>"
 unknown-commit: "<red>找不到存檔：<id></red>"
 inspect-on: "<green>檢查模式開啟。</green><gray>點方塊查看是誰改的，再執行一次關閉。</gray>"
 inspect-off: "<gray>檢查模式關閉。</gray>"

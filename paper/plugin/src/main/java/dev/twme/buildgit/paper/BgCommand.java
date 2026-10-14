@@ -31,6 +31,7 @@ import org.bukkit.inventory.EquipmentSlot;
 final class BgCommand implements TabExecutor, Listener {
   private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault());
   private static final int MAX_MARK = 1 << 22;
+  private static final int SHOW_CELLS = 200;
 
   private final BuildGitPlugin plugin;
   private final Set<UUID> inspecting = new HashSet<>();
@@ -165,6 +166,8 @@ final class BgCommand implements TabExecutor, Listener {
 
   private void show(CommandSender sender, String[] args) throws IOException {
     var repo = ws().repo();
+    boolean listCells = Arrays.asList(args).contains("--cells");
+    args = Arrays.stream(args).filter(a -> !a.equals("--cells")).toArray(String[]::new);
     var id = args.length == 0 ? repo.head(Repository.MAIN) : resolve(args[0]);
     if (id == null) {
       msg().send(sender, "unknown-commit", "id", args[0]);
@@ -176,6 +179,18 @@ final class BgCommand implements TabExecutor, Listener {
     var cs = repo.changeset(c.changeset());
     cs.cellsByAuthor().forEach((a, n) -> msg().send(sender, "show-line", "author", a.name(), "cells", n));
     if (!cs.entities().isEmpty()) msg().send(sender, "show-entities", "entities", cs.entities().size());
+    if (listCells) {
+      int shown = 0;
+      for (var cell : cs.cells()) {
+        if (shown++ == SHOW_CELLS) {
+          msg().send(sender, "show-more", "count", cs.cells().size() - SHOW_CELLS);
+          break;
+        }
+        var p = cell.pos();
+        msg().send(sender, "show-cell", "pos", p.x() + " " + p.y() + " " + p.z(), "dimension", cell.dimension(),
+            "author", cs.author(cell.author()).name(), "kind", msg().get(kind(cell.kind())));
+      }
+    }
   }
 
   private void mark(CommandSender sender, String[] args) {

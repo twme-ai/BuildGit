@@ -5,7 +5,7 @@ help: |-
   <aqua>/bg status</aqua> <gray>— unsaved changes</gray>
   <aqua>/bg save [message]</aqua> <gray>— save (milestone)</gray>
   <aqua>/bg log [count]</aqua> <gray>— save history</gray>
-  <aqua>/bg show <save></aqua> <gray>— what a save changed</gray>
+  <aqua>/bg show <save> [--cells]</aqua> <gray>— what a save changed (--cells lists each block)</gray>
   <aqua>/bg inspect</aqua> <gray>— inspector: click a block to see who changed it</gray>
   <aqua>/bg blame</aqua> <gray>— who changed the block you are looking at</gray>
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— record an area by hand</gray>
@@ -35,6 +35,8 @@ log-empty: "<gray>No saves yet.</gray>"
 show-header: "<yellow><id></yellow> <white><author></white> <gray><time></gray> <message>"
 show-line: "  <gray>-</gray> <white><author></white> <gray><cells> blocks</gray>"
 show-entities: "  <gray><entities> entities</gray>"
+show-cell: "  <gray><kind></gray> <white><pos></white> <dark_gray><dimension></dark_gray> <gray><author></gray>"
+show-more: "  <gray>…and <count> more</gray>"
 unknown-commit: "<red>Unknown save: <id></red>"
 inspect-on: "<green>Inspector on.</green> <gray>Click a block to see who changed it; run again to turn off.</gray>"
 inspect-off: "<gray>Inspector off.</gray>"

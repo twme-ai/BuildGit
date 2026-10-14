@@ -61,7 +61,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     command.setExecutor(bg);
     command.setTabCompleter(bg);
 
-    for (World world : Bukkit.getWorlds()) CascadeUpdater.install(world, tracker, getLogger());
+    for (World world : Bukkit.getWorlds()) tracker.precise(world, CascadeUpdater.install(world, tracker, getLogger()));
     commands = new CommandHook(tracker, getLogger());
     commands.ensure();
 
@@ -134,8 +134,13 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     commands.ensure();
   }
 
+  @EventHandler(priority = EventPriority.MONITOR)
+  public void onChunkLoad(org.bukkit.event.world.ChunkLoadEvent e) {
+    if (e.isNewChunk()) workspace.newChunk(e.getChunk());
+  }
+
   @EventHandler
   public void onWorldLoad(org.bukkit.event.world.WorldLoadEvent e) {
-    CascadeUpdater.install(e.getWorld(), tracker, getLogger());
+    tracker.precise(e.getWorld(), CascadeUpdater.install(e.getWorld(), tracker, getLogger()));
   }
 }

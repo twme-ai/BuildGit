@@ -3,6 +3,7 @@ package dev.twme.buildgit.paper.nms;
 import dev.twme.buildgit.core.track.MarkTable;
 import dev.twme.buildgit.paper.track.Tracker;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.minecraft.core.BlockPos;
@@ -38,12 +39,14 @@ public final class CascadeUpdater extends CollectingNeighborUpdater {
   }
 
   private final Tracker tracker;
+  private final ServerLevel level;
   private final World world;
   private final CollectingNeighborUpdater original;
 
   private CascadeUpdater(ServerLevel level, int maxChained, Tracker tracker, CollectingNeighborUpdater original) {
     super(level, maxChained);
     this.tracker = tracker;
+    this.level = level;
     this.world = level.getWorld();
     this.original = original;
   }
@@ -71,33 +74,91 @@ public final class CascadeUpdater extends CollectingNeighborUpdater {
     }
   }
 
-  private void hook(BlockPos pos) {
+  // ---- 判斷 ----
+  //
+  // 「來源」：剛剛已經改變的格子（updateNeighborsAt 的中心、形狀更新的 neighborPos），直接判斷並標記。
+  // 「候選」：收到通知的格子，不一定會變。先記下當時的狀態與可能的作者，等最外層的更新跑完
+  // （巢狀的更新會排進佇列，在最外層呼叫裡才執行）再比對；真的變了才標記。
+  // 否則只是收到通知、內容沒變的格子也會成為傳染源，旁邊的自然變化（草蔓延）就會被一路記進去。
+
+  private record Candidate(BlockPos pos, BlockState before, MarkTable.Probe probe) {}
+
+  private final ArrayList<Candidate> candidates = new ArrayList<>();
+  private int depth;
+
+  private void source(BlockPos pos) {
     MarkTable.Dimension d = tracker.dimension(world);
     if (d != null) tracker.cascade(d, world, pos.getX(), pos.getY(), pos.getZ());
   }
 
+  private void candidate(BlockPos pos) {
+    MarkTable.Dimension d = tracker.dimension(world);
+    if (d == null) return;
+    var probe = tracker.probe(d, world, pos.getX(), pos.getY(), pos.getZ());
+    if (probe == null) return;
+    var before = level.getBlockStateIfLoaded(pos);
+    if (before != null) candidates.add(new Candidate(pos.immutable(), before, probe));
+  }
+
+  private void enter() {
+    depth++;
+  }
+
+  private void exit() {
+    if (--depth > 0 || candidates.isEmpty()) return;
+    MarkTable.Dimension d = tracker.dimension(world);
+    // 標記本身不會再觸發更新，但保險起見先複製再清空。
+    var list = new ArrayList<>(candidates);
+    candidates.clear();
+    if (d == null) return;
+    for (var c : list) {
+      var now = level.getBlockStateIfLoaded(c.pos());
+      if (now != null && now != c.before()) tracker.apply(d, c.pos().getX(), c.pos().getY(), c.pos().getZ(), c.probe());
+    }
+  }
+
   @Override
   public void shapeUpdate(Direction direction, BlockState state, BlockPos pos, BlockPos neighborPos, int flags, int updateLimit) {
-    hook(neighborPos);
-    hook(pos);
-    super.shapeUpdate(direction, state, pos, neighborPos, flags, updateLimit);
+    enter();
+    try {
+      source(neighborPos);
+      candidate(pos);
+      super.shapeUpdate(direction, state, pos, neighborPos, flags, updateLimit);
+    } finally {
+      exit();
+    }
   }
 
   @Override
   public void neighborChanged(BlockPos pos, Block block, Orientation orientation) {
-    hook(pos);
-    super.neighborChanged(pos, block, orientation);
+    enter();
+    try {
+      candidate(pos);
+      super.neighborChanged(pos, block, orientation);
+    } finally {
+      exit();
+    }
   }
 
   @Override
   public void neighborChanged(BlockState state, BlockPos pos, Block block, Orientation orientation, boolean movedByPiston) {
-    hook(pos);
-    super.neighborChanged(state, pos, block, orientation, movedByPiston);
+    enter();
+    try {
+      candidate(pos);
+      super.neighborChanged(state, pos, block, orientation, movedByPiston);
+    } finally {
+      exit();
+    }
   }
 
   @Override
   public void updateNeighborsAtExceptFromFacing(BlockPos pos, Block block, Direction skip, Orientation orientation) {
-    hook(pos);
-    super.updateNeighborsAtExceptFromFacing(pos, block, skip, orientation);
+    enter();
+    try {
+      source(pos);
+      super.updateNeighborsAtExceptFromFacing(pos, block, skip, orientation);
+    } finally {
+      exit();
+    }
   }
 }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import dev.twme.buildgit.core.anvil.AnvilSource;
 import dev.twme.buildgit.core.anvil.RegionFile;
+import dev.twme.buildgit.core.anvil.RegionWriter;
 import dev.twme.buildgit.core.model.BlockPos;
 import dev.twme.buildgit.core.model.Cell;
 import dev.twme.buildgit.core.model.SectionKey;
@@ -123,6 +124,51 @@ class AnvilSourceTest {
       assertArrayEquals(new double[] {1.5, 64.0, 2.5}, entity.position());
       assertFalse(Nbt.read(entity.nbt()).containsKey("Motion"));
       assertTrue(source.readEntity(OVERWORLD, UUID.randomUUID()).isEmpty());
+    }
+  }
+
+  static Nbt.Compound uniformChunk(String block, int sectionY) {
+    var section =
+        new Nbt.Compound()
+            .with("Y", (byte) sectionY)
+            .with("block_states", new Nbt.Compound().with("palette", new Nbt.ListTag(10, List.of(state(block)))));
+    return new Nbt.Compound().with("sections", new Nbt.ListTag(10, List.of(section)));
+  }
+
+  @Test
+  void writerAppendsReplacesAndSpillsLargeChunks() throws Exception {
+    var file = dir.resolve("overworld/region/r.0.0.mca");
+    var all = new BitSet();
+    all.set(0, 4096);
+    try (var source = new AnvilSource(d -> dir.resolve("overworld"))) {
+      // 讀過「沒有這個 chunk」之後再寫入：快取必須失效。
+      assertEquals(Cell.AIR, source.readSection(new SectionKey(OVERWORLD, 3, 0, 4), all)[0]);
+      try (var w = new RegionWriter(file)) {
+        assertFalse(w.has(RegionFile.index(3, 4)));
+        w.write(RegionFile.index(3, 4), Nbt.write(uniformChunk("minecraft:stone", 0)));
+        w.write(RegionFile.index(5, 6), Nbt.write(uniformChunk("minecraft:dirt", 1)));
+        w.write(RegionFile.index(3, 4), Nbt.write(uniformChunk("minecraft:glass", 0))); // 取代
+        // 無法壓縮的大型資料 → 外部 .mcc
+        var noise = new byte[1_200_000];
+        new java.util.Random(1).nextBytes(noise);
+        var big = uniformChunk("minecraft:sand", 2).with("noise", noise);
+        w.write(RegionFile.index(7, 8), Nbt.write(big));
+        assertTrue(w.has(RegionFile.index(5, 6)));
+      }
+      source.invalidate(OVERWORLD, 3, 4);
+      assertEquals(Cell.of("minecraft:glass"), source.readSection(new SectionKey(OVERWORLD, 3, 0, 4), all)[100]);
+      assertEquals(Cell.of("minecraft:dirt"), source.readSection(new SectionKey(OVERWORLD, 5, 1, 6), all)[4095]);
+      assertEquals(Cell.of("minecraft:sand"), source.readSection(new SectionKey(OVERWORLD, 7, 2, 8), all)[7]);
+    }
+    assertTrue(Files.exists(dir.resolve("overworld/region/c.7.8.mcc")));
+    // 重新開啟後標頭仍正確，可以繼續附加。
+    try (var w = new RegionWriter(file)) {
+      assertTrue(w.has(RegionFile.index(3, 4)));
+      w.write(RegionFile.index(31, 31), Nbt.write(uniformChunk("minecraft:clay", 0)));
+    }
+    try (var r = new RegionFile(file)) {
+      assertNotNull(r.read(RegionFile.index(31, 31)));
+      assertNotNull(r.read(RegionFile.index(5, 6)));
     }
   }
 

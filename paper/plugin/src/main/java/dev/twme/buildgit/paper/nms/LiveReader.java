@@ -47,6 +47,22 @@ public final class LiveReader {
     ((CraftWorld) world).getHandle().save(null, true, false);
   }
 
+  /**
+   * chunk 目前內容的快照（主執行緒）；回傳的工作在任何執行緒執行，產生與存檔相同的未壓縮 NBT。
+   */
+  public static java.util.concurrent.Callable<byte[]> snapshot(Chunk chunk) {
+    var level = ((CraftWorld) chunk.getWorld()).getHandle();
+    var access = ((CraftChunk) chunk).getHandle(net.minecraft.world.level.chunk.status.ChunkStatus.FULL);
+    var data = net.minecraft.world.level.chunk.storage.SerializableChunkData.copyOf(level, access);
+    return () -> {
+      var bytes = new ByteArrayOutputStream();
+      try (var out = new DataOutputStream(bytes)) {
+        NbtIo.write(data.write(), out);
+      }
+      return bytes.toByteArray();
+    };
+  }
+
   /** 讀取已載入 chunk 的一個 section。 */
   public Cell[] readSection(Chunk chunk, int sectionY, BitSet wanted) throws IOException {
     var cells = new Cell[4096];

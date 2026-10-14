@@ -31,6 +31,7 @@ public final class Tracker {
   /** 本刻由自然事件（生長、蔓延、消退）造成的位置：連帶歸屬要略過。只在主執行緒使用。 */
   private final Set<Long> suppressed = new HashSet<>();
   private World suppressedWorld;
+  private final Set<UUID> precise = ConcurrentHashMap.newKeySet();
 
   /**
    * 不在目前世界、但被追蹤的實體（卸載、換維度）。提交時這些實體延後到再次載入，
@@ -178,20 +179,27 @@ public final class Tracker {
   }
 
   /**
-   * 玩家直接改變的一格，連同 6 個鄰居（設計 §3.7）：事件之後鄰居的形狀可能跟著變，
-   * 而 Paper 沒有單一寫入掛點。多標記不影響正確性。
+   * 玩家直接改變的一格。鄰居因此改變的形狀由鄰居更新器（{@code CascadeUpdater}）判斷記錄；
+   * 該世界沒掛上更新器時，退回連同 6 個鄰居一起標記（設計 §3.7）。
    */
   public void markAround(Block block, Author author) {
     var d = dimension(block.getWorld());
     if (d == null) return;
     int x = block.getX(), y = block.getY(), z = block.getZ();
     d.markCell(x, y, z, author);
+    if (precise.contains(block.getWorld().getUID())) return;
     d.markCell(x - 1, y, z, author);
     d.markCell(x + 1, y, z, author);
     d.markCell(x, y - 1, z, author);
     d.markCell(x, y + 1, z, author);
     d.markCell(x, y, z - 1, author);
     d.markCell(x, y, z + 1, author);
+  }
+
+  /** 世界已掛上鄰居更新器，連帶變化能精確判斷。 */
+  public void precise(World world, boolean value) {
+    if (value) precise.add(world.getUID());
+    else precise.remove(world.getUID());
   }
 
   public void markBox(World world, dev.twme.buildgit.core.model.Box box, Author author) {
@@ -217,6 +225,19 @@ public final class Tracker {
     }
     if (isSuppressed(world, x, y, z)) return false;
     return d.cascade(x, y, z, settings.cascadeWindow(), settings.maxDistance()) != null;
+  }
+
+  /** 這一格若稍後真的改變，該記給誰（目前的原因優先，其次是傳染）；不是連帶變化時為 null。 */
+  public MarkTable.Probe probe(MarkTable.Dimension d, World world, int x, int y, int z) {
+    var c = cause();
+    if (c != null) return new MarkTable.Probe(c, false, 0, 0, 0);
+    if (isSuppressed(world, x, y, z)) return null;
+    return d.probe(x, y, z, settings.cascadeWindow(), settings.maxDistance());
+  }
+
+  public void apply(MarkTable.Dimension d, int x, int y, int z, MarkTable.Probe probe) {
+    if (probe.hasOrigin()) d.apply(x, y, z, probe);
+    else d.markCell(x, y, z, probe.author());
   }
 
   // ---- 實體 ----
