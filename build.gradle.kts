@@ -1,5 +1,7 @@
 plugins { base }
-allprojects { group = "dev.twme.buildgit"; version = "0.1.0-SNAPSHOT" }
+// 發布時由 CI 以 -PbuildgitVersion=<標籤> 指定版本
+val buildgitVersion = (findProperty("buildgitVersion") as String?) ?: "0.1.0-SNAPSHOT"
+allprojects { group = "dev.twme.buildgit"; version = buildgitVersion }
 subprojects {
     apply(plugin = "java-library")
     extensions.configure<JavaPluginExtension> {

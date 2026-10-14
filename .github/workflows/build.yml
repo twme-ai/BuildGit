@@ -1,0 +1,68 @@
+# 每次推送與 PR 都編譯並跑測試，附上插件 jar；推送 v* 標籤時另建 GitHub Release。
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # paper 模組用 Java 25，core／api 用 Java 21；兩個都裝，Gradle toolchain 會自己挑。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            21
+            25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: 決定版本
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.1.0-SNAPSHOT+${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 編譯與測試
+        run: ./gradlew --no-daemon build -PbuildgitVersion=${{ steps.version.outputs.version }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BuildGit-${{ steps.version.outputs.version }}
+          path: paper/plugin/build/libs/BuildGit-*.jar
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: "**/build/reports/tests/"
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: BuildGit-*
+          merge-multiple: true
+      - name: 建立 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" BuildGit-*.jar --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
