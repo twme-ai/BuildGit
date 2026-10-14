@@ -10,6 +10,9 @@ import dev.twme.buildgit.core.track.MarkTable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import dev.twme.buildgit.core.model.Box;
+import dev.twme.buildgit.core.model.SectionKey;
+import java.util.BitSet;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -58,39 +61,99 @@ class MarkTableTest {
   void journalReplaysAcrossRestartIncludingTornTail() throws Exception {
     var t = new MarkTable();
     var journal = new MarkJournal(dir);
-    t.listener(journal);
     t.markCell(OVERWORLD, new BlockPos(1, 2, 3), ALICE);
     t.markCell("minecraft:the_nether", new BlockPos(-5, 6, -7), BOB);
     var e = UUID.randomUUID();
     t.markEntity(OVERWORLD, e, BOB);
-    journal.flush();
+    journal.flush(t);
+    t.markCell(OVERWORLD, new BlockPos(1, 2, 4), BOB); // 同 section 第二份快照：變成逐格作者
+    journal.flush(t);
     journal.close();
     // 模擬當機：最後一筆只寫了一半
     var file = journal.files().getLast();
-    Files.write(file, new byte[] {3, 0, 0}, StandardOpenOption.APPEND);
+    Files.write(file, new byte[] {5, 0, 0}, StandardOpenOption.APPEND);
 
     var restored = new MarkTable();
     MarkJournal.replay(new MarkJournal(dir).files(), restored);
     assertEquals(ALICE, restored.authorAt(OVERWORLD, new BlockPos(1, 2, 3)));
+    assertEquals(BOB, restored.authorAt(OVERWORLD, new BlockPos(1, 2, 4)));
     assertEquals(BOB, restored.authorAt("minecraft:the_nether", new BlockPos(-5, 6, -7)));
     assertEquals(BOB, restored.entityAuthor(OVERWORLD, e));
-    assertEquals(2, restored.cellCount());
+    assertEquals(3, restored.cellCount());
   }
 
   @Test
-  void rotateSeparatesCommittedMarks() throws Exception {
+  void drainForCommitSeparatesCommittedMarks() throws Exception {
     var t = new MarkTable();
     var journal = new MarkJournal(dir);
-    t.listener(journal);
     t.markCell(OVERWORLD, new BlockPos(1, 1, 1), ALICE);
-    var old = journal.rotate();
-    t.drain();
+    var drained = journal.drainForCommit(t);
+    assertEquals(1, drained.marks().cellCount());
     t.markCell(OVERWORLD, new BlockPos(2, 2, 2), ALICE); // 新檔要重寫作者定義
-    journal.flush();
-    journal.delete(old); // 提交成功
+    journal.flush(t);
+    journal.delete(drained.previousFiles()); // 提交成功
     var restored = new MarkTable();
     MarkJournal.replay(journal.files(), restored);
     assertNull(restored.authorAt(OVERWORLD, new BlockPos(1, 1, 1)));
     assertEquals(ALICE, restored.authorAt(OVERWORLD, new BlockPos(2, 2, 2)));
+  }
+
+  @Test
+  void failedCommitRestoresIntoJournal() throws Exception {
+    var t = new MarkTable();
+    var journal = new MarkJournal(dir);
+    t.markCell(OVERWORLD, new BlockPos(1, 1, 1), ALICE);
+    var drained = journal.drainForCommit(t);
+    journal.restore(t, drained);
+    journal.close();
+    var restored = new MarkTable();
+    MarkJournal.replay(journal.files(), restored);
+    assertEquals(ALICE, restored.authorAt(OVERWORLD, new BlockPos(1, 1, 1)));
+  }
+
+  @Test
+  void bulkSectionMarksSwitchToPerCellAuthors() {
+    var t = new MarkTable();
+    var d = t.dimension(OVERWORLD);
+    var bits = new BitSet();
+    bits.set(0, 4096);
+    d.markSection(-1, 4, 2, bits, ALICE);
+    assertEquals(4096, t.cellCount());
+    assertEquals(ALICE, d.authorAt(-16, 64, 32));
+    d.markCell(-1, 79, 47, BOB);
+    assertEquals(BOB, d.authorAt(-1, 79, 47));
+    assertEquals(ALICE, d.authorAt(-2, 79, 47));
+    assertEquals(Map.of(ALICE, 4095, BOB, 1), t.cellsByAuthor());
+    var marks = t.drain();
+    var section = marks.sections().get(new SectionKey(OVERWORLD, -1, 4, 2));
+    assertEquals(BOB, section.author(marks, new BlockPos(-1, 79, 47).sectionIndex()));
+  }
+
+  @Test
+  void markBoxCoversExactlyTheBox() {
+    var t = new MarkTable();
+    t.dimension(OVERWORLD).markBox(new Box(-3, 10, 14, 17, 12, 18), ALICE);
+    assertEquals(21 * 3 * 5, t.cellCount());
+    assertTrue(t.isMarked(OVERWORLD, new BlockPos(-3, 10, 14)));
+    assertTrue(t.isMarked(OVERWORLD, new BlockPos(17, 12, 18)));
+    assertFalse(t.isMarked(OVERWORLD, new BlockPos(18, 12, 18)));
+    assertFalse(t.isMarked(OVERWORLD, new BlockPos(-4, 10, 14)));
+  }
+
+  @Test
+  void cascadeFollowsRecentNeighboursWithinWindowAndDistance() {
+    long[] tick = {100};
+    var t = new MarkTable(() -> tick[0]);
+    var d = t.dimension(OVERWORLD);
+    d.markCell(0, 64, 0, ALICE);
+    assertEquals(ALICE, d.cascade(1, 64, 0, 200, 4)); // 相鄰
+    assertEquals(ALICE, d.cascade(2, 64, 0, 200, 4)); // 沿鏈延伸
+    assertNull(d.cascade(4, 64, 0, 200, 4)); // 不相鄰
+    for (int x = 3; x <= 4; x++) assertEquals(ALICE, d.cascade(x, 64, 0, 200, 4));
+    assertNull(d.cascade(5, 64, 0, 200, 4)); // 超過起點距離
+    tick[0] += 201;
+    assertNull(d.cascade(0, 65, 0, 200, 4)); // 超過時間窗
+    assertEquals(ALICE, d.recentAuthor(4, 64, 0, 1000));
+    assertNull(d.recentAuthor(4, 64, 0, 10));
   }
 }

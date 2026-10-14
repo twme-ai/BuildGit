@@ -1,7 +1,7 @@
 package dev.twme.buildgit.core.track;
 
 import dev.twme.buildgit.core.model.Author;
-import dev.twme.buildgit.core.model.BlockPos;
+import dev.twme.buildgit.core.model.SectionKey;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -9,22 +9,24 @@ import java.util.*;
 import java.util.stream.Stream;
 
 /**
- * 標記的附加寫入日誌（設計 §3.6）。檔名 {@code marks-<序號>.journal}；{@link #rotate()} 開新檔，
- * 提交成功後刪除舊檔。重啟時依序號重播全部檔案。
+ * 標記的附加寫入日誌（設計 §3.6）。檔名 {@code marks-<序號>.journal}。
  *
- * <p>記錄格式：類型位元組加內容。作者與維度第一次出現時先寫定義記錄，之後以索引引用。
+ * <p>日誌不逐格記錄，而是定期把「變動過的 section」整份寫出：一次 FAWE 編輯可能標記上百萬格，
+ * 逐格寫會讓日誌比世界還大。重播時依序合併，後寫的作者覆蓋先寫的；標記在提交前只會增加，所以合併結果正確。
+ *
+ * <p>提交時以 {@link #drainForCommit} 原子地輪替日誌並取走標記；提交成功後刪除舊檔，失敗時放回標記並寫進新檔。
  * 結尾不完整的記錄（當機時寫到一半）在重播時略過。
  */
-public final class MarkJournal implements MarkTable.Listener, Closeable {
-  private static final int AUTHOR = 1, DIMENSION = 2, CELL = 3, ENTITY = 4;
+public final class MarkJournal implements Closeable {
+  private static final int AUTHOR = 1, DIMENSION = 2, ENTITY = 4, SECTION = 5;
 
   private final Path dir;
   private long sequence;
   private DataOutputStream out;
+  private FileOutputStream file;
   private Path current;
   private final Map<Author, Integer> authors = new HashMap<>();
   private final Map<String, Integer> dimensions = new HashMap<>();
-  private IOException failure;
 
   public MarkJournal(Path dir) throws IOException {
     this.dir = dir;
@@ -36,7 +38,8 @@ public final class MarkJournal implements MarkTable.Listener, Closeable {
   private void open() throws IOException {
     sequence++;
     current = dir.resolve("marks-" + sequence + ".journal");
-    out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(current, StandardOpenOption.CREATE_NEW)));
+    file = new FileOutputStream(current.toFile(), false);
+    out = new DataOutputStream(new BufferedOutputStream(file, 1 << 16));
     authors.clear();
     dimensions.clear();
   }
@@ -55,60 +58,81 @@ public final class MarkJournal implements MarkTable.Listener, Closeable {
     return Long.parseLong(n.substring(6, n.length() - 8));
   }
 
-  /** 開新檔並回傳之前的所有檔案；提交成功後交給 {@link #delete} 刪除。 */
-  public synchronized List<Path> rotate() throws IOException {
-    flush();
-    out.close();
-    var previous = files();
-    open();
-    return previous.stream().filter(p -> !p.equals(current)).toList();
+  /** 把標記表裡變動過的部分寫進日誌並寫到磁碟。平台每秒與世界存檔時呼叫。 */
+  public synchronized void flush(MarkTable table) throws IOException {
+    write(table.takeDirty());
+    out.flush();
+    file.getFD().sync();
+  }
+
+  public record Drained(Marks marks, List<Path> previousFiles) {}
+
+  /**
+   * 提交開始：寫出尚未寫的標記、開新日誌檔、取走全部標記。三步在標記表的鎖內完成，期間的新標記不會遺失。
+   */
+  public Drained drainForCommit(MarkTable table) throws IOException {
+    synchronized (table) {
+      synchronized (this) {
+        write(table.takeDirty());
+        out.flush();
+        out.close();
+        var previous = files();
+        open();
+        return new Drained(table.drain(), previous.stream().filter(p -> !p.equals(current)).toList());
+      }
+    }
+  }
+
+  /** 提交失敗：把標記放回並寫進目前的日誌，然後才能刪除舊檔。 */
+  public void restore(MarkTable table, Drained drained) throws IOException {
+    table.restore(drained.marks());
+    flush(table);
+    delete(drained.previousFiles());
   }
 
   public void delete(List<Path> files) throws IOException {
     for (var f : files) Files.deleteIfExists(f);
   }
 
-  public synchronized void flush() throws IOException {
-    if (failure != null) throw failure;
-    out.flush();
-  }
-
-  @Override
-  public synchronized void cell(String dimension, BlockPos pos, Author author) {
-    write(() -> {
-      int a = authorRef(author), d = dimensionRef(dimension);
-      out.writeByte(CELL);
+  private void write(Marks marks) throws IOException {
+    for (var e : marks.sections().entrySet()) {
+      var key = e.getKey();
+      var s = e.getValue();
+      int d = dimensionRef(key.dimension());
+      int uniform = s.authors() == null ? authorRef(marks.authors().get(s.uniformAuthor())) : -1;
+      int[] perCell = null;
+      if (s.authors() != null) {
+        perCell = new int[s.cells().cardinality()];
+        int n = 0;
+        for (int i = s.cells().nextSetBit(0); i >= 0; i = s.cells().nextSetBit(i + 1))
+          perCell[n++] = authorRef(marks.authors().get(s.authors()[i]));
+      }
+      out.writeByte(SECTION);
       out.writeInt(d);
-      out.writeInt(pos.x());
-      out.writeInt(pos.y());
-      out.writeInt(pos.z());
-      out.writeInt(a);
-    });
-  }
-
-  @Override
-  public synchronized void entity(String dimension, UUID uuid, Author author) {
-    write(() -> {
-      int a = authorRef(author), d = dimensionRef(dimension);
-      out.writeByte(ENTITY);
-      out.writeInt(d);
-      out.writeLong(uuid.getMostSignificantBits());
-      out.writeLong(uuid.getLeastSignificantBits());
-      out.writeInt(a);
-    });
-  }
-
-  private interface Write {
-    void run() throws IOException;
-  }
-
-  /** 遊戲執行緒不能因寫檔失敗而中斷；錯誤保留到下一次 flush 再丟出。 */
-  private void write(Write w) {
-    if (failure != null) return;
-    try {
-      w.run();
-    } catch (IOException e) {
-      failure = e;
+      out.writeInt(key.chunkX());
+      out.writeInt(key.sectionY());
+      out.writeInt(key.chunkZ());
+      long[] bits = s.cells().toLongArray();
+      out.writeShort(bits.length);
+      for (long b : bits) out.writeLong(b);
+      if (perCell == null) {
+        out.writeByte(0);
+        out.writeInt(uniform);
+      } else {
+        out.writeByte(1);
+        for (int a : perCell) out.writeInt(a);
+      }
+    }
+    for (var e : marks.entities().entrySet()) {
+      int d = dimensionRef(e.getKey());
+      for (var m : e.getValue().entrySet()) {
+        int a = authorRef(marks.authors().get(m.getValue()));
+        out.writeByte(ENTITY);
+        out.writeInt(d);
+        out.writeLong(m.getKey().getMostSignificantBits());
+        out.writeLong(m.getKey().getLeastSignificantBits());
+        out.writeInt(a);
+      }
     }
   }
 
@@ -140,11 +164,13 @@ public final class MarkJournal implements MarkTable.Listener, Closeable {
     out.write(b);
   }
 
-  /** 把所有日誌重播進標記表。重播期間不會再寫回日誌。 */
+  /** 把所有日誌依序合併進標記表。 */
   public static void replay(List<Path> files, MarkTable table) throws IOException {
     for (var file : files) {
       var authors = new ArrayList<Author>();
       var dims = new ArrayList<String>();
+      var sections = new TreeMap<SectionKey, Marks.Section>();
+      var entities = new TreeMap<String, SortedMap<UUID, Integer>>();
       try (var in = new DataInputStream(new BufferedInputStream(Files.newInputStream(file)))) {
         while (true) {
           int type = in.read();
@@ -153,24 +179,56 @@ public final class MarkJournal implements MarkTable.Listener, Closeable {
             switch (type) {
               case AUTHOR -> authors.add(new Author(new UUID(in.readLong(), in.readLong()), readString(in)));
               case DIMENSION -> dims.add(readString(in));
-              case CELL -> {
-                String d = dims.get(in.readInt());
-                var pos = new BlockPos(in.readInt(), in.readInt(), in.readInt());
-                table.markCell(d, pos, authors.get(in.readInt()));
+              case SECTION -> {
+                var key = new SectionKey(dims.get(in.readInt()), in.readInt(), in.readInt(), in.readInt());
+                int n = in.readUnsignedShort();
+                if (n > 64) throw new IOException("標記日誌損毀：" + file);
+                long[] bits = new long[n];
+                for (int i = 0; i < n; i++) bits[i] = in.readLong();
+                var cells = BitSet.valueOf(bits);
+                Marks.Section section;
+                if (in.readByte() == 0) {
+                  section = new Marks.Section(cells, null, check(in.readInt(), authors));
+                } else {
+                  var perCell = new short[4096];
+                  for (int i = cells.nextSetBit(0); i >= 0; i = cells.nextSetBit(i + 1))
+                    perCell[i] = check(in.readInt(), authors);
+                  section = new Marks.Section(cells, perCell, (short) 0);
+                }
+                sections.put(key, merge(sections.get(key), section));
               }
               case ENTITY -> {
                 String d = dims.get(in.readInt());
                 var uuid = new UUID(in.readLong(), in.readLong());
-                table.markEntity(d, uuid, authors.get(in.readInt()));
+                entities.computeIfAbsent(d, k -> new TreeMap<>()).put(uuid, (int) check(in.readInt(), authors));
               }
               default -> throw new IOException("標記日誌損毀：" + file);
             }
           } catch (EOFException e) {
             break; // 當機時寫到一半的最後一筆
+          } catch (IndexOutOfBoundsException e) {
+            throw new IOException("標記日誌損毀：" + file, e);
           }
         }
       }
+      table.merge(new Marks(authors, sections, entities), true);
     }
+  }
+
+  private static short check(int author, List<Author> authors) throws IOException {
+    if (author < 0 || author >= authors.size()) throw new IOException("標記日誌的作者索引無效");
+    return (short) author;
+  }
+
+  /** 同一檔案裡同一 section 的後一份快照覆蓋前一份的作者，並保留前一份才有的格子。 */
+  private static Marks.Section merge(Marks.Section older, Marks.Section newer) {
+    if (older == null) return newer;
+    var cells = (BitSet) older.cells().clone();
+    cells.or(newer.cells());
+    var perCell = new short[4096];
+    for (int i = cells.nextSetBit(0); i >= 0; i = cells.nextSetBit(i + 1))
+      perCell[i] = (short) (newer.cells().get(i) ? newer.authorIndex(i) : older.authorIndex(i));
+    return new Marks.Section(cells, perCell, (short) 0);
   }
 
   private static String readString(DataInputStream in) throws IOException {
