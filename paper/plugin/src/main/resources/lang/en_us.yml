@@ -1,0 +1,52 @@
+prefix: "<dark_aqua>[BuildGit]</dark_aqua> "
+
+help: |-
+  <gray>Commands:</gray>
+  <aqua>/bg status</aqua> <gray>— unsaved changes</gray>
+  <aqua>/bg save [message]</aqua> <gray>— save (milestone)</gray>
+  <aqua>/bg log [count]</aqua> <gray>— save history</gray>
+  <aqua>/bg show <save></aqua> <gray>— what a save changed</gray>
+  <aqua>/bg inspect</aqua> <gray>— inspector: click a block to see who changed it</gray>
+  <aqua>/bg blame</aqua> <gray>— who changed the block you are looking at</gray>
+  <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— record an area by hand</gray>
+  <aqua>/bg init</aqua> <gray>— start version control on this server</gray>
+  <aqua>/bg reload</aqua> <gray>— reload the configuration</gray>
+no-permission: "<red>You don't have permission.</red>"
+players-only: "<red>Only players can use this command.</red>"
+not-initialized: "<red>Version control has not been started. An admin can run <aqua>/bg init</aqua>.</red>"
+already-initialized: "<red>Version control is already active.</red>"
+init-start: "<gray>Saving the world and copying the starting point; the server will pause briefly…</gray>"
+init-done: "<green>Version control started. Changes made by players are now recorded.</green> <gray>(starting point <size> MB)</gray>"
+init-failed: "<red>Initialization failed: <error></red>"
+status-header: "<gold>main</gold> <gray>latest save</gray> <yellow><head></yellow>"
+status-clean: "<gray>No unsaved changes.</gray>"
+status-pending: "<gray>Unsaved: </gray><white><cells></white> <gray>blocks, </gray><white><entities></white> <gray>entities</gray>"
+status-author: "  <gray>-</gray> <white><author></white> <gray><cells> blocks</gray>"
+status-unclean: "<yellow>The server did not shut down cleanly; changes from the last second may be missing. Use /bg mark to record them.</yellow>"
+save-start: "<gray>Saving…</gray>"
+save-busy: "<yellow>Another save is in progress; try again shortly.</yellow>"
+save-nothing: "<gray>Nothing to save.</gray>"
+save-done: "<green>Saved</green> <yellow><id></yellow> <gray>— <cells> blocks, <entities> entities</gray>"
+save-failed: "<red>Save failed; your changes are kept, try again: <error></red>"
+autosave-done: "<gray>Autosaved</gray> <yellow><id></yellow> <gray>— <cells> blocks</gray>"
+log-entry: "<yellow><id></yellow> <gray><time></gray> <white><author></white> <message>"
+log-auto: "<dark_gray>(auto)</dark_gray>"
+log-empty: "<gray>No saves yet.</gray>"
+show-header: "<yellow><id></yellow> <white><author></white> <gray><time></gray> <message>"
+show-line: "  <gray>-</gray> <white><author></white> <gray><cells> blocks</gray>"
+show-entities: "  <gray><entities> entities</gray>"
+unknown-commit: "<red>Unknown save: <id></red>"
+inspect-on: "<green>Inspector on.</green> <gray>Click a block to see who changed it; run again to turn off.</gray>"
+inspect-off: "<gray>Inspector off.</gray>"
+inspect-pending: "<white><pos></white> <gray>— unsaved, last changed by</gray> <white><author></white>"
+inspect-blame: "<white><pos></white> <gray>— </gray><white><author></white> <gray>in save</gray> <yellow><id></yellow> <gray>(<time>) <kind></gray>"
+inspect-none: "<white><pos></white> <gray>— no record (unchanged since the starting point)</gray>"
+inspect-untracked: "<gray>This world is not under version control.</gray>"
+kind-added: "placed"
+kind-removed: "removed"
+kind-modified: "modified"
+blame-no-target: "<red>Look at a block first.</red>"
+mark-done: "<green>Recorded <cells> blocks.</green>"
+mark-too-large: "<red>Area too large (max <max> blocks).</red>"
+reloaded: "<green>Configuration reloaded.</green>"
+usage-mark: "<red>Usage: /bg mark <x1> <y1> <z1> <x2> <y2> <z2></red>"

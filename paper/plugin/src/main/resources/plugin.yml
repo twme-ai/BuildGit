@@ -1,0 +1,38 @@
+name: BuildGit
+version: "${version}"
+main: dev.twme.buildgit.paper.BuildGitPlugin
+api-version: "1.21"
+description: 給建築伺服器的版本控制：只記玩家造成的變更，像 git 一樣存檔、比較與還原。
+website: https://twme.dev
+libraries:
+  - com.github.luben:zstd-jni:${zstd}
+softdepend: [WorldEdit, FastAsyncWorldEdit, AxiomPaper]
+commands:
+  bg:
+    description: BuildGit 版本控制
+    usage: /bg help
+    aliases: [buildgit]
+permissions:
+  buildgit.view:
+    description: 查看狀態、歷史、存檔內容與方塊來源
+    default: op
+  buildgit.inspect:
+    description: 檢查模式
+    default: op
+    children:
+      buildgit.view: true
+  buildgit.save:
+    description: 存檔
+    default: op
+    children:
+      buildgit.view: true
+  buildgit.mark:
+    description: 手動補記範圍
+    default: op
+  buildgit.admin:
+    description: 初始化與重新載入
+    default: op
+    children:
+      buildgit.save: true
+      buildgit.inspect: true
+      buildgit.mark: true

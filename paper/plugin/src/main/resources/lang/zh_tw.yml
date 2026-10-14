@@ -1,0 +1,52 @@
+prefix: "<dark_aqua>[BuildGit]</dark_aqua> "
+
+help: |-
+  <gray>指令：</gray>
+  <aqua>/bg status</aqua> <gray>— 未存的變更</gray>
+  <aqua>/bg save [訊息]</aqua> <gray>— 存檔（里程碑）</gray>
+  <aqua>/bg log [數量]</aqua> <gray>— 存檔歷史</gray>
+  <aqua>/bg show <存檔></aqua> <gray>— 這次存檔改了什麼</gray>
+  <aqua>/bg inspect</aqua> <gray>— 檢查模式：點方塊看是誰改的</gray>
+  <aqua>/bg blame</aqua> <gray>— 看著的方塊是誰改的</gray>
+  <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— 手動補記一個範圍</gray>
+  <aqua>/bg init</aqua> <gray>— 開始對這個伺服器做版本控制</gray>
+  <aqua>/bg reload</aqua> <gray>— 重新載入設定</gray>
+no-permission: "<red>你沒有權限。</red>"
+players-only: "<red>只有玩家可以使用這個指令。</red>"
+not-initialized: "<red>還沒有開始版本控制。管理員可以執行 <aqua>/bg init</aqua>。</red>"
+already-initialized: "<red>已經開始版本控制了。</red>"
+init-start: "<gray>正在存檔並複製起點世界，伺服器會暫停一下…</gray>"
+init-done: "<green>已開始版本控制。從現在起，玩家造成的變更都會被記錄。</green> <gray>（起點世界 <size> MB）</gray>"
+init-failed: "<red>初始化失敗：<error></red>"
+status-header: "<gold>主世界</gold> <gray>最新存檔</gray> <yellow><head></yellow>"
+status-clean: "<gray>沒有未存的變更。</gray>"
+status-pending: "<gray>未存：</gray><white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體</gray>"
+status-author: "  <gray>-</gray> <white><author></white> <gray><cells> 格</gray>"
+status-unclean: "<yellow>上次伺服器沒有正常關閉，最後一秒的變更可能沒有記到。可以用 /bg mark 補記。</yellow>"
+save-start: "<gray>正在存檔…</gray>"
+save-busy: "<yellow>另一個存檔正在進行，請稍後再試。</yellow>"
+save-nothing: "<gray>沒有需要存的變更。</gray>"
+save-done: "<green>已存檔</green> <yellow><id></yellow> <gray>— <cells> 格、<entities> 個實體</gray>"
+save-failed: "<red>存檔失敗，變更都還在，可以再試一次：<error></red>"
+autosave-done: "<gray>自動存檔</gray> <yellow><id></yellow> <gray>— <cells> 格</gray>"
+log-entry: "<yellow><id></yellow> <gray><time></gray> <white><author></white> <message>"
+log-auto: "<dark_gray>（自動）</dark_gray>"
+log-empty: "<gray>還沒有任何存檔。</gray>"
+show-header: "<yellow><id></yellow> <white><author></white> <gray><time></gray> <message>"
+show-line: "  <gray>-</gray> <white><author></white> <gray><cells> 格</gray>"
+show-entities: "  <gray>實體 <entities> 個</gray>"
+unknown-commit: "<red>找不到存檔：<id></red>"
+inspect-on: "<green>檢查模式開啟。</green><gray>點方塊查看是誰改的，再執行一次關閉。</gray>"
+inspect-off: "<gray>檢查模式關閉。</gray>"
+inspect-pending: "<white><pos></white> <gray>— 未存，最後由</gray> <white><author></white> <gray>修改</gray>"
+inspect-blame: "<white><pos></white> <gray>— </gray><white><author></white> <gray>在存檔</gray> <yellow><id></yellow> <gray>（<time>）<kind></gray>"
+inspect-none: "<white><pos></white> <gray>— 沒有紀錄（起點世界原本的樣子）</gray>"
+inspect-untracked: "<gray>這個世界不在版本控制中。</gray>"
+kind-added: "放置"
+kind-removed: "拆除"
+kind-modified: "修改"
+blame-no-target: "<red>請看著一個方塊。</red>"
+mark-done: "<green>已補記 <cells> 格。</green>"
+mark-too-large: "<red>範圍太大（上限 <max> 格）。</red>"
+reloaded: "<green>設定已重新載入。</green>"
+usage-mark: "<red>用法：/bg mark <x1> <y1> <z1> <x2> <y2> <z2></red>"

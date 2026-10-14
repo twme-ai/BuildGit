@@ -1,0 +1,67 @@
+# BuildGit 設定。修改後執行 /bg reload。
+
+# 訊息語言：zh_tw 或 en_us
+language: zh_tw
+
+tracking:
+  # 連帶變化的時間窗（遊戲刻）：玩家動過一格後，這段時間內緊鄰它的遊戲變化（形狀更新、水流、紅石、活塞）
+  # 也記在同一位玩家名下。鏈上每一步都會重新計時，所以長的水流或紅石線不會中斷。
+  cascade-window: 200
+  # 連帶變化離起點超過這個距離（格）就不再記錄。
+  max-distance: 256
+  # 標記日誌寫到磁碟的間隔（遊戲刻）。當機時最多遺失這段時間的標記。
+  journal-flush-ticks: 20
+  # 不記錄本身狀態的實體類型（暫時性的東西）。
+  ignored-entities:
+    - minecraft:item
+    - minecraft:experience_orb
+    - minecraft:arrow
+    - minecraft:spectral_arrow
+    - minecraft:trident
+    - minecraft:snowball
+    - minecraft:egg
+    - minecraft:ender_pearl
+    - minecraft:splash_potion
+    - minecraft:lingering_potion
+    - minecraft:experience_bottle
+    - minecraft:fireball
+    - minecraft:small_fireball
+    - minecraft:dragon_fireball
+    - minecraft:wither_skull
+    - minecraft:firework_rocket
+    - minecraft:fishing_bobber
+    - minecraft:lightning_bolt
+    - minecraft:area_effect_cloud
+    - minecraft:falling_block
+    - minecraft:tnt
+    - minecraft:player
+  # 這些實體造成的方塊變化，記在追蹤它的玩家名下（設計 §3.4）。
+  # 一般生物預設不在內：羊吃草、終界使者搬方塊不該混進版本。
+  propagating-entities:
+    - minecraft:falling_block
+    - minecraft:tnt
+    - minecraft:tnt_minecart
+    - minecraft:arrow
+    - minecraft:spectral_arrow
+    - minecraft:trident
+    - minecraft:snowball
+    - minecraft:egg
+    - minecraft:splash_potion
+    - minecraft:lingering_potion
+    - minecraft:fireball
+    - minecraft:small_fireball
+    - minecraft:wind_charge
+    - minecraft:minecart
+    - minecraft:end_crystal
+
+autosave:
+  # 世界裡所有玩家停手這麼久之後自動存檔（秒）。0 表示停用。
+  idle-seconds: 300
+  # 一直有人在蓋時，最長多久一定自動存檔一次（秒）。0 表示停用。
+  max-interval-seconds: 1800
+
+integrations:
+  # 記錄 WorldEdit／FastAsyncWorldEdit 的編輯。
+  worldedit: true
+  # 記錄 Axiom 的編輯（需要 AxiomPaper）。
+  axiom: true

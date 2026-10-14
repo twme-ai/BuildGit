@@ -19,6 +19,8 @@ public final class MarkTable {
   private final List<Author> authors = new ArrayList<>();
   private final Map<Author, Integer> authorIndex = new HashMap<>();
   private final Map<String, Dimension> dimensions = new HashMap<>();
+  /** 最後一次標記真的有變化的時刻；自動存檔以它判斷玩家是否停手。 */
+  private volatile long lastChange = Long.MIN_VALUE;
 
   /** 以遊戲刻為單位的時鐘；連帶變化的時間窗以它計算。 */
   public MarkTable(LongSupplier clock) {
@@ -32,6 +34,11 @@ public final class MarkTable {
 
   public long now() {
     return clock.getAsLong();
+  }
+
+  /** 最後一次有新標記的時刻；沒有標記過時為 {@link Long#MIN_VALUE}。 */
+  public long lastChange() {
+    return lastChange;
   }
 
   /** 取得維度的標記。平台應保存回傳值，避免熱路徑上的字串查詢。 */
@@ -150,6 +157,7 @@ public final class MarkTable {
       boolean changed = s.set(((y & 15) << 8) | ((z & 15) << 4) | (x & 15), author);
       s.touched = now;
       s.dirty |= changed;
+      if (changed) lastChange = now;
       return changed;
     }
 
@@ -186,6 +194,7 @@ public final class MarkTable {
         }
         s.touched = now;
         s.dirty |= changed;
+        if (changed) lastChange = now;
         s.origin((chunkX << 4) + 8, (chunkZ << 4) + 8);
         lastTouch = now;
       }
@@ -272,6 +281,7 @@ public final class MarkTable {
         var previous = entities.put(uuid, a);
         if (previous != null && previous == a) return false;
         dirtyEntities.add(uuid);
+        lastChange = now();
         return true;
       }
     }

@@ -119,8 +119,9 @@ Cause { author: 玩家 UUID, origin: 起始座標, kind: 直接 | 連帶 }
 |---|---|
 | 原版互動 | 處理玩家封包期間：放置、破壞、使用物品、與方塊或實體互動、編輯告示牌、容器點擊等 |
 | 指令 | 玩家執行的指令執行期間（`/fill`、`/clone`、`/setblock`、`/summon` 等） |
-| WorldEdit／FAWE | 透過 WorldEdit 的 `EditSessionEvent` 包裝 extent，在寫入的同時記下位置。FAWE 會非同步、繞過原版寫入，所以不能只靠寫入層掛點 |
-| Axiom | 透過 Axiom 提供的修改事件與 API 取得被改的區域；沒有事件可用的操作，改用操作前後的區域比對 |
+| WorldEdit／FAWE | 見 §3.8。FAWE 會非同步、繞過原版寫入，所以不能只靠寫入層掛點 |
+| Axiom | 見 §3.9 |
+| 其他插件 | 公開 API（§3.10） |
 
 ### 3.3 連帶變化：沿因果鏈傳遞
 
@@ -148,12 +149,12 @@ Cause { author: 玩家 UUID, origin: 起始座標, kind: 直接 | 連帶 }
 - **自然停止**：連帶變化停止後就不再有帶原因的 tick，追蹤自然結束。
 - **重複狀態**：紅石時鐘會一直改同一批格子；它們已被標記，只會重複標記，提交時存當下狀態。
 - **距離上限**：原因帶有起始座標；連帶傳遞超過起點 `tracking.max-distance`（預設 256 格）就不再傳遞。
-- **數量上限**：單一原因標記的格子超過 `tracking.max-blocks-per-cause`（預設 100 萬）時停止傳遞，並通知該玩家。這是防止無限蔓延的安全網。
+- **數量上限**：單一原因標記的格子超過 `tracking.max-blocks-per-cause`（預設 100 萬）時停止傳遞，並通知該玩家。這是防止無限蔓延的安全網。（Paper 版尚未實作；目前由傳染的時間窗與距離上限限制範圍。）
 
 ### 3.6 標記的保存
 
-- 每個工作世界有一份標記表：chunk → section → 4096 位元的位元集，加上每格的作者索引，以及被追蹤實體的 UUID 與作者。
-- **持久化**：標記以附加寫入的方式記到 `marks.journal`，每秒或世界存檔時 flush。重啟後重播，再壓縮成快照。
+- 每個工作世界有一份標記表：chunk → section → 4096 位元的位元集，加上每格的作者索引（整個 section 同一作者時不配置），以及被追蹤實體的 UUID 與作者。
+- **持久化**：有變化的 section 以快照寫進標記日誌，每秒 flush（非同步執行緒）。重啟後依序重播；寫到一半的尾端忽略。提交時先換新日誌檔，提交成功才刪舊檔，失敗則把標記放回。
 - **當機時的已知風險**：最後一秒的標記可能遺失，那幾格會缺席下一次提交。會在 `status` 提示「上次未正常關閉」，並提供 `/bg mark <選取範圍>` 手動補標記。
 
 ### 3.7 平台掛點
@@ -163,16 +164,66 @@ Cause { author: 玩家 UUID, origin: 起始座標, kind: 直接 | 連帶 }
 - 寫入：`LevelChunk.setBlockState`，單一入口。
 - 連帶：`LevelTicks.schedule`／tick 執行、`ServerLevel.blockEvent`／`doBlockEvent`、`ServerLevel.addFreshEntity`、實體 tick。
 
-**Paper**（不能用 mixin，改用事件加上 NMS 包裝）：
-- 原因設定與直接寫入：Bukkit／Paper 事件，與 CoreProtect 相同的事件清單：
-  - 放置、破壞、桶子、告示牌、容器、展示框、盔甲座；
-  - `PlayerCommandPreprocessEvent` 加上指令執行期間的原因。
-- 連帶：在世界載入時，以反射把 `ServerLevel` 的 `neighborUpdater` 換成委派包裝（它是介面），把 `blockTicks`／`fluidTicks` 換成帶原因的子類別，攔截鄰居更新、形狀更新與排程 tick。
-- 實體與爆炸：
-  - `EntityAddToWorldEvent` 加上目前原因；
-  - `EntityChangeBlockEvent`（掉落方塊落地）；
-  - `EntityExplodeEvent`／`BlockExplodeEvent`。
-- 寫入層沒有單一掛點，所以 Paper 的做法是：原因存在時，把事件目標格**和它的 6 個鄰居**一起標記。多標記不影響正確性：提交時，內容與父版本相同的格子不會產生變更。
+**Paper 26.2**（已實作；不能用 mixin，改用事件加上 NMS 包裝）：
+- 直接操作：Bukkit／Paper 事件（全部 `MONITOR`，只讀不改），涵蓋 CoreProtect 的事件清單再加上 Spyglass 補的部分：
+  - 放置（含多格）、破壞、桶子、告示牌、點火、骨粉、玩家種樹、傳送門、採收、講台、鍋釜；
+  - 互動：右鍵標記點到的格子、鄰居與放置面；容器點擊／拖曳依容器持有者標記（含大箱子兩側、實體容器）。
+  - 寫入層沒有單一掛點，所以事件目標格**和它的 6 個鄰居**一起標記。多標記不影響正確性：提交時，內容與父版本相同的格子不會產生變更。
+- 指令：以反射包裝伺服器 Brigadier 指令樹的每個可執行節點（原版、Bukkit、Paper 插件指令在同一棵樹）。玩家執行時設定原因，並依座標參數（`from/to`、`begin/end/destination`、`pos`）外擴一格標記整個範圍——`/fill strict`、`/clone strict` 不發鄰居更新。
+  - 每次指令執行前逐一比對根節點的子節點，新節點（其他插件晚註冊、資料包重載）再包裝。
+  - `/function`、`/return` 的執行器由引擎以型別辨識，不包裝；函式裡的指令各自被記錄。
+- 連帶：以反射把每個 `Level` 的 `neighborUpdater`（`CollectingNeighborUpdater`）換成子類別，在形狀更新、鄰居通知時判斷：
+  1. 目前執行緒有原因 → 記給該作者；
+  2. 否則**傳染**：該格或 6 個鄰居在 `cascade-window`（預設 200 tick）內被標記過、且距離起點不超過 `max-distance` → 記給最近標記的作者。
+  - 這取代了原本「排程 tick 旁表」的設計：水流、紅石、沙子等延遲變化都會碰到剛被標記的鄰居，不必包裝 `blockTicks`。快速路徑是一個 volatile 讀取，沒有標記活動時幾乎零成本。
+  - **排除自然變化**：生長、蔓延、結冰、融化、樹葉腐爛、燃燒、耕地乾濕、不被追蹤的實體與爆炸，在同一刻加入抑制集合，傳染不會把它們算進來。
+  - 活塞、水流（`BlockFromToEvent`）、海綿、爆炸另以事件補記。
+- 實體：`EntitySpawnEvent` 依原因、生成位置的近期標記、或 FAWE 寫入實體的 chunk 決定作者；投射物歸給射手。掉落方塊、TNT 等「傳遞實體」記住作者，落地或爆炸時的方塊變化歸給他。
+  - 卸載與跨維度：被追蹤實體卸載時記下；提交時不在世界中的被追蹤實體延後到再次載入，不會誤當成被移除。
+
+### 3.8 WorldEdit／FAWE
+
+CoreProtect 記錄 FAWE 有兩個問題（實際閱讀原始碼確認）：
+- 它以 extent 包裝逐格記錄，而且每格都讀舊方塊、寫資料庫佇列，大範圍編輯明顯變慢；
+- FAWE 預設只允許 `allowed-plugins` 清單中的 extent，不在清單中的會被略過，所以許多 FAWE 編輯根本沒有被記錄。Spyglass 也是逐格讀寫。
+
+BuildGit 的做法：只記**位置**，不讀世界。
+- **FAWE 佇列模式**（預設）：在 `EditSessionEvent`（`BEFORE_CHANGE`）時，對編輯的佇列加上批次處理器 `FaweRecorder`（與 FAWE 自身的歷史紀錄同一個掛點）。FAWE 每處理完一個 chunk 的修改集，處理器掃描每個 section 的 `char[]`，非 0 的格子組成位元集，**整個 section 一次標記**；方塊實體、實體移除與新實體也一併標記。
+- **FAWE 非佇列模式與原版 WorldEdit**：包一層 `MarkingExtent` 逐格標記（只記位置），並在執行期把套件名稱加進 FAWE 的 `allowed-plugins`（只在記憶體中）。
+- 作者：編輯者是玩家時取該玩家；沒有玩家（其他插件透過 API 呼叫 WorldEdit）時取目前執行緒的原因（§3.10 的 `attribute`）。
+- 實測（Paper 26.2、FAWE 2.15.4，256 萬格 `setBlocks`）：掛上處理器 123–212 ms，不掛 127–187 ms，差異在量測誤差內；標記數與實際修改數完全一致。
+
+### 3.9 Axiom
+
+- 以 AxiomPaper 的 `Integration.registerCustomIntegration` 註冊：`checkSection` 對整個 section 標記並回傳「全部允許」；`canPlaceBlock`／`canBreakBlock` 標記該格與鄰居。
+- 實體：AxiomPaper 的生成、修改、移除實體事件。
+- 限制：擁有 `axiomadmin.bypass_region_checks` 的玩家（預設沒有，OP 也沒有）會跳過整合，因此不會被記錄。
+
+### 3.10 公開 API
+
+模組 `api/`（`dev.twme.buildgit.api`，只依賴 Bukkit API），以 `ServicesManager` 提供 `BuildGitApi`：
+
+```java
+var recorder = BuildGitApi.get().recorder();
+recorder.recordBlock(Actor.of(player), block);              // 單格
+recorder.recordBox(actor, world, x1, y1, z1, x2, y2, z2);   // 範圍
+recorder.recordSection(actor, world, cx, sy, cz, bits);     // 整個 section 的位元集，最快
+recorder.recordEntity(actor, entity);
+try (var scope = recorder.attribute(actor)) {               // 這段期間的連帶變化、指令、WorldEdit 編輯都記給 actor
+  block.setType(Material.STONE);
+}
+recorder.pendingAuthor(block);                               // 尚未存檔的作者
+```
+
+- 所有方法都只記位置、不讀世界，可從任何執行緒呼叫（`attribute` 例外：限主執行緒）。
+- 在指令執行期間派送的原版指令會排到外層指令結束後才執行；這種情況要在下一刻派送。
+
+### 3.11 已知限制
+
+- Axiom 的 bypass 權限玩家不記錄（§3.9）。
+- `/place feature` 等由世界產生器放置的大型結構，只記錄到觸發的鄰居更新範圍，可能不完整；可用 `/bg mark` 補記。
+- 已提交的實體不在記憶中：之後被自然移除（例如被生物破壞）不會記錄。之後改為從最新版本載入實體清單。
+- 伺服器當機時最後一次 flush（預設 1 秒）之後的標記可能遺失（§3.6）。
 
 ## 4. 分支世界
 
@@ -395,12 +446,11 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 
 ```
 BuildGit/
-├─ core/            # 純 Java：物件、覆寫表、正規化、提交、合併、標記表。不依賴 Minecraft
-├─ platform-api/    # 平台介面：讀寫格子、建立世界、排程到擁有者執行緒
+├─ core/            # 純 Java：物件、覆寫表、正規化、提交、合併、標記表、Anvil 讀取。不依賴 Minecraft
+├─ api/             # 公開 API（§3.10），只依賴 Bukkit API，Java 21
 ├─ paper/
-│   ├─ common/      # 事件、指令、包裝
-│   ├─ v1_21_11/    # NMS 適配（paperweight userdev，Java 21）
-│   └─ v26_2/       # （Java 25）
+│   ├─ axiom-api/   # AxiomPaper API 的編譯用介面（MIT，不打包）
+│   └─ plugin/      # Paper 26.2 插件（paperweight userdev，Java 25）；1.21.11 之後另開轉接模組
 ├─ fabric/
 │   ├─ common/      # 共用邏輯與 mixin 來源
 │   ├─ mc1_21_11/
@@ -418,20 +468,20 @@ BuildGit/
 
 | # | 風險 | 驗證方式 | 備案 |
 |---|---|---|---|
-| 1 | Paper 以反射替換 `neighborUpdater`、`blockTicks` 是否可行（final 欄位、Java 25 的限制、Paper 內部是否繞過） | Paper 26.2 與 1.21.11：玩家放水、接紅石、放沙子，確認連帶格全部被標記、沒有被丟棄的 tick | 改用 `BlockPhysicsEvent`、`BlockFromToEvent`、`BlockRedstoneEvent` 等事件傳遞，並接受部分遺漏 |
+| 1 | Paper 以反射替換 `neighborUpdater` 是否可行（final 欄位、Java 25 的限制、Paper 內部是否繞過） | Paper 26.2 與 1.21.11：玩家放水、接紅石、放沙子，確認連帶格全部被標記 | 改用 `BlockPhysicsEvent`、`BlockFromToEvent`、`BlockRedstoneEvent` 等事件傳遞，並接受部分遺漏。**26.2 結果**：替換可行；水源擴散的 145 格全部記給放水者 |
 | 2 | Paper 合成讀取（攔截 chunk 系統讀取） | 建立分支、走到遠處，比對合成的 chunk 與「起點＋覆寫」的格子是否一致 | 整個 region 預先合成（§4.2） |
 | 3 | Fabric 執行期世界（Fantasy 等）在 26.2、1.21.11、單人模式能否使用 | 建立、載入、卸載、刪除分支世界 | 自行實作執行期維度註冊 |
 | 4 | 世界生成的確定性 | 同種子、同版本產生 1000 個 chunk 兩次，格子逐一比對（含結構） | 新生成的 chunk 在主世界生成時一併寫入起點世界 |
-| 5 | FAWE 非同步寫入與 Axiom 寫入能否完整取得位置 | `//set`、`//paste`、`//undo`，以及 Axiom 的筆刷與貼上，比對標記與實際變更 | 對該操作的包圍盒做提交前比對 |
+| 5 | FAWE 非同步寫入與 Axiom 寫入能否完整取得位置 | `//set`、`//paste`、`//undo`，以及 Axiom 的筆刷與貼上，比對標記與實際變更 | 對該操作的包圍盒做提交前比對。**26.2 結果**：FAWE `setBlocks` 標記數與修改數一致、無可量測的額外耗時；Axiom 尚待以客戶端驗證 |
 | 6 | 標記與傳遞的效能 | 大型紅石機器、大量水流時的 MSPT 與記憶體 | 位元集分頁、原因旁表定期清理 |
 
 ## 11. 開發順序
 
 1. **core**：物件儲存、覆寫表、提交、三方合併、changeset，以 JUnit 驗證。
 2. **原型**：風險 1–4。
-3. **Fabric 26.2**：追蹤、提交、分支世界、合併、衝突世界、指令。mixin 可以掛得最完整，先把整條流程跑通。
-4. **Paper 26.2**：同上，依原型結果選定掛點。
-5. **WorldEdit／FAWE、Axiom 整合**（風險 5）。
+3. **Paper 26.2**：追蹤、WorldEdit／FAWE 與 Axiom 整合、公開 API、主世界的存檔與歷史（已完成）；接著做分支世界、合併、衝突世界。
+4. **Fabric 26.2**：同上。
+5. （併入第 3 步）
 6. **1.21.11**：兩個平台的舊版適配。
 7. **建築師操作層**（§6）：
    - 三步流程與自動存檔在第 3、4 步就一起做；
@@ -454,7 +504,7 @@ BuildGit/
 | 10 | 2026-10-14 | 合併要求目標分支沒有未提交的標記；系統寫入期間停用追蹤 |
 | 11 | 2026-10-14 | 合併後對邊界格子重算形狀，變動以作者 `merge` 收進合併提交 |
 | 12 | 2026-10-14 | 不提供改寫歷史的 reset；還原一律產生新提交 |
-| 13 | 2026-10-14 | 開發先做 Fabric 26.2 跑通整條流程，再做 Paper |
+| 13 | 2026-10-14 | ~~開發先做 Fabric 26.2~~ 改為先做 Paper 26.2（使用者要求），Fabric 之後 |
 | 14 | 2026-10-14 | 建築師操作層：畫面用「草稿／存檔／併回／里程碑」；底層 git 指令保留 |
 | 15 | 2026-10-14 | 三步流程 `try`／`publish`／`back`；併回前必先預覽並確認；併回後草稿保留 |
 | 16 | 2026-10-14 | 自動存檔：分支世界所有玩家停手 5 分鐘、或距上次存檔 30 分鐘；`try`、`publish`、關服前一律先存 |
@@ -462,3 +512,7 @@ BuildGit/
 | 18 | 2026-10-14 | `view` 以合成讀取開唯讀世界，最後一位玩家離開後刪除 |
 | 19 | 2026-10-14 | 箱子介面使用伺服器端畫面，兩個平台都不需要客戶端模組 |
 | 20 | 2026-10-14 | 使用 twme.dev 網域：Java 套件與 Maven group 為 `dev.twme.buildgit` |
+| 20 | 2026-10-14 | Paper 連帶追蹤改用「傳染」：鄰居更新碰到近期被標記的格子即沿用其作者，取代排程 tick 旁表；自然變化以同刻抑制集合排除 |
+| 21 | 2026-10-14 | WorldEdit／FAWE 只記位置不讀世界；FAWE 以批次處理器整個 section 標記，避免 CoreProtect 式的逐格成本與 `allowed-plugins` 漏記 |
+| 22 | 2026-10-14 | 提供公開 API（`api/` 模組、`ServicesManager`），其他插件可直接記錄或以 `attribute` 指定作者 |
+| 23 | 2026-10-14 | zstd-jni 不打包，改由 `plugin.yml` 的 `libraries` 從 Maven Central 下載（插件 jar 從 7.5 MB 降為 220 KB） |
