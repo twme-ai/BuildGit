@@ -34,12 +34,15 @@ public final class ThreeWayMerge {
 
   private final OverlayStore store;
   private final Box filter;
+  /** 範圍只在這個維度；null 表示所有維度。 */
+  private final String filterDimension;
   private final List<CellConflict> cellConflicts = new ArrayList<>();
   private final List<EntityConflict> entityConflicts = new ArrayList<>();
 
-  private ThreeWayMerge(OverlayStore store, Box filter) {
+  private ThreeWayMerge(OverlayStore store, String filterDimension, Box filter) {
     this.store = store;
     this.filter = filter;
+    this.filterDimension = filterDimension;
   }
 
   /**
@@ -47,7 +50,15 @@ public final class ThreeWayMerge {
    */
   public static Result merge(OverlayStore store, ObjectId base, ObjectId ours, ObjectId theirs, Box filter)
       throws IOException {
-    var m = new ThreeWayMerge(store, filter);
+    return merge(store, base, ours, theirs, null, filter);
+  }
+
+  /**
+   * @param filterDimension 範圍所在的維度；其他維度一律保留 ours。null 表示範圍套用到所有維度
+   */
+  public static Result merge(OverlayStore store, ObjectId base, ObjectId ours, ObjectId theirs, String filterDimension, Box filter)
+      throws IOException {
+    var m = new ThreeWayMerge(store, filterDimension, filter);
     var tb = store.tree(base);
     var to = store.tree(ours);
     var tt = store.tree(theirs);
@@ -56,6 +67,10 @@ public final class ThreeWayMerge {
       var eb = tb.get(dim);
       var eo = to.get(dim);
       var et = tt.get(dim);
+      if (filter != null && filterDimension != null && !dim.equals(filterDimension)) {
+        if (eo != null) edits.put(dim, eo);
+        continue;
+      }
       var quick = m.quick(eb, eo, et, null);
       edits.put(dim, quick != null ? quick.entry : m.dimension(dim, eb, eo, et));
     }

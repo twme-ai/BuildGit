@@ -389,6 +389,16 @@ public final class MarkTable {
     return result;
   }
 
+  /** 目前被標記的格子（複本，不取走），給顯示用。 */
+  public synchronized SortedMap<SectionKey, BitSet> markedSections() {
+    var result = new TreeMap<SectionKey, BitSet>();
+    for (var d : dimensions.values())
+      d.sections.forEach((k, s) -> {
+        if (!s.cells.isEmpty()) result.put(new SectionKey(d.id, keyX(k), keyY(k), keyZ(k)), (BitSet) s.cells.clone());
+      });
+    return result;
+  }
+
   // ---- 提交 ----
 
   /** 取走目前全部標記，換上空表。提交失敗時用 {@link #restore} 放回。 */

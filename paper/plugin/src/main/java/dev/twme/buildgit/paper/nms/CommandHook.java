@@ -25,6 +25,8 @@ import net.minecraft.server.MinecraftServer;
  */
 public final class CommandHook {
   private static final Field COMMAND;
+  /** BuildGit 自己的指令：系統寫入另外處理，不當成玩家的建築指令。 */
+  private static final Set<String> OWN = Set.of("bg", "buildgit", "buildgit:bg", "buildgit:buildgit");
 
   static {
     try {
@@ -54,7 +56,7 @@ public final class CommandHook {
     if (failed) return;
     var root = MinecraftServer.getServer().getCommands().getDispatcher().getRoot();
     try {
-      for (var child : root.getChildren()) if (!wrapped.contains(child)) wrap(child);
+      for (var child : root.getChildren()) if (!wrapped.contains(child) && !OWN.contains(child.getName())) wrap(child);
     } catch (ReflectiveOperationException | RuntimeException e) {
       failed = true;
       log.log(Level.WARNING, "無法包裝指令；指令造成的變更只能靠鄰居更新記錄", e);

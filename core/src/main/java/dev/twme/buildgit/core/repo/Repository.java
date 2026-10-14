@@ -265,7 +265,13 @@ public final class Repository {
    * @param filter 只合併範圍內的變更（部分併回）；null 表示全部
    */
   public ThreeWayMerge.Result mergeTrees(ObjectId base, ObjectId ours, ObjectId theirs, Box filter) throws IOException {
-    return ThreeWayMerge.merge(overlays, commit(base).tree(), commit(ours).tree(), commit(theirs).tree(), filter);
+    return mergeTrees(base, ours, theirs, null, filter);
+  }
+
+  /** @param filterDimension 範圍所在的維度；null 表示範圍套用到所有維度 */
+  public ThreeWayMerge.Result mergeTrees(ObjectId base, ObjectId ours, ObjectId theirs, String filterDimension, Box filter)
+      throws IOException {
+    return ThreeWayMerge.merge(overlays, commit(base).tree(), commit(ours).tree(), commit(theirs).tree(), filterDimension, filter);
   }
 
   /**
@@ -295,7 +301,9 @@ public final class Repository {
       if (!head.equals(parents.getFirst())) throw new ConcurrentUpdateException(branch);
       var tree = resultTree;
       Map<CellKey, Author> resolvedBy = Map.of();
-      if (resolution != null && !resolution.marks().isEmpty()) {
+      if (resolution != null && resolution.authors() != null) {
+        resolvedBy = resolution.authors();
+      } else if (resolution != null && !resolution.marks().isEmpty()) {
         var capture = capture(resultTree, resolution.marks(), resolution.world(), genesis);
         tree = capture.editor.build();
         resolvedBy = capture.changes.cellAuthors();
@@ -325,10 +333,37 @@ public final class Repository {
     }
   }
 
-  /** 衝突整合世界的標記與讀取來源。 */
-  public record Resolution(Marks marks, StateSource world) {}
+  /**
+   * 衝突整合的作者來源：整合世界的標記與讀取來源（結果樹會再收進這些格子），
+   * 或已經提交好的整合結果中每格的作者（{@code authors} 不為 null 時，結果樹照用）。
+   */
+  public record Resolution(Marks marks, StateSource world, Map<CellKey, Author> authors) {
+    public Resolution(Marks marks, StateSource world) {
+      this(marks, world, null);
+    }
 
-  record CellKey(String dimension, BlockPos pos) {}
+    public static Resolution authors(Map<CellKey, Author> authors) {
+      return new Resolution(null, null, authors);
+    }
+  }
+
+  public record CellKey(String dimension, BlockPos pos) {}
+
+  /**
+   * 從 {@code head} 沿第一個父提交往回到 {@code stop}（不含）為止，每格最後的作者。
+   * 衝突整合分支用來把整合時誰改了哪一格帶進合併提交。
+   */
+  public Map<CellKey, Author> authorsSince(ObjectId head, ObjectId stop) throws IOException {
+    var result = new HashMap<CellKey, Author>();
+    var id = head;
+    while (id != null && !id.equals(stop)) {
+      var commit = commit(id);
+      var cs = changeset(commit.changeset());
+      for (var c : cs.cells()) result.putIfAbsent(new CellKey(c.dimension(), c.pos()), cs.author(c.author()));
+      id = commit.parents().isEmpty() ? null : commit.parents().getFirst();
+    }
+    return result;
+  }
 
   private static Cell genesisCell(StateSource genesis, Map<SectionKey, Cell[]> cache, String dim, BlockPos pos)
       throws IOException {
@@ -347,11 +382,20 @@ public final class Repository {
    * 把目前分支（或範圍內）還原成 {@code target} 的內容（設計 §5.4），回傳新的覆寫表根節點，由呼叫者以 {@link #commitTree} 提交。
    */
   public ObjectId restoreTree(ObjectId head, ObjectId target, Box filter) throws IOException {
+    return restoreTree(head, target, null, filter);
+  }
+
+  /** @param filterDimension 範圍所在的維度；null 表示所有維度 */
+  public ObjectId restoreTree(ObjectId head, ObjectId target, String filterDimension, Box filter) throws IOException {
     var headTree = commit(head).tree();
     var diff = TreeDiff.collect(overlays, headTree, commit(target).tree());
     var editor = new OverlayEditor(overlays, headTree);
-    for (var c : diff.cells()) if (filter == null || filter.contains(c.pos())) editor.setCell(c.dimension(), c.pos(), c.after());
+    for (var c : diff.cells()) {
+      if (filter != null && (filterDimension != null && !filterDimension.equals(c.dimension()) || !filter.contains(c.pos()))) continue;
+      editor.setCell(c.dimension(), c.pos(), c.after());
+    }
     for (var e : diff.entities()) {
+      if (filter != null && filterDimension != null && !filterDimension.equals(e.dimension())) continue;
       if (filter != null) {
         var state = e.after() != null && e.after().isPresent() ? e.after() : e.before();
         double[] p = state != null && state.isPresent() ? state.get().position() : null;
