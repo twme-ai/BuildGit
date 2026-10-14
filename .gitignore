@@ -1,0 +1,6 @@
+.work/
+**/build/
+**/.gradle/
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+.claude/
