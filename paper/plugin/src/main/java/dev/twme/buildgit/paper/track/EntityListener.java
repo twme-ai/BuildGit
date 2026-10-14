@@ -141,10 +141,10 @@ public final class EntityListener implements Listener {
       }
       default -> {
         // 死亡、被拆除、被撿起：被追蹤的實體在下次存檔記成移除。
-        if (author != null) {
-          var by = tracker.cause();
-          d.markEntity(entity.getUniqueId(), by != null ? by : author);
-        }
+        // 沒被追蹤（例如已提交、這次還沒碰過）但正由玩家造成（/kill 等指令）時也記。
+        var by = tracker.cause();
+        if (author != null) d.markEntity(entity.getUniqueId(), by != null ? by : author);
+        else if (by != null && tracker.isBuildEntity(entity.getType())) d.markEntity(entity.getUniqueId(), by);
         tracker.forgetCarrier(entity.getUniqueId());
       }
     }
