@@ -11,7 +11,7 @@ help: |-
   <aqua>/bg status</aqua> <gray>— unsaved changes</gray>
   <aqua>/bg save [message]</aqua> <gray>— save a milestone</gray>
   <aqua>/bg log [count] [--all] [--author <player>]</aqua> <gray>— history</gray>
-  <aqua>/bg graph [count] [--all]</aqua> <gray>— branch history graph (like git log --graph)</gray>
+  <aqua>/bg graph [page] [--all]</aqua> <gray>— branch history graph (like git log --graph)</gray>
   <aqua>/bg show <save> [--cells]</aqua> <gray>— what a save changed</gray>
   <aqua>/bg diff [save] [save]</aqua> <gray>— outline changes in the world</gray>
   <aqua>/bg view <save></aqua> <gray>— look at an old version (read-only)</gray>
@@ -56,6 +56,10 @@ log-empty: "<gray>No saves yet.</gray>"
 graph-entry: "<dark_aqua><graph></dark_aqua> <id><refs> <gray><time></gray> <white><author></white> <message>"
 graph-id: "<yellow><hover:show_text:'<gray>Click to show this save'><id></hover></yellow>"
 graph-ref: "<gray>(</gray><branch><gray>)</gray>"
+graph-footer: "<dark_gray>──</dark_gray> <gray>Page <page></gray> <prev> <next>"
+graph-prev: "<aqua><u>[Previous]</u></aqua>"
+graph-next: "<aqua><u>[Next]</u></aqua>"
+graph-no-page: "<red>There is no page <page>.</red>"
 show-header: "<yellow><id></yellow> <white><author></white> <gray><time></gray> <message>"
 show-line: "  <gray>-</gray> <white><author></white> <gray><cells> blocks</gray>"
 show-entities: "  <gray><entities> entities</gray>"

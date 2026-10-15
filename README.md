@@ -54,7 +54,7 @@
 | 在世界裡標出改過的方塊（會發光一陣子） | `/bg diff` |
 | 這個方塊是誰改的 | `/bg inspect` 開啟後點方塊；或看著方塊打 `/bg blame` |
 | 過去的存檔 | `/bg log` |
-| 所有草稿的分支歷史圖（像 `git log --graph`） | `/bg graph`；加 `--all` 連自動存檔一起顯示 |
+| 所有草稿的分支歷史圖（像 `git log --graph`） | `/bg graph`；每頁 8 筆，點 **[下一頁]** 或 `/bg graph 2` 往前翻；加 `--all` 連自動存檔一起顯示 |
 | 某次存檔改了哪些 | `/bg show <存檔編號>` |
 | 舊版本長什麼樣子 | `/bg view <存檔編號>`（唯讀，不能動；`/bg back` 回來） |
 | 大家在哪個草稿 | `/bg who` |
@@ -102,7 +102,7 @@
 /bg restore <存檔> [--selection] 還原到舊版本
 /bg view <存檔>          唯讀地看舊版本
 /bg branch list|create|delete <名稱> [--force]  管理草稿
-/bg graph [數量] [--all]  分支歷史圖
+/bg graph [頁數] [--all]  分支歷史圖（分頁）
 /bg log、show、diff、blame、inspect、who、sel
 ```
 

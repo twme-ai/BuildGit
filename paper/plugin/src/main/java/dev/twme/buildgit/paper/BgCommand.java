@@ -382,11 +382,16 @@ final class BgCommand implements Listener {
   /** 所有草稿的分支線用等寬字型畫，才會對齊。 */
   private static final net.kyori.adventure.key.Key MONO = net.kyori.adventure.key.Key.key("minecraft", "uniform");
 
-  /** {@code graph [數量] [--all]}：像 git log --graph 的分支歷史圖；預設略過自動存檔。 */
+  /** 每頁幾列：玩家聊天室窗沒打開時只顯示 10 行。 */
+  private static final int GRAPH_PAGE = 8;
+
+  /** {@code graph [頁數] [--all]}：像 git log --graph 的分支歷史圖，分頁顯示；預設略過自動存檔。 */
   private void graph(CommandSender sender, String[] args) throws IOException {
     boolean all = flags(args).contains("--all");
     var w = words(args);
-    int limit = Math.min(50, Math.max(1, w.isEmpty() ? 15 : parseInt(w.getFirst(), 15)));
+    int page = Math.min(200, Math.max(1, w.isEmpty() ? 1 : parseInt(w.getFirst(), 1)));
+    // 分支線要從最上面一路排下來才正確，所以每頁都從頭算，只顯示這一頁；多算一列判斷有沒有下一頁
+    int limit = page * GRAPH_PAGE + 1;
     var heads = new LinkedHashMap<ObjectId, List<String>>();
     for (var e : ws().drafts().entrySet()) heads.computeIfAbsent(e.getValue(), k -> new ArrayList<>()).add(e.getKey());
     var repo = ws().repo();
@@ -398,11 +403,12 @@ final class BgCommand implements Listener {
         failed(sender, e);
         return;
       }
-      if (rows.isEmpty()) {
-        msg().send(sender, "log-empty");
+      int from = (page - 1) * GRAPH_PAGE;
+      if (rows.size() <= from) {
+        msg().send(sender, rows.isEmpty() ? "log-empty" : "graph-no-page", "page", page);
         return;
       }
-      for (var r : rows) {
+      for (var r : rows.subList(from, Math.min(rows.size(), page * GRAPH_PAGE))) {
         var refs = Component.text();
         for (var name : heads.getOrDefault(r.id(), List.of())) refs.append(Component.space()).append(msg().get("graph-ref", "branch", branchLabel(name)));
         var c = r.commit();
@@ -411,6 +417,12 @@ final class BgCommand implements Listener {
             "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
             "message", c.auto() ? msg().get("log-auto") : Component.text(c.message()));
       }
+      boolean more = rows.size() > page * GRAPH_PAGE;
+      if (page == 1 && !more) return;
+      String suffix = all ? " --all" : "";
+      var prev = page > 1 ? msg().get("graph-prev").clickEvent(ClickEvent.runCommand("/bg graph " + (page - 1) + suffix)) : Component.empty();
+      var next = more ? msg().get("graph-next").clickEvent(ClickEvent.runCommand("/bg graph " + (page + 1) + suffix)) : Component.empty();
+      msg().send(sender, "graph-footer", "page", page, "prev", prev, "next", next);
     });
   }
 
