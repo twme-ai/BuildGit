@@ -344,11 +344,11 @@ final class BgCommand implements Listener {
     if (!started) msg().send(sender, "save-busy");
   }
 
-  /** {@code log [分支] [數量] [--all] [--author <玩家>]}：預設只列里程碑，自動存檔收合成一行。 */
+  /** {@code log [分支] [頁數] [--all] [--author <玩家>]}：預設只列里程碑，自動存檔收合成一行；分頁顯示。 */
   private void log(CommandSender sender, String[] args) throws IOException {
     var repo = ws().repo();
     String branch = current(sender).branch();
-    int limit = 10;
+    int page = 1;
     boolean all = false;
     String author = null;
     for (int i = 0; i < args.length; i++) {
@@ -356,34 +356,74 @@ final class BgCommand implements Listener {
       if (a.isEmpty()) continue;
       if (a.equals("--all")) all = true;
       else if (a.equals("--author") && i + 1 < args.length) author = args[++i];
-      else if (a.chars().allMatch(Character::isDigit)) limit = parseInt(a, 10);
+      else if (a.chars().allMatch(Character::isDigit)) page = Math.min(200, Math.max(1, parseInt(a, 1)));
       else if (repo.refs().get(a).isPresent()) branch = a;
     }
-    var ids = repo.history(repo.head(branch), all && author == null ? limit + 1 : 5000);
-    int shown = 0, folded = 0;
-    for (var id : ids) {
-      var c = repo.commit(id);
-      if (c.parents().isEmpty()) continue; // 初始化的空提交
-      if (author != null && !wrote(c, author)) continue;
-      if (!all && c.auto()) {
-        folded++;
-        continue;
+    var head = repo.head(branch);
+    final int p = page;
+    final boolean showAll = all;
+    final String who = author;
+    var command = "/bg log " + branch + "%s" + (all ? " --all" : "") + (author != null ? " --author " + author : "");
+    ws().async(() -> {
+      // 每一行（存檔或收合的自動存檔）各算一列；多收一列判斷有沒有下一頁
+      var lines = new ArrayList<Component>();
+      int want = p * PAGE + 1;
+      try {
+        int folded = 0;
+        for (var id : repo.history(head, 5000)) {
+          if (lines.size() >= want) break;
+          var c = repo.commit(id);
+          if (c.parents().isEmpty()) continue; // 初始化的空提交
+          if (who != null && !wrote(c, who)) continue;
+          if (!showAll && c.auto()) {
+            folded++;
+            continue;
+          }
+          if (folded > 0) lines.add(msg().get("log-folded", "count", folded));
+          folded = 0;
+          lines.add(msg().get("log-entry", "id", commitLink(id), "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
+              "message", c.auto() ? msg().get("log-auto") : Component.text(c.message())));
+        }
+        if (folded > 0 && lines.size() < want) lines.add(msg().get("log-folded", "count", folded));
+      } catch (IOException | RuntimeException e) {
+        failed(sender, e);
+        return;
       }
-      if (folded > 0) msg().send(sender, "log-folded", "count", folded);
-      folded = 0;
-      msg().send(sender, "log-entry", "id", id.abbrev(), "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
-          "message", c.auto() ? msg().get("log-auto") : Component.text(c.message()));
-      if (++shown >= limit) break;
+      showPage(sender, lines, p, command);
+    });
+  }
+
+  /** 每頁幾列：玩家聊天室窗沒打開時只顯示 10 行，留一行給翻頁。 */
+  private static final int PAGE = 8;
+
+  /** 可點的存檔編號：點了就是 /bg show。 */
+  private Component commitLink(ObjectId id) {
+    return msg().get("commit-link", "id", id.abbrev()).clickEvent(ClickEvent.runCommand("/bg show " + id.abbrev()));
+  }
+
+  /**
+   * 顯示第 {@code page} 頁並附上翻頁按鈕。{@code lines} 是從第一頁開始的所有列，最多多一列（用來判斷有沒有下一頁）。
+   *
+   * @param command 翻頁指令，{@code %s} 換成「 頁數」
+   */
+  private void showPage(CommandSender sender, List<Component> lines, int page, String command) {
+    int from = (page - 1) * PAGE;
+    if (lines.size() <= from) {
+      if (lines.isEmpty()) msg().send(sender, "log-empty");
+      else msg().send(sender, "page-none", "page", page);
+      return;
     }
-    if (folded > 0) msg().send(sender, "log-folded", "count", folded);
-    if (shown == 0 && folded == 0) msg().send(sender, "log-empty");
+    var prefix = msg().get("prefix");
+    for (var line : lines.subList(from, Math.min(lines.size(), page * PAGE))) sender.sendMessage(prefix.append(line));
+    boolean more = lines.size() > page * PAGE;
+    if (page == 1 && !more) return;
+    var prev = page > 1 ? msg().get("page-prev").clickEvent(ClickEvent.runCommand(command.formatted(" " + (page - 1)))) : Component.empty();
+    var next = more ? msg().get("page-next").clickEvent(ClickEvent.runCommand(command.formatted(" " + (page + 1)))) : Component.empty();
+    msg().send(sender, "page-footer", "page", page, "prev", prev, "next", next);
   }
 
   /** 所有草稿的分支線用等寬字型畫，才會對齊。 */
   private static final net.kyori.adventure.key.Key MONO = net.kyori.adventure.key.Key.key("minecraft", "uniform");
-
-  /** 每頁幾列：玩家聊天室窗沒打開時只顯示 10 行。 */
-  private static final int GRAPH_PAGE = 8;
 
   /** {@code graph [頁數] [--all]}：像 git log --graph 的分支歷史圖，分頁顯示；預設略過自動存檔。 */
   private void graph(CommandSender sender, String[] args) throws IOException {
@@ -391,7 +431,7 @@ final class BgCommand implements Listener {
     var w = words(args);
     int page = Math.min(200, Math.max(1, w.isEmpty() ? 1 : parseInt(w.getFirst(), 1)));
     // 分支線要從最上面一路排下來才正確，所以每頁都從頭算，只顯示這一頁；多算一列判斷有沒有下一頁
-    int limit = page * GRAPH_PAGE + 1;
+    int limit = page * PAGE + 1;
     var heads = new LinkedHashMap<ObjectId, List<String>>();
     for (var e : ws().drafts().entrySet()) heads.computeIfAbsent(e.getValue(), k -> new ArrayList<>()).add(e.getKey());
     var repo = ws().repo();
@@ -403,26 +443,16 @@ final class BgCommand implements Listener {
         failed(sender, e);
         return;
       }
-      int from = (page - 1) * GRAPH_PAGE;
-      if (rows.size() <= from) {
-        msg().send(sender, rows.isEmpty() ? "log-empty" : "graph-no-page", "page", page);
-        return;
-      }
-      for (var r : rows.subList(from, Math.min(rows.size(), page * GRAPH_PAGE))) {
+      var lines = new ArrayList<Component>();
+      for (var r : rows) {
         var refs = Component.text();
         for (var name : heads.getOrDefault(r.id(), List.of())) refs.append(Component.space()).append(msg().get("graph-ref", "branch", branchLabel(name)));
         var c = r.commit();
-        var id = msg().get("graph-id", "id", r.id().abbrev()).clickEvent(ClickEvent.runCommand("/bg show " + r.id().abbrev()));
-        msg().send(sender, "graph-entry", "graph", Component.text(r.graph()).font(MONO), "id", id, "refs", refs.build(),
+        lines.add(msg().get("graph-entry", "graph", Component.text(r.graph()).font(MONO), "id", commitLink(r.id()), "refs", refs.build(),
             "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
-            "message", c.auto() ? msg().get("log-auto") : Component.text(c.message()));
+            "message", c.auto() ? msg().get("log-auto") : Component.text(c.message())));
       }
-      boolean more = rows.size() > page * GRAPH_PAGE;
-      if (page == 1 && !more) return;
-      String suffix = all ? " --all" : "";
-      var prev = page > 1 ? msg().get("graph-prev").clickEvent(ClickEvent.runCommand("/bg graph " + (page - 1) + suffix)) : Component.empty();
-      var next = more ? msg().get("graph-next").clickEvent(ClickEvent.runCommand("/bg graph " + (page + 1) + suffix)) : Component.empty();
-      msg().send(sender, "graph-footer", "page", page, "prev", prev, "next", next);
+      showPage(sender, lines, page, "/bg graph%s" + (all ? " --all" : ""));
     });
   }
 
