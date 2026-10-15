@@ -8,7 +8,9 @@ import dev.twme.buildgit.paper.track.BlockListener;
 import dev.twme.buildgit.paper.track.EntityListener;
 import dev.twme.buildgit.paper.track.Tracker;
 import dev.twme.buildgit.paper.worldedit.WorldEditHook;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.io.IOException;
+import java.util.List;
 import java.util.logging.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
@@ -29,6 +31,10 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
   private Workspace workspace;
   private CommandHook commands;
   private WorldEditHook worldEdit;
+  private Outlines outlines;
+  private Selections selections;
+  private Hud hud;
+  private Menu menu;
   private final java.util.List<BukkitTask> tasks = new java.util.ArrayList<>();
 
   Messages messages() {
@@ -43,6 +49,18 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     return workspace;
   }
 
+  Outlines outlines() {
+    return outlines;
+  }
+
+  Selections selections() {
+    return selections;
+  }
+
+  Menu menu() {
+    return menu;
+  }
+
   @Override
   public void onEnable() {
     saveDefaultConfig();
@@ -55,11 +73,18 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     pm.registerEvents(new BlockListener(tracker), this);
     pm.registerEvents(new EntityListener(tracker), this);
     pm.registerEvents(this, this);
+    outlines = new Outlines(this);
+    selections = new Selections(this);
+    hud = new Hud(this);
+    menu = new Menu(this);
+    pm.registerEvents(outlines, this);
+    pm.registerEvents(selections, this);
+    pm.registerEvents(hud, this);
+    pm.registerEvents(menu, this);
     var bg = new BgCommand(this);
     pm.registerEvents(bg, this);
-    var command = getCommand("bg");
-    command.setExecutor(bg);
-    command.setTabCompleter(bg);
+    getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS,
+        e -> e.registrar().register(bg.build(), "BuildGit 版本控制", List.of("buildgit")));
 
     for (World world : Bukkit.getWorlds()) tracker.precise(world, CascadeUpdater.install(world, tracker, getLogger()));
     commands = new CommandHook(tracker, getLogger());
@@ -97,12 +122,15 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     tasks.add(Bukkit.getScheduler().runTaskTimer(this, () -> workspace.autosaveTick(r -> r.commit().ifPresent(id ->
         Bukkit.getOnlinePlayers().stream().filter(p -> p.hasPermission("buildgit.view"))
             .forEach(p -> messages.send(p, "autosave-done", "id", id.abbrev(), "cells", r.cells())))), 20, 20));
+    tasks.add(Bukkit.getScheduler().runTaskTimer(this, hud::tick, 20, 20));
   }
 
   @Override
   public void onDisable() {
     tasks.forEach(BukkitTask::cancel);
     tasks.clear();
+    if (hud != null) hud.hideAll();
+    if (outlines != null) outlines.clearAll();
     if (worldEdit != null) worldEdit.unregister();
     if (commands != null) commands.unwrap();
     for (World world : Bukkit.getWorlds()) CascadeUpdater.uninstall(world);

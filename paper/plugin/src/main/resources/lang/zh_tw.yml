@@ -1,21 +1,30 @@
 prefix: "<dark_aqua>[BuildGit]</dark_aqua> "
 
 help: |-
-  <gray>指令：</gray>
+  <gray>草稿：</gray>
   <aqua>/bg try <名稱></aqua> <gray>— 開草稿並傳送到同一個位置</gray>
-  <aqua>/bg publish</aqua> <gray>— 把目前的草稿併回來源</gray>
+  <aqua>/bg publish [--selection]</aqua> <gray>— 預覽併回（點確認才寫入）；--selection 只併回選取範圍</gray>
   <aqua>/bg back</aqua> <gray>— 不併回，回到來源世界</gray>
   <aqua>/bg go <草稿|main></aqua> <gray>— 到某個草稿或主世界</gray>
-  <aqua>/bg branch list</aqua> <gray>— 列出草稿</gray>
+  <aqua>/bg branch list|create|delete</aqua> <gray>— 管理草稿</gray>
+  <gray>存檔與歷史：</gray>
   <aqua>/bg status</aqua> <gray>— 未存的變更</gray>
   <aqua>/bg save [訊息]</aqua> <gray>— 存檔（里程碑）</gray>
-  <aqua>/bg log [數量]</aqua> <gray>— 存檔歷史</gray>
-  <aqua>/bg show <存檔> [--cells]</aqua> <gray>— 這次存檔改了什麼（--cells 列出每一格）</gray>
-  <aqua>/bg inspect</aqua> <gray>— 檢查模式：點方塊看是誰改的</gray>
-  <aqua>/bg blame</aqua> <gray>— 看著的方塊是誰改的</gray>
+  <aqua>/bg log [數量] [--all] [--author <玩家>]</aqua> <gray>— 存檔歷史</gray>
+  <aqua>/bg show <存檔> [--cells]</aqua> <gray>— 這次存檔改了什麼</gray>
+  <aqua>/bg diff [存檔] [存檔]</aqua> <gray>— 在世界裡標出變更</gray>
+  <aqua>/bg view <存檔></aqua> <gray>— 唯讀地看舊版本</gray>
+  <aqua>/bg inspect</aqua> <gray>／</gray><aqua>/bg blame</aqua> <gray>— 看方塊是誰改的</gray>
+  <gray>還原：</gray>
+  <aqua>/bg revert <存檔></aqua> <gray>— 撤銷某次存檔，保留之後的變更</gray>
+  <aqua>/bg restore <存檔> [--selection]</aqua> <gray>— 把整個分支或選取範圍還原到舊版本</gray>
+  <gray>衝突：</gray>
+  <aqua>/bg merge conflicts|goto|take|continue|abort</aqua> <gray>— 處理衝突</gray>
+  <gray>其他：</gray>
+  <aqua>/bg sel pos1|pos2|show|clear</aqua> <gray>— 選取範圍（有 WorldEdit 時用它的選取）</gray>
+  <aqua>/bg who</aqua> <gray>— 誰在哪個草稿</gray>
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— 手動補記一個範圍</gray>
-  <aqua>/bg init</aqua> <gray>— 開始對這個伺服器做版本控制</gray>
-  <aqua>/bg reload</aqua> <gray>— 重新載入設定</gray>
+  <aqua>/bg init</aqua> <gray>／</gray><aqua>/bg reload</aqua> <gray>— 管理</gray>
 no-permission: "<red>你沒有權限。</red>"
 players-only: "<red>只有玩家可以使用這個指令。</red>"
 not-initialized: "<red>還沒有開始版本控制。管理員可以執行 <aqua>/bg init</aqua>。</red>"
@@ -23,26 +32,35 @@ already-initialized: "<red>已經開始版本控制了。</red>"
 init-start: "<gray>正在存檔並複製起點世界，伺服器會暫停一下…</gray>"
 init-done: "<green>已開始版本控制。從現在起，玩家造成的變更都會被記錄。</green> <gray>（起點世界 <size> MB）</gray>"
 init-failed: "<red>初始化失敗：<error></red>"
+reloaded: "<green>設定已重新載入。</green>"
+console-confirm: "<gray>確認請執行：</gray><aqua><command></aqua>"
+
 status-header: "<branch> <gray>最新存檔</gray> <yellow><head></yellow>"
 status-clean: "<gray>沒有未存的變更。</gray>"
 status-pending: "<gray>未存：</gray><white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體</gray>"
 status-author: "  <gray>-</gray> <white><author></white> <gray><cells> 格</gray>"
 status-unclean: "<yellow>上次伺服器沒有正常關閉，最後一秒的變更可能沒有記到。可以用 /bg mark 補記。</yellow>"
+
 save-start: "<gray>正在存檔…</gray>"
-save-busy: "<yellow>另一個存檔正在進行，請稍後再試。</yellow>"
+save-busy: "<yellow>這個分支正在存檔或併回，請稍後再試。</yellow>"
 save-nothing: "<gray>沒有需要存的變更。</gray>"
 save-done: "<green>已存檔</green> <yellow><id></yellow> <gray>— <cells> 格、<entities> 個實體</gray>"
 save-failed: "<red>存檔失敗，變更都還在，可以再試一次：<error></red>"
 autosave-done: "<gray>自動存檔</gray> <yellow><id></yellow> <gray>— <cells> 格</gray>"
+
 log-entry: "<yellow><id></yellow> <gray><time></gray> <white><author></white> <message>"
 log-auto: "<dark_gray>（自動）</dark_gray>"
+log-folded: "  <dark_gray>⋯ <count> 次自動存檔（/bg log --all 顯示）</dark_gray>"
 log-empty: "<gray>還沒有任何存檔。</gray>"
 show-header: "<yellow><id></yellow> <white><author></white> <gray><time></gray> <message>"
 show-line: "  <gray>-</gray> <white><author></white> <gray><cells> 格</gray>"
 show-entities: "  <gray>實體 <entities> 個</gray>"
 show-cell: "  <gray><kind></gray> <white><pos></white> <dark_gray><dimension></dark_gray> <gray><author></gray>"
 show-more: "  <gray>…還有 <count> 格</gray>"
-unknown-commit: "<red>找不到存檔：<id></red>"
+unknown-commit: "<red>找不到存檔或分支：<id></red>"
+diff-unsaved: "<gray>未存的變更</gray> <white><cells></white> <gray>格，已在世界裡標出。</gray>"
+diff-summary: "<green>+<added></green> <red>-<removed></red> <yellow>~<modified></yellow> <gray>格、<entities> 個實體；已在世界裡標出（<green>綠</green>新增、<red>紅</red>拆除、<yellow>黃</yellow>修改）。</gray>"
+
 inspect-on: "<green>檢查模式開啟。</green><gray>點方塊查看是誰改的，再執行一次關閉。</gray>"
 inspect-off: "<gray>檢查模式關閉。</gray>"
 inspect-pending: "<white><pos></white> <gray>— 未存，最後由</gray> <white><author></white> <gray>修改</gray>"
@@ -55,23 +73,112 @@ kind-modified: "修改"
 blame-no-target: "<red>請看著一個方塊。</red>"
 mark-done: "<green>已補記 <cells> 格。</green>"
 mark-too-large: "<red>範圍太大（上限 <max> 格）。</red>"
-reloaded: "<green>設定已重新載入。</green>"
 usage-mark: "<red>用法：/bg mark <x1> <y1> <z1> <x2> <y2> <z2></red>"
+
+sel-set: "<gray>已設定</gray> <aqua><corner></aqua> <white><pos></white>"
+sel-cleared: "<gray>已清除選取範圍。</gray>"
+sel-none: "<red>沒有選取範圍。用 WorldEdit 選取，或 /bg sel pos1、/bg sel pos2。</red>"
+sel-current: "<gray>選取範圍：</gray><white><world></white> <white><from></white> <gray>到</gray> <white><to></white>"
+who-entry: "<white><player></white> <gray>—</gray> <place>"
+place-view: "<aqua>檢視 <id></aqua>"
+place-other: "<dark_gray><world></dark_gray>"
+
 branch-main: "<gold>主世界</gold>"
 branch-draft: "<light_purple>草稿 <name></light_purple>"
+branch-merge: "<red>衝突整合 <name></red>"
 usage-try: "<red>用法：/bg try <名稱></red>"
 usage-go: "<red>用法：/bg go <草稿名稱|main></red>"
-usage-branch: "<red>用法：/bg branch list</red>"
-branch-bad-name: "<red>草稿名稱只能用小寫英數、底線、連字號（最多 32 字），且不能是 main。</red>"
-try-created: "<green>已開出草稿</green> <light_purple><name></light_purple><gray>，正在傳送到同一個位置…</gray>"
-try-existing: "<gray>草稿</gray> <light_purple><name></light_purple> <gray>已存在，正在傳送…</gray>"
+usage-view: "<red>用法：/bg view <存檔或分支></red>"
+usage-branch: "<red>用法：/bg branch list | create <名稱> [來源] | delete <名稱> [--force]</red>"
+branch-bad-name: "<red>草稿名稱只能用小寫英數、底線、連字號（最多 32 字），且不能是 main 或 merge- 開頭。</red>"
+try-created: "<green>已開出草稿</green> <light_purple><name></light_purple><gray>。</gray>"
+try-existing: "<gray>草稿</gray> <light_purple><name></light_purple> <gray>已存在。</gray>"
+branch-created: "<green>已建立草稿</green> <light_purple><name></light_purple> <gray>（來自</gray> <from><gray>）</gray>"
+branch-deleted: "<green>已刪除草稿</green> <light_purple><name></light_purple> <gray>與它的世界。</gray>"
 branch-failed: "<red>失敗：<error></red>"
-branch-unknown: "<red>找不到草稿：<name></red>"
+branch-unknown: "<red>找不到草稿或分支：<name></red>"
+branch-entry: "<branch> <yellow><head></yellow> <gray><players> 位玩家</gray>"
 go-done: "<gray>已到</gray> <branch>"
 not-in-draft: "<red>你不在草稿世界裡。</red>"
-publish-start: "<gray>正在把草稿</gray> <light_purple><name></light_purple> <gray>併回</gray> <target><gray>…</gray>"
-publish-nothing: "<gray>草稿沒有新的變更需要併回。</gray>"
+view-opened: "<aqua>正在看存檔 <id></aqua><gray>（唯讀）。用</gray> <aqua>/bg back</aqua> <gray>回去。</gray>"
+view-readonly: "<red>這是唯讀的舊版本，不能修改。</red>"
+draft-delete-button: "<gray>草稿已全部併回。</gray> <red><u>[刪除草稿]</u></red>"
+
+publish-preview-start: "<gray>正在比較草稿</gray> <light_purple><name></light_purple> <gray>和</gray> <target><gray>…</gray>"
+publish-preview: "<gray>併回</gray> <target> <gray>會改動</gray> <white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體（已在世界裡標出）：</gray>"
+publish-preview-author: "  <gray>-</gray> <white><author></white> <gray><cells> 格</gray>"
+publish-preview-conflicts: "<yellow><count> 處兩邊都改了，確認後會進入衝突整合。</yellow>"
+publish-confirm-button: "<green><u>[確認併回]</u></green>"
+publish-start: "<gray>正在把</gray> <light_purple><name></light_purple> <gray>併回</gray> <target><gray>…</gray>"
+publish-nothing: "<gray>沒有新的變更需要併回。</gray>"
 publish-done: "<green>已併回</green> <target> <yellow><id></yellow> <gray>— <cells> 格、<entities> 個實體</gray>"
-publish-conflicts: "<red>有衝突，沒有併回：</red><white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體兩邊都改了。衝突處理介面還在開發中；請先在其中一邊改成一致再試。</gray>"
-conflict-cell: "  <light_purple>衝突</light_purple> <white><pos></white> <dark_gray><dimension></dark_gray>"
-branch-entry: "<branch> <yellow><head></yellow> <gray><players> 位玩家</gray>"
+shapes-fixed: "<gray>已修補 <cells> 格接縫處的方塊形狀（柵欄、牆、玻璃片等），另存為一次自動存檔。</gray>"
+
+merge-started: "<yellow>有衝突：</yellow><white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體兩邊都改了。已開啟衝突整合世界，衝突格先放目標分支的內容。</gray>"
+merge-help: |-
+  <gray>在整合世界裡直接修改就是你的決定，或用：</gray>
+  <aqua>/bg merge take ours|theirs [here|selection|all]</aqua> <gray>— 整批採用某一邊</gray>
+  <aqua>/bg merge view ours|theirs|result</aqua> <gray>— 對照兩邊</gray>
+  <aqua>/bg merge conflicts</aqua> <gray>／</gray><aqua>goto <n></aqua> <gray>— 衝突清單</gray>
+  <aqua>/bg merge continue</aqua> <gray>— 完成</gray> <gray>／</gray> <aqua>/bg merge abort</aqua> <gray>— 放棄</gray>
+merge-existing: "<yellow>已經有進行中的衝突整合</yellow> <white><id></white><gray>。</gray>"
+merge-goto-button: "<aqua><u>[前往整合世界]</u></aqua>"
+merge-entry: "<red>整合 <id></red> <gray><source> → <target></gray>"
+merge-none: "<red>沒有進行中的衝突整合（或請指定編號）。</red>"
+merge-use-continue: "<red>你在衝突整合世界裡；請用 /bg merge continue 或 /bg merge abort。</red>"
+merge-view-ours: "<gray>正在看目標</gray> <white><target></white> <gray>的內容（唯讀）。</gray>"
+merge-view-theirs: "<gray>正在看來源</gray> <white><source></white> <gray>的內容（唯讀）。</gray>"
+merge-view-result: "<gray>回到整合世界。</gray>"
+merge-conflicts-header: "<yellow><count> 處衝突</yellow><gray>，分成 <groups> 群（點一下前往）：</gray>"
+merge-cluster: "  <aqua><n>.</aqua> <white><cells></white> <gray>格</gray> <white><from></white> <gray>到</gray> <white><to></white> <dark_gray><dimension></dark_gray>"
+merge-no-conflicts: "<gray>沒有衝突格了。</gray>"
+merge-taken: "<green>已把 <count> 處設為 <side> 的內容。</green>"
+merge-finishing: "<gray>正在完成整合…</gray>"
+merge-finished-empty: "<gray>整合完成，</gray><target> <gray>沒有需要變更的地方。</gray>"
+merge-target-moved: "<red>整合期間目標分支有新的修改，和整合結果有 <count> 處衝突；請在整合世界裡調整後再完成。</red>"
+merge-aborted: "<gray>已放棄衝突整合，什麼都沒有寫入。</gray>"
+usage-merge: "<red>用法：/bg merge <分支> | list | view | conflicts | goto | take | continue | abort</red>"
+usage-merge-take: "<red>用法：/bg merge take ours|theirs [here|selection|all]</red>"
+
+usage-revert: "<red>用法：/bg revert <存檔></red>"
+revert-nothing: "<gray>那次存檔的變更已經都不在了，沒有需要撤銷的。</gray>"
+revert-done: "<green>已撤銷</green> <yellow><reverted></yellow><gray>，新存檔</gray> <yellow><id></yellow> <gray>— <cells> 格、<entities> 個實體</gray>"
+usage-restore: "<red>用法：/bg restore <存檔> [--selection]</red>"
+restore-confirm: "<yellow>這會把</yellow> <branch> <yellow>整個還原成存檔</yellow> <white><id></white> <yellow>的樣子（之後的變更會被覆蓋，但歷史都還在）。</yellow>"
+restore-confirm-selection: "<yellow>這會把選取範圍內的</yellow> <branch> <yellow>還原成存檔</yellow> <white><id></white> <yellow>的樣子。</yellow>"
+restore-confirm-button: "<red><u>[確認還原]</u></red>"
+restore-nothing: "<gray>已經和那個版本一樣了。</gray>"
+restore-done: "<green>已還原到</green> <yellow><target></yellow><gray>，新存檔</gray> <yellow><id></yellow> <gray>— <cells> 格、<entities> 個實體</gray>"
+
+hud-draft: "<light_purple>草稿 <name></light_purple> <gray>· 未存 <cells> 格、<entities> 個實體 · /bg publish 併回</gray>"
+hud-merge: "<red>衝突整合</red> <white><source> → <target></white> <gray>· <conflicts> 處衝突 · 已改 <cells> 格</gray>"
+hud-view: "<aqua>檢視存檔 <id></aqua> <gray>· 唯讀 · /bg back 回去</gray>"
+hud-merge-view: "<aqua><side> 的內容</aqua> <gray>（<id>）· 唯讀 · /bg back 回整合世界</gray>"
+
+menu-title: "<dark_aqua>BuildGit</dark_aqua>"
+menu-status: "<aqua>狀態</aqua>"
+menu-status-lore: "<gray>未存的變更與進行中的整合</gray>"
+menu-save: "<aqua>存檔</aqua>"
+menu-save-lore: "<gray>把目前的變更存成一個版本</gray>"
+menu-log: "<aqua>歷史</aqua>"
+menu-log-lore: "<gray>最近的存檔</gray>"
+menu-diff: "<aqua>標出未存的變更</aqua>"
+menu-diff-lore: "<gray>在世界裡顯示外框</gray>"
+menu-inspect: "<aqua>檢查模式</aqua>"
+menu-inspect-lore: "<gray>點方塊看是誰改的</gray>"
+menu-who: "<aqua>誰在哪裡</aqua>"
+menu-who-lore: "<gray>每位玩家所在的草稿</gray>"
+menu-sel: "<aqua>選取範圍</aqua>"
+menu-sel-lore: "<gray>顯示目前的選取範圍</gray>"
+menu-publish: "<green>併回</green>"
+menu-publish-lore: "<gray>預覽後確認</gray>"
+menu-back: "<aqua>回去</aqua>"
+menu-back-lore: "<gray>不併回，回到來源世界</gray>"
+menu-merge-continue: "<green>完成整合</green>"
+menu-merge-continue-lore: "<gray>把整合結果寫進目標分支</gray>"
+menu-merge-conflicts: "<red>衝突清單</red>"
+menu-merge-conflicts-lore: "<gray>列出並標出衝突格</gray>"
+menu-draft: "<light_purple>草稿 <name></light_purple>"
+menu-draft-go: "<gray>點一下前往</gray>"
+menu-draft-here: "<gray>你在這裡</gray>"
+menu-merge: "<red>整合 <id></red> <gray>→ <target></gray>"

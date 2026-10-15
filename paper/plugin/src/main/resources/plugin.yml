@@ -7,11 +7,6 @@ website: https://twme.dev
 libraries:
   - com.github.luben:zstd-jni:${zstd}
 softdepend: [WorldEdit, FastAsyncWorldEdit, AxiomPaper]
-commands:
-  bg:
-    description: BuildGit 版本控制
-    usage: /bg help
-    aliases: [buildgit]
 permissions:
   buildgit.view:
     description: 查看狀態、歷史、存檔內容與方塊來源
@@ -43,11 +38,43 @@ permissions:
     default: op
     children:
       buildgit.try: true
-  buildgit.admin:
-    description: 初始化與重新載入
+  buildgit.commit:
+    description: 以自訂訊息存檔（里程碑）
     default: op
     children:
       buildgit.save: true
+  buildgit.branch.create:
+    description: 建立分支（不傳送）
+    default: op
+  buildgit.branch.delete:
+    description: 刪除草稿與它的世界
+    default: op
+  buildgit.merge:
+    description: 底層合併任意分支、處理衝突整合
+    default: op
+    children:
+      buildgit.publish: true
+  buildgit.revert:
+    description: 撤銷某次存檔
+    default: op
+    children:
+      buildgit.save: true
+  buildgit.restore:
+    description: 把分支或範圍還原到舊版本
+    default: op
+    children:
+      buildgit.save: true
+  buildgit.admin:
+    description: 初始化、重新載入與所有權限
+    default: op
+    children:
+      buildgit.save: true
+      buildgit.commit: true
       buildgit.inspect: true
       buildgit.mark: true
       buildgit.publish: true
+      buildgit.merge: true
+      buildgit.revert: true
+      buildgit.restore: true
+      buildgit.branch.create: true
+      buildgit.branch.delete: true

@@ -21,15 +21,20 @@
 ## 基本用法
 
 ```
+/bg                      主選單（箱子介面）
 /bg init                 開始版本控制（複製一次起點世界）
 /bg try <名稱>           開草稿並傳送到同一個位置
-/bg save [訊息]          存檔
-/bg publish              把草稿併回來源
+/bg save [訊息]          存檔（里程碑）
+/bg publish [--selection] 預覽併回，點確認後寫入；--selection 只併回選取範圍
 /bg back                 不併回，回到來源世界
-/bg log、/bg show、/bg blame、/bg inspect
+/bg merge take|continue|abort   有衝突時處理整合世界
+/bg revert <存檔>        撤銷某次存檔
+/bg restore <存檔> [--selection] 還原到舊版本
+/bg view <存檔>          唯讀地看舊版本
+/bg log、show、diff、blame、inspect、who、branch
 ```
 
-完整指令見遊戲內 `/bg help`。
+完整指令見遊戲內 `/bg help`；權限節點見 [設計文件 §8](docs/01-design.md#8-權限)。
 
 ## 給其他插件的 API
 

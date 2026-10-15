@@ -21,7 +21,7 @@ public final class WorldEditSelection {
       var region = session.getSelection(world);
       var min = region.getMinimumPoint();
       var max = region.getMaximumPoint();
-      return new Result(world.getName(), new Box(min.getX(), min.getY(), min.getZ(), max.getX(), max.getY(), max.getZ()));
+      return new Result(world.getName(), new Box(min.x(), min.y(), min.z(), max.x(), max.y(), max.z()));
     } catch (IncompleteRegionException e) {
       return null;
     }

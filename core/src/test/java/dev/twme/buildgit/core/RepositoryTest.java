@@ -22,6 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 class RepositoryTest {
   static final Author ALICE = new Author(UUID.randomUUID(), "alice");
   static final Author BOB = new Author(UUID.randomUUID(), "bob");
+  static final String NETHER = "minecraft:the_nether";
 
   @TempDir Path dir;
   Repository repo;
@@ -242,6 +243,50 @@ class RepositoryTest {
     assertEquals(1, repo.commit(partial).parents().size(), "部分併回是單親提交");
     var full = merge(main, draft, null);
     assertEquals(Cell.of("minecraft:sand"), cellAt(full, 100, 70, 100));
+  }
+
+  @Test
+  void selectionIsLimitedToItsDimension() throws Exception {
+    var main = main();
+    var draft = branch("d", main);
+    var pos = new BlockPos(10, 70, 10);
+    draft.set(BOB, 10, 70, 10, "minecraft:glass");
+    draft.world.set(NETHER, pos, Cell.of("minecraft:netherrack"));
+    draft.marks.markCell(NETHER, pos, BOB);
+    draft.commit("both dimensions").orElseThrow();
+    var o = repo.head("main");
+    var t = repo.head("d");
+    var result = repo.mergeTrees(repo.mergeBase(o, t), o, t, OVERWORLD, new Box(0, 0, 0, 20, 100, 20));
+    assertTrue(result.clean());
+    var reader = new dev.twme.buildgit.core.overlay.OverlayReader(repo.overlays(), result.tree());
+    assertEquals(Cell.of("minecraft:glass"), reader.cell(OVERWORLD, pos));
+    assertNull(reader.cell(NETHER, pos), "另一個維度的同一座標不在選取範圍內");
+
+    var restored = repo.restoreTree(t, o, NETHER, new Box(0, 0, 0, 20, 100, 20));
+    var r = new dev.twme.buildgit.core.overlay.OverlayReader(repo.overlays(), restored);
+    assertNull(r.cell(NETHER, pos), "地獄的範圍還原了");
+    assertEquals(Cell.of("minecraft:glass"), r.cell(OVERWORLD, pos), "主世界不受影響");
+  }
+
+  @Test
+  void authorsSinceAndExplicitResolutionAuthors() throws Exception {
+    var main = main();
+    var draft = branch("d", main);
+    var base = repo.head("d");
+    draft.set(BOB, 1, 70, 0, "minecraft:stone").set(BOB, 2, 70, 0, "minecraft:stone").commit("bob").orElseThrow();
+    draft.set(ALICE, 2, 70, 0, "minecraft:glass").commit("alice").orElseThrow();
+    var by = repo.authorsSince(repo.head("d"), base);
+    assertEquals(BOB, by.get(new Repository.CellKey(OVERWORLD, new BlockPos(1, 70, 0))));
+    assertEquals(ALICE, by.get(new Repository.CellKey(OVERWORLD, new BlockPos(2, 70, 0))), "最新的作者優先");
+
+    var o = repo.head("main");
+    var t = repo.head("d");
+    var result = repo.mergeTrees(repo.mergeBase(o, t), o, t, null);
+    var id = repo.commitTree("main", List.of(o), result.tree(), Repository.Resolution.authors(by), genesis, Author.MERGE, ALICE,
+        ++clock, "partial", 0, new TreeMap<>()).orElseThrow();
+    var cs = repo.changeset(repo.commit(id).changeset());
+    assertEquals(Map.of(BOB, 1, ALICE, 1), cs.cellsByAuthor());
+    assertEquals(BOB, repo.blame(id, OVERWORLD, new BlockPos(1, 70, 0)).orElseThrow().author(), "單親提交也追得到作者");
   }
 
   @Test

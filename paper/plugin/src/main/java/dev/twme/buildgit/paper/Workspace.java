@@ -22,6 +22,7 @@ import dev.twme.buildgit.paper.track.Tracker;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -131,7 +132,8 @@ public final class Workspace {
   }
 
   static Throwable unwrap(Throwable t) {
-    return t instanceof CompletionException c && c.getCause() != null ? c.getCause() : t;
+    while ((t instanceof CompletionException || t instanceof UncheckedIOException) && t.getCause() != null) t = t.getCause();
+    return t;
   }
 
   public boolean isOpen() {
@@ -551,11 +553,29 @@ public final class Workspace {
     }, 20);
   }
 
-  static void deleteRecursively(Path path) throws IOException {
+  /** 遞迴刪除；同一個資料夾可能同時被收掉世界與刪除分支各刪一次，已經不在的項目略過。 */
+  static synchronized void deleteRecursively(Path path) throws IOException {
     if (!Files.exists(path)) return;
-    try (var s = Files.walk(path)) {
-      for (var p : s.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(p);
-    }
+    Files.walkFileTree(path, new SimpleFileVisitor<>() {
+      @Override
+      public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+        Files.deleteIfExists(file);
+        return FileVisitResult.CONTINUE;
+      }
+
+      @Override
+      public FileVisitResult visitFileFailed(Path file, IOException e) throws IOException {
+        if (e instanceof NoSuchFileException) return FileVisitResult.CONTINUE;
+        throw e;
+      }
+
+      @Override
+      public FileVisitResult postVisitDirectory(Path dir, IOException e) throws IOException {
+        if (e != null && !(e instanceof NoSuchFileException)) throw e;
+        Files.deleteIfExists(dir);
+        return FileVisitResult.CONTINUE;
+      }
+    });
   }
 
   // ---- 傳送 ----
@@ -799,14 +819,14 @@ public final class Workspace {
     var authors = new HashMap<Repository.CellKey, Author>();
     List<ObjectId> parents;
     String message;
+    // 合併提交裡每一格記上草稿裡真正改它的人（部分併回沒有第二個父提交，blame 只能靠這個）。
+    authors.putAll(repo.authorsSince(theirs, base));
     if (scope == null) {
       parents = List.of(head, theirs);
       trailers.put("Merged-From", source);
       message = "併回 " + source;
     } else {
-      // 部分併回沒有第二個父提交，blame 追不到原作者：把草稿裡的作者直接記進來。
       parents = List.of(head);
-      authors.putAll(repo.authorsSince(theirs, base));
       trailers.put("Partial-From", source);
       message = "部分併回 " + source;
     }
@@ -840,10 +860,11 @@ public final class Workspace {
         var by = repo.authorsSince(theirs, base);
         var authors = new TreeMap<String, Integer>();
         var changed = new ArrayList<Changed>();
+        var cache = new HashMap<SectionKey, Cell[]>();
         for (var c : diff.cells()) {
           var a = by.get(new Repository.CellKey(c.dimension(), c.pos()));
           authors.merge(a != null ? a.name() : "?", 1, Integer::sum);
-          changed.add(new Changed(c.dimension(), c.pos(), kind(c.before(), c.after())));
+          changed.add(new Changed(c.dimension(), c.pos(), kind(c.dimension(), c.pos(), c.before(), c.after(), cache)));
         }
         for (var c : result.cellConflicts()) changed.add(new Changed(c.dimension(), c.pos(), Kind.CONFLICT));
         return new Preview(diff.cells().size(), diff.entities().size(), authors, changed, result, ours, theirs);
@@ -853,10 +874,23 @@ public final class Workspace {
     }, this::async);
   }
 
-  /** 變化的種類（null 表示與起點相同，視為修改）。 */
-  static Kind kind(Cell before, Cell after) {
-    if (after != null && after.isAir()) return Kind.REMOVED;
-    if (before != null && before.isAir()) return Kind.ADDED;
+  /** 一格變動的種類；null（和起點世界相同）以起點世界的內容判斷，{@code cache} 存讀過的 section。 */
+  Kind kind(String dimension, BlockPos pos, Cell before, Cell after, Map<SectionKey, Cell[]> cache) throws IOException {
+    if (before == null || after == null) {
+      var key = SectionKey.of(dimension, pos);
+      var cells = cache.get(key);
+      if (cells == null) {
+        var all = new BitSet(4096);
+        all.set(0, 4096);
+        cells = genesis.readSection(key, all);
+        cache.put(key, cells);
+      }
+      var origin = cells[pos.sectionIndex()] == null ? Cell.AIR : cells[pos.sectionIndex()];
+      if (before == null) before = origin;
+      if (after == null) after = origin;
+    }
+    if (after.isAir()) return Kind.REMOVED;
+    if (before.isAir()) return Kind.ADDED;
     return Kind.MODIFIED;
   }
 
