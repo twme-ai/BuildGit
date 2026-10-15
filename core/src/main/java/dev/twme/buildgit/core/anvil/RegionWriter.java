@@ -53,8 +53,11 @@ public final class RegionWriter implements Closeable {
    */
   public synchronized void write(int index, byte[] nbt) throws IOException {
     var compressed = new ByteArrayOutputStream(nbt.length / 4 + 64);
-    try (var out = new DeflaterOutputStream(compressed, new Deflater(Deflater.DEFAULT_COMPRESSION))) {
+    var deflater = new Deflater(Deflater.DEFAULT_COMPRESSION);
+    try (var out = new DeflaterOutputStream(compressed, deflater)) {
       out.write(nbt);
+    } finally {
+      deflater.end(); // 自己給的 Deflater 不會隨串流關閉釋放原生記憶體
     }
     byte[] body = compressed.toByteArray();
     int sectors = (body.length + 5 + SECTOR - 1) / SECTOR;

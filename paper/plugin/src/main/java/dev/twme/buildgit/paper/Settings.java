@@ -36,9 +36,9 @@ public record Settings(
         c.getBoolean("integrations.axiom", true));
   }
 
-  /** 負數表示不卸載；否則至少 10 秒，避免剛開的世界在玩家傳送進去之前就被卸載。 */
+  /** 負數表示不卸載；否則至少 30 秒：開世界加傳送可能要好幾秒，太短會在玩家抵達前就卸載。 */
   private static long unloadIdle(long seconds) {
-    return seconds < 0 ? -1 : Math.max(10, seconds) * 20;
+    return seconds < 0 ? -1 : Math.max(30, seconds) * 20;
   }
 
   private static Set<EntityType> types(List<String> names, Logger log) {

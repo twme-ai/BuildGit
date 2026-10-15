@@ -4,22 +4,20 @@ import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.store.ObjectStore;
 import dev.twme.buildgit.core.store.ObjectType;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.Map;
 
-/** 覆寫表物件的讀寫，附小型快取。物件不可變，所以快取永遠正確。 */
+/**
+ * 覆寫表物件的讀寫，附快取。物件不可變，所以快取永遠正確。
+ *
+ * <p>快取以「項目數」計重而不是物件數：一個整片被 FAWE 填滿的 section 有 4096 格，和只改一格的 section
+ * 占的記憶體差上千倍，只限物件數的話，大編輯之後快取可能吃掉好幾百 MB。
+ */
 public final class OverlayStore {
-  private static final int CACHE = 4096;
+  /** 快取裡所有物件的項目（格子、實體、目錄項目）總數上限，約數十 MB。 */
+  private static final long MAX_WEIGHT = 400_000;
   private final ObjectStore objects;
-  private final Map<ObjectId, Object> cache =
-      Collections.synchronizedMap(
-          new LinkedHashMap<>(256, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<ObjectId, Object> eldest) {
-              return size() > CACHE;
-            }
-          });
+  private final LinkedHashMap<ObjectId, Object> cache = new LinkedHashMap<>(256, 0.75f, true);
+  private long weight;
 
   public OverlayStore(ObjectStore objects) {
     this.objects = objects;
@@ -31,9 +29,9 @@ public final class OverlayStore {
 
   public Tree tree(ObjectId id) throws IOException {
     if (id == null) return Tree.EMPTY;
-    if (cache.get(id) instanceof Tree t) return t;
+    if (cached(id) instanceof Tree t) return t;
     var t = Tree.decode(objects.get(id, ObjectType.TREE));
-    cache.put(id, t);
+    remember(id, t);
     return t;
   }
 
@@ -43,17 +41,17 @@ public final class OverlayStore {
 
   public SectionOverlay section(Tree.Entry entry) throws IOException {
     if (entry == null) return SectionOverlay.EMPTY;
-    if (cache.get(entry.id()) instanceof SectionOverlay s) return s;
+    if (cached(entry.id()) instanceof SectionOverlay s) return s;
     var s = SectionOverlay.decode(objects.get(entry.id(), ObjectType.SECTION));
-    cache.put(entry.id(), s);
+    remember(entry.id(), s);
     return s;
   }
 
   public EntityOverlay entities(Tree.Entry entry) throws IOException {
     if (entry == null) return EntityOverlay.EMPTY;
-    if (cache.get(entry.id()) instanceof EntityOverlay e) return e;
+    if (cached(entry.id()) instanceof EntityOverlay e) return e;
     var e = EntityOverlay.decode(objects.get(entry.id(), ObjectType.ENTITIES));
-    cache.put(entry.id(), e);
+    remember(entry.id(), e);
     return e;
   }
 
@@ -61,28 +59,53 @@ public final class OverlayStore {
   public Tree.Entry put(Tree tree) throws IOException {
     if (tree.entries().isEmpty()) return null;
     var id = objects.put(ObjectType.TREE, tree.encode());
-    cache.put(id, tree);
+    remember(id, tree);
     return new Tree.Entry(ObjectType.TREE, id);
   }
 
   /** 根節點即使是空的也要存，提交永遠指向一個 tree。 */
   public ObjectId putRoot(Tree tree) throws IOException {
     var id = objects.put(ObjectType.TREE, tree.encode());
-    cache.put(id, tree);
+    remember(id, tree);
     return id;
   }
 
   public Tree.Entry put(SectionOverlay section) throws IOException {
     if (section.isEmpty()) return null;
     var id = objects.put(ObjectType.SECTION, section.encode());
-    cache.put(id, section);
+    remember(id, section);
     return new Tree.Entry(ObjectType.SECTION, id);
   }
 
   public Tree.Entry put(EntityOverlay entities) throws IOException {
     if (entities.isEmpty()) return null;
     var id = objects.put(ObjectType.ENTITIES, entities.encode());
-    cache.put(id, entities);
+    remember(id, entities);
     return new Tree.Entry(ObjectType.ENTITIES, id);
+  }
+
+  private synchronized Object cached(ObjectId id) {
+    return cache.get(id);
+  }
+
+  private synchronized void remember(ObjectId id, Object value) {
+    var old = cache.put(id, value);
+    if (old != null) weight -= weight(old);
+    weight += weight(value);
+    var it = cache.values().iterator();
+    while (weight > MAX_WEIGHT && cache.size() > 1) {
+      weight -= weight(it.next());
+      it.remove();
+    }
+  }
+
+  private static long weight(Object o) {
+    return 1
+        + switch (o) {
+          case Tree t -> t.entries().size();
+          case SectionOverlay s -> s.cells().size();
+          case EntityOverlay e -> e.entities().size();
+          default -> 0;
+        };
   }
 }

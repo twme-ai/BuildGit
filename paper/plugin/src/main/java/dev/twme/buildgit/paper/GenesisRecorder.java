@@ -6,7 +6,7 @@ import dev.twme.buildgit.core.anvil.RegionWriter;
 import dev.twme.buildgit.paper.nms.LiveReader;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,8 +32,20 @@ final class GenesisRecorder {
         t.setDaemon(true);
         return t;
       });
-  /** 只在 io 執行緒使用。 */
-  private final Map<Path, RegionWriter> writers = new HashMap<>();
+  /** 只在 io 執行緒使用。只開著最近用過的幾個，玩家一路探索時不會累積上百個開著的檔案。 */
+  private final Map<Path, RegionWriter> writers =
+      new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Path, RegionWriter> eldest) {
+          if (size() <= 16) return false;
+          try {
+            eldest.getValue().close();
+          } catch (IOException ignored) {
+            // 每次寫入都已 force
+          }
+          return true;
+        }
+      };
 
   GenesisRecorder(Function<String, Path> genesisDir, AnvilSource genesis, Logger log) {
     this.genesisDir = genesisDir;

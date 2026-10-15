@@ -60,7 +60,9 @@ public final class MarkJournal implements Closeable {
 
   /** 把標記表裡變動過的部分寫進日誌並寫到磁碟。平台每秒與世界存檔時呼叫。 */
   public synchronized void flush(MarkTable table) throws IOException {
-    write(table.takeDirty());
+    var dirty = table.takeDirty();
+    if (dirty.isEmpty()) return; // 沒人在蓋時不要每秒 fsync
+    write(dirty);
     out.flush();
     file.getFD().sync();
   }

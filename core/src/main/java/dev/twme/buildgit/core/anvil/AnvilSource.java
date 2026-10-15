@@ -15,9 +15,23 @@ import java.util.function.Function;
  */
 public final class AnvilSource implements StateSource, Closeable {
   private static final int CACHED_CHUNKS = 256;
+  private static final int OPEN_REGIONS = 32;
 
   private final Function<String, Path> dimensions;
-  private final Map<Path, RegionFile> regions = new HashMap<>();
+  /** 開著的 region 檔；超過上限時關掉最久沒用的，避免大世界占滿檔案代碼。 */
+  private final Map<Path, RegionFile> regions =
+      new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Path, RegionFile> eldest) {
+          if (size() <= OPEN_REGIONS) return false;
+          try {
+            eldest.getValue().close();
+          } catch (IOException ignored) {
+            // 唯讀檔案
+          }
+          return true;
+        }
+      };
   private final Map<String, ChunkData> chunks =
       new LinkedHashMap<>(64, 0.75f, true) {
         @Override
@@ -35,9 +49,14 @@ public final class AnvilSource implements StateSource, Closeable {
   /** 解碼後的 chunk：每個 section 的調色盤與索引，以及方塊實體。 */
   private record ChunkData(Map<Integer, Section> sections, Map<Integer, byte[]> blockEntities) {}
 
-  private record Section(String[] palette, int[] indices) {
-    String state(int cell) {
-      return palette[indices == null ? 0 : indices[cell]];
+  /** 方塊索引保持存檔裡的打包格式（每格 4 位元起），快取的 chunk 只占展開成 int[] 的幾分之一。 */
+  private record Section(String[] palette, long[] data, int bits) {
+    String state(int cell) throws IOException {
+      if (data == null) return palette[0];
+      int perLong = 64 / bits;
+      int v = (int) (data[cell / perLong] >>> (cell % perLong) * bits & (1L << bits) - 1);
+      if (v >= palette.length) throw new IOException("section 調色盤索引超出範圍");
+      return palette[v];
     }
   }
 
@@ -99,12 +118,15 @@ public final class AnvilSource implements StateSource, Closeable {
         p.compound("Properties").forEach((k, v) -> props.put(k, String.valueOf(v)));
         names[i] = BlockStates.format(p.string("Name"), props);
       }
-      int[] indices = null;
+      long[] packed = null;
+      int bits = 0;
       if (names.length > 1) {
         if (!(states.get("data") instanceof long[] data)) throw new IOException("section 缺少方塊資料");
-        indices = unpack(data, names.length);
+        bits = bits(names.length);
+        if (data.length < (4096 + 64 / bits - 1) / (64 / bits)) throw new IOException("section 方塊資料長度不足");
+        packed = data;
       }
-      sections.put((int) y, new Section(names, indices));
+      sections.put((int) y, new Section(names, packed, bits));
     }
     var blockEntities = new HashMap<Integer, byte[]>();
     for (var o : chunk.list("block_entities").values()) {
@@ -118,8 +140,12 @@ public final class AnvilSource implements StateSource, Closeable {
   }
 
   /** 1.16 之後的打包格式：每個 long 放 64/bits 個值，不跨 long。 */
+  static int bits(int paletteSize) {
+    return Math.max(4, 32 - Integer.numberOfLeadingZeros(paletteSize - 1));
+  }
+
   static int[] unpack(long[] data, int paletteSize) throws IOException {
-    int bits = Math.max(4, 32 - Integer.numberOfLeadingZeros(paletteSize - 1));
+    int bits = bits(paletteSize);
     int perLong = 64 / bits;
     if (data.length < (4096 + perLong - 1) / perLong) throw new IOException("section 方塊資料長度不足");
     long mask = (1L << bits) - 1;

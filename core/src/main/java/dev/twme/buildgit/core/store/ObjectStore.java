@@ -3,8 +3,9 @@ package dev.twme.buildgit.core.store;
 import com.github.luben.zstd.Zstd;
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 內容定址的物件儲存：{@code objects/ab/cdef…}，內容是 zstd 壓縮的「種類位元組＋資料」。
@@ -12,8 +13,17 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ObjectStore {
   private static final int LEVEL = 3;
+  /** 記得最近寫過的物件，省去重複檢查檔案；有上限，否則會隨版本庫大小一直長。 */
+  private static final int KNOWN = 1 << 16;
   private final Path root;
-  private final Map<ObjectId, Boolean> known = new ConcurrentHashMap<>();
+  private final Map<ObjectId, Boolean> known =
+      Collections.synchronizedMap(
+          new LinkedHashMap<>(1024, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<ObjectId, Boolean> eldest) {
+              return size() > KNOWN;
+            }
+          });
 
   public ObjectStore(Path root) throws IOException {
     this.root = root;
