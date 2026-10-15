@@ -11,6 +11,7 @@ help: |-
   <aqua>/bg status</aqua> <gray>— 未存的變更</gray>
   <aqua>/bg save [訊息]</aqua> <gray>— 存檔（里程碑）</gray>
   <aqua>/bg log [數量] [--all] [--author <玩家>]</aqua> <gray>— 存檔歷史</gray>
+  <aqua>/bg graph [數量] [--all]</aqua> <gray>— 分支歷史圖（像 git log --graph）</gray>
   <aqua>/bg show <存檔> [--cells]</aqua> <gray>— 這次存檔改了什麼</gray>
   <aqua>/bg diff [存檔] [存檔]</aqua> <gray>— 在世界裡標出變更</gray>
   <aqua>/bg view <存檔></aqua> <gray>— 唯讀地看舊版本</gray>
@@ -52,6 +53,9 @@ log-entry: "<yellow><id></yellow> <gray><time></gray> <white><author></white> <m
 log-auto: "<dark_gray>（自動）</dark_gray>"
 log-folded: "  <dark_gray>⋯ <count> 次自動存檔（/bg log --all 顯示）</dark_gray>"
 log-empty: "<gray>還沒有任何存檔。</gray>"
+graph-entry: "<dark_aqua><graph></dark_aqua> <id><refs> <gray><time></gray> <white><author></white> <message>"
+graph-id: "<yellow><hover:show_text:'<gray>點一下查看這次存檔'><id></hover></yellow>"
+graph-ref: "<gray>(</gray><branch><gray>)</gray>"
 show-header: "<yellow><id></yellow> <white><author></white> <gray><time></gray> <message>"
 show-line: "  <gray>-</gray> <white><author></white> <gray><cells> 格</gray>"
 show-entities: "  <gray>實體 <entities> 個</gray>"

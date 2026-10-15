@@ -40,6 +40,9 @@
    會先列出改了多少格、誰改的，按聊天欄的 **[確認併回]** 才會真的寫進主世界。
    併回後可以按 **[刪除草稿]** 收掉這個草稿。
 5. **不要了？** `/bg back` 回到原本的世界，草稿留著，之後還能 `/bg go 新屋頂` 回來繼續。
+6. **刪除草稿**：`/bg branch delete 新屋頂`（主世界不能刪）。
+   還有沒存的變更時會被擋下，確定不要了再加 `--force`；如果別的草稿是從它開出來的，要先處理那個草稿。
+   `/bg branch list` 可以看所有草稿。
 
 只想併回一部分？先用 WorldEdit 選取範圍（或 `/bg sel pos1`、`/bg sel pos2`），再 `/bg publish --selection`。
 
@@ -51,6 +54,7 @@
 | 在世界裡標出改過的方塊（會發光一陣子） | `/bg diff` |
 | 這個方塊是誰改的 | `/bg inspect` 開啟後點方塊；或看著方塊打 `/bg blame` |
 | 過去的存檔 | `/bg log` |
+| 所有草稿的分支歷史圖（像 `git log --graph`） | `/bg graph`；加 `--all` 連自動存檔一起顯示 |
 | 某次存檔改了哪些 | `/bg show <存檔編號>` |
 | 舊版本長什麼樣子 | `/bg view <存檔編號>`（唯讀，不能動；`/bg back` 回來） |
 | 大家在哪個草稿 | `/bg who` |
@@ -97,7 +101,9 @@
 /bg revert <存檔>        撤銷某次存檔
 /bg restore <存檔> [--selection] 還原到舊版本
 /bg view <存檔>          唯讀地看舊版本
-/bg log、show、diff、blame、inspect、who、branch、sel
+/bg branch list|create|delete <名稱> [--force]  管理草稿
+/bg graph [數量] [--all]  分支歷史圖
+/bg log、show、diff、blame、inspect、who、sel
 ```
 
 權限節點見 [設計文件 §8](docs/01-design.md#8-權限)。

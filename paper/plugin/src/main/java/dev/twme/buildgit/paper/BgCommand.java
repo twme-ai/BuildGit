@@ -11,6 +11,7 @@ import dev.twme.buildgit.core.model.Box;
 import dev.twme.buildgit.core.overlay.TreeDiff;
 import dev.twme.buildgit.core.repo.Changeset;
 import dev.twme.buildgit.core.repo.Commit;
+import dev.twme.buildgit.core.repo.Graph;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -78,6 +79,7 @@ final class BgCommand implements Listener {
     sub("save", "buildgit.save", (s, a) -> save(s, String.join(" ", a)), null);
     sub("commit", "buildgit.commit", (s, a) -> save(s, String.join(" ", a)), null);
     sub("log", "buildgit.view", this::log, (s, b) -> concat(List.of("--all", "--author"), draftNames()));
+    sub("graph", "buildgit.view", this::graph, (s, b) -> List.of("--all"));
     sub("show", "buildgit.view", this::show, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--cells"));
     sub("diff", "buildgit.view", this::diff, (s, b) -> b.size() < 2 ? recentCommits(s) : List.of());
     sub(List.of("inspect", "i"), "buildgit.inspect", (s, a) -> toggleInspect(s), null);
@@ -171,7 +173,7 @@ final class BgCommand implements Listener {
     try {
       sub.handler().run(sender, args);
     } catch (IOException | RuntimeException e) {
-      plugin.getLogger().log(Level.WARNING, "/bg " + name + " 失敗", e);
+      if (!(e instanceof Workspace.Refused)) plugin.getLogger().log(Level.WARNING, "/bg " + name + " 失敗", e);
       failed(sender, e);
     }
     return 1;
@@ -375,6 +377,41 @@ final class BgCommand implements Listener {
     }
     if (folded > 0) msg().send(sender, "log-folded", "count", folded);
     if (shown == 0 && folded == 0) msg().send(sender, "log-empty");
+  }
+
+  /** 所有草稿的分支線用等寬字型畫，才會對齊。 */
+  private static final net.kyori.adventure.key.Key MONO = net.kyori.adventure.key.Key.key("minecraft", "uniform");
+
+  /** {@code graph [數量] [--all]}：像 git log --graph 的分支歷史圖；預設略過自動存檔。 */
+  private void graph(CommandSender sender, String[] args) throws IOException {
+    boolean all = flags(args).contains("--all");
+    var w = words(args);
+    int limit = Math.min(50, Math.max(1, w.isEmpty() ? 15 : parseInt(w.getFirst(), 15)));
+    var heads = new LinkedHashMap<ObjectId, List<String>>();
+    for (var e : ws().drafts().entrySet()) heads.computeIfAbsent(e.getValue(), k -> new ArrayList<>()).add(e.getKey());
+    var repo = ws().repo();
+    ws().async(() -> {
+      List<Graph.Row> rows;
+      try {
+        rows = Graph.build(repo, heads.keySet(), c -> !c.parents().isEmpty() && (all || !c.auto()), limit);
+      } catch (IOException | RuntimeException e) {
+        failed(sender, e);
+        return;
+      }
+      if (rows.isEmpty()) {
+        msg().send(sender, "log-empty");
+        return;
+      }
+      for (var r : rows) {
+        var refs = Component.text();
+        for (var name : heads.getOrDefault(r.id(), List.of())) refs.append(Component.space()).append(msg().get("graph-ref", "branch", branchLabel(name)));
+        var c = r.commit();
+        var id = msg().get("graph-id", "id", r.id().abbrev()).clickEvent(ClickEvent.runCommand("/bg show " + r.id().abbrev()));
+        msg().send(sender, "graph-entry", "graph", Component.text(r.graph()).font(MONO), "id", id, "refs", refs.build(),
+            "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
+            "message", c.auto() ? msg().get("log-auto") : Component.text(c.message()));
+      }
+    });
   }
 
   private boolean wrote(Commit c, String name) throws IOException {

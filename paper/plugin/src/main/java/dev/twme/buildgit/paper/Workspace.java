@@ -421,16 +421,38 @@ public final class Workspace {
    *
    * @param force 有未存的變更也刪
    */
+  /** 預期中的拒絕（例如還有未存的變更）：只告訴玩家原因，不寫錯誤記錄。 */
+  static final class Refused extends IOException {
+    Refused(String message) {
+      super(message);
+    }
+  }
+
+  private static boolean hasJournal(Path worktreeDir) throws IOException {
+    if (!Files.isDirectory(worktreeDir)) return false;
+    try (var s = Files.list(worktreeDir)) {
+      return s.anyMatch(p -> {
+        try {
+          return p.getFileName().toString().endsWith(".journal") && Files.size(p) > 0;
+        } catch (IOException e) {
+          return true;
+        }
+      });
+    }
+  }
+
   public void deleteBranch(String name, boolean force) throws IOException {
-    if (name.equals(Repository.MAIN)) throw new IOException("不能刪除主世界");
+    if (name.equals(Repository.MAIN)) throw new Refused("不能刪除主世界");
     repo.head(name);
     var yaml = branchesFile();
     for (var other : yaml.getKeys(false))
       if (!other.equals(name) && name.equals(yaml.getString(other + ".source")) && repo.refs().get(other).isPresent())
-        throw new IOException("草稿 " + other + " 以它為來源，請先刪除或併回 " + other);
+        throw new Refused("草稿 " + other + " 以它為來源，請先刪除或併回 " + other);
     var wt = worktrees.get(name);
-    if (wt != null && !force && !wt.table().isEmpty()) throw new IOException("有未存的變更（加上 --force 仍要刪除）");
-    if (wt != null && wt.isCommitting()) throw new IOException("正在存檔或併回，請稍後再試");
+    // 已卸載的分支沒有標記表，未存的變更只在標記日誌裡（存檔成功後舊日誌會刪掉，所以有內容就是還沒存）
+    boolean unsaved = wt != null ? !wt.table().isEmpty() : hasJournal(dir.resolve("worktree").resolve(name));
+    if (!force && unsaved) throw new Refused("有未存的變更（加上 --force 仍要刪除）");
+    if (wt != null && wt.isCommitting()) throw new Refused("正在存檔或併回，請稍後再試");
     var fallback = worktrees.get(source(name));
     if (fallback == null) fallback = main();
     if (wt != null) {
