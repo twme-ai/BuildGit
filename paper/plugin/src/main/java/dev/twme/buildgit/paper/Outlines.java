@@ -2,27 +2,20 @@ package dev.twme.buildgit.paper;
 
 import dev.twme.buildgit.core.model.BlockPos;
 import dev.twme.buildgit.core.model.Box;
+import dev.twme.buildgit.paper.nms.OutlinePackets;
 import java.util.*;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
-import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.entity.BlockDisplay;
-import org.bukkit.entity.Display;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.util.Transformation;
-import org.joml.AxisAngle4f;
-import org.joml.Vector3f;
 
 /**
- * 只給某位玩家看的外框（差異、預覽、衝突）。以發光的方塊展示實體顯示：只對該玩家可見、不存檔，
- * 並在系統寫入期間建立，所以不會被追蹤。數量太多時合併成 section 大小的包圍盒。
+ * 只給某位玩家看的外框（差異、預覽、衝突）：發光的方塊展示實體，但只以封包送到那位玩家的客戶端，
+ * 伺服器上沒有這些實體（不占實體數、不會被追蹤或存檔，也不受 chunk 是否載入影響）。數量太多時合併成 section 大小的包圍盒。
  */
 final class Outlines implements Listener {
   static final Color ADDED = Color.fromRGB(0x55FF55);
@@ -34,7 +27,10 @@ final class Outlines implements Listener {
   record Shape(Box box, Color color) {}
 
   private final BuildGitPlugin plugin;
-  private final Map<UUID, List<Entity>> shown = new HashMap<>();
+  /** 玩家目前看到的外框：所在世界與客戶端上的實體 id。 */
+  private record Shown(UUID world, int[] ids) {}
+
+  private final Map<UUID, Shown> shown = new HashMap<>();
 
   Outlines(BuildGitPlugin plugin) {
     this.plugin = plugin;
@@ -81,37 +77,23 @@ final class Outlines implements Listener {
   void show(Player player, World world, List<Shape> shapes, int seconds) {
     clear(player);
     if (shapes.isEmpty() || !player.getWorld().equals(world)) return;
-    var list = new ArrayList<Entity>();
-    plugin.tracker().systemWrite(() -> {
-      for (var s : shapes.size() > MAX ? shapes.subList(0, MAX) : shapes) {
-        var b = s.box();
-        var loc = new Location(world, b.minX(), b.minY(), b.minZ());
-        if (!world.isChunkLoaded(b.minX() >> 4, b.minZ() >> 4)) continue;
-        float sx = b.maxX() - b.minX() + 1, sy = b.maxY() - b.minY() + 1, sz = b.maxZ() - b.minZ() + 1;
-        var display = world.spawn(loc, BlockDisplay.class, d -> {
-          d.setVisibleByDefault(false);
-          d.setPersistent(false);
-          d.setBlock(Material.WHITE_STAINED_GLASS.createBlockData());
-          d.setTransformation(new Transformation(new Vector3f(-0.01f), new AxisAngle4f(), new Vector3f(sx + 0.02f, sy + 0.02f, sz + 0.02f),
-              new AxisAngle4f()));
-          d.setGlowing(true);
-          d.setGlowColorOverride(s.color());
-          d.setBrightness(new Display.Brightness(15, 15));
-          d.setViewRange(4f);
-        });
-        player.showEntity(plugin, display);
-        list.add(display);
-      }
-    });
-    shown.put(player.getUniqueId(), list);
+    var boxes = new ArrayList<OutlinePackets.Box>();
+    for (var s : shapes.size() > MAX ? shapes.subList(0, MAX) : shapes) {
+      var b = s.box();
+      boxes.add(new OutlinePackets.Box(b.minX(), b.minY(), b.minZ(), b.maxX() - b.minX() + 1, b.maxY() - b.minY() + 1, b.maxZ() - b.minZ() + 1,
+          s.color().asRGB()));
+    }
+    var entry = new Shown(world.getUID(), OutlinePackets.show(player, boxes));
+    shown.put(player.getUniqueId(), entry);
     Bukkit.getScheduler().runTaskLater(plugin, () -> {
-      if (shown.get(player.getUniqueId()) == list) clear(player);
+      if (shown.get(player.getUniqueId()) == entry) clear(player);
     }, seconds * 20L);
   }
 
   void clear(Player player) {
-    var list = shown.remove(player.getUniqueId());
-    if (list != null) plugin.tracker().systemWrite(() -> list.forEach(Entity::remove));
+    var entry = shown.remove(player.getUniqueId());
+    // 換了世界的話客戶端已經丟掉那些實體，而且 id 可能被新世界的實體用掉，不能再送移除
+    if (entry != null && player.isOnline() && player.getWorld().getUID().equals(entry.world())) OutlinePackets.remove(player, entry.ids());
   }
 
   void clearAll() {
@@ -122,13 +104,19 @@ final class Outlines implements Listener {
     shown.clear();
   }
 
+  /** 玩家目前看得到的外框數（測試用）。 */
+  int count(Player player) {
+    var entry = shown.get(player.getUniqueId());
+    return entry == null ? 0 : entry.ids().length;
+  }
+
   @EventHandler
   public void onChangeWorld(PlayerChangedWorldEvent e) {
-    clear(e.getPlayer());
+    shown.remove(e.getPlayer().getUniqueId());
   }
 
   @EventHandler
   public void onQuit(PlayerQuitEvent e) {
-    clear(e.getPlayer());
+    shown.remove(e.getPlayer().getUniqueId());
   }
 }
