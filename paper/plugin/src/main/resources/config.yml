@@ -60,6 +60,11 @@ autosave:
   # 一直有人在蓋時，最長多久一定自動存檔一次（秒）。0 表示停用。
   max-interval-seconds: 1800
 
+worlds:
+  # 草稿與衝突整合的世界沒有玩家這麼久之後，存到磁碟並從記憶體卸載（秒）；
+  # 有人再進去（go、try、併回等）時自動重新載入。最少 10 秒；-1 表示一直留在記憶體。
+  unload-idle-seconds: 60
+
 integrations:
   # 記錄 WorldEdit／FastAsyncWorldEdit 的編輯。
   worldedit: true

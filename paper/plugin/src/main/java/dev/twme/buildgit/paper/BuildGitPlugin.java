@@ -123,6 +123,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
         Bukkit.getOnlinePlayers().stream().filter(p -> p.hasPermission("buildgit.view"))
             .forEach(p -> messages.send(p, "autosave-done", "id", id.abbrev(), "cells", r.cells())))), 20, 20));
     tasks.add(Bukkit.getScheduler().runTaskTimer(this, hud::tick, 20, 20));
+    tasks.add(Bukkit.getScheduler().runTaskTimer(this, () -> workspace.unloadIdleTick(settings.unloadIdleTicks()), 20, 20));
   }
 
   @Override

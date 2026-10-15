@@ -248,6 +248,54 @@ public final class Workspace {
     for (var w : worktrees()) w.autosaveTick(done);
   }
 
+  /** 分支 → 世界裡開始沒有玩家的遊戲刻。 */
+  private final Map<String, Long> idleSince = new HashMap<>();
+
+  /**
+   * 每秒（主執行緒）：草稿與整合分支的世界沒有玩家超過 {@code idleTicks} 後，存到磁碟並卸載，工作區也一起關閉
+   * （未存的標記寫進日誌）。之後 {@link #openBranch} 會重新載入：region 檔還在，不會重新合成。
+   *
+   * @param idleTicks 小於 0 表示不卸載
+   */
+  public void unloadIdleTick(long idleTicks) {
+    if (repo == null || idleTicks < 0) return;
+    long now = Bukkit.getCurrentTick();
+    idleSince.keySet().retainAll(worktrees.keySet());
+    for (var wt : worktrees()) {
+      if (wt.branch().equals(Repository.MAIN)) continue;
+      boolean occupied = wt.worlds().values().stream().anyMatch(w -> !w.getPlayers().isEmpty());
+      if (occupied || wt.isCommitting()) {
+        idleSince.remove(wt.branch());
+        continue;
+      }
+      long since = idleSince.computeIfAbsent(wt.branch(), k -> now);
+      if (now - since >= idleTicks) unload(wt);
+    }
+  }
+
+  /** 卸載分支的世界並關閉工作區（主執行緒）。正在存檔或併回時不動。 */
+  boolean unload(Worktree wt) {
+    if (wt.branch().equals(Repository.MAIN) || !wt.lock()) return false;
+    try {
+      for (var world : List.copyOf(wt.worlds().values())) {
+        if (!Bukkit.unloadWorld(world, true)) {
+          log().warning("無法卸載世界 " + world.getName() + "，" + wt.branch() + " 保持載入");
+          return false;
+        }
+        owners.remove(world.getUID());
+        sources.remove(world.getUID());
+        wt.removeWorld(world);
+      }
+      worktrees.remove(wt.branch());
+      idleSince.remove(wt.branch());
+      wt.close();
+      log().info("已卸載沒有玩家的分支世界：" + wt.branch());
+      return true;
+    } finally {
+      wt.unlock();
+    }
+  }
+
   /** 存檔讀取起點世界之前呼叫（背景執行緒）：等新生成 chunk 的寫入完成。 */
   void awaitGenesis() {
     genesisRecorder.awaitIdle();
@@ -423,6 +471,7 @@ public final class Workspace {
    */
   public Worktree openBranch(String branch) throws IOException {
     if (branch.equals(Repository.MAIN)) return main();
+    idleSince.remove(branch); // 剛被用到（例如傳送還在進行），重新計算閒置時間
     var existing = worktrees.get(branch);
     if (existing != null) return existing;
     repo.head(branch); // 不存在時丟出例外
@@ -581,17 +630,17 @@ public final class Workspace {
   // ---- 傳送 ----
 
   /** 傳送到某個世界的同一個座標。 */
-  static void teleport(Player player, World world) {
+  static CompletableFuture<Boolean> teleport(Player player, World world) {
     var loc = player.getLocation().clone();
     loc.setWorld(world);
-    player.teleportAsync(loc);
+    return player.teleportAsync(loc);
   }
 
   /** 傳送到某個分支、玩家目前所在維度的世界。 */
-  void teleport(Player player, Worktree to) {
+  CompletableFuture<Boolean> teleport(Player player, Worktree to) {
     var world = to.world(logicalDimension(player.getWorld()));
     if (world == null) world = to.worlds().values().iterator().next();
-    teleport(player, world);
+    return teleport(player, world);
   }
 
   // ---- 寫入版本並套用到世界 ----

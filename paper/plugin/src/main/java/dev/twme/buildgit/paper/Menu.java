@@ -67,7 +67,8 @@ final class Menu implements Listener {
       for (var name : ws.drafts().keySet()) {
         if (slot >= SIZE) break;
         var here = wt != null && wt.branch().equals(name);
-        var item = item(here ? Material.LIME_STAINED_GLASS : Material.PAPER, msg.get("menu-draft", "name", name),
+        var label = name.equals(Repository.MAIN) ? msg.get("branch-main") : msg.get("menu-draft", "name", name);
+        var item = item(here ? Material.LIME_STAINED_GLASS : name.equals(Repository.MAIN) ? Material.GRASS_BLOCK : Material.PAPER, label,
             msg.get(here ? "menu-draft-here" : "menu-draft-go"));
         inv.setItem(slot, item);
         if (!here && p.hasPermission("buildgit.go")) holder.actions().put(slot, "go " + name);

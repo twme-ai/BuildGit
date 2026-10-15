@@ -788,7 +788,7 @@ final class BgCommand implements Listener {
       if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
       if (draft != null && sender instanceof Player p && p.isOnline() && ws().worktree(p.getWorld()) == draft) {
         ws().teleport(p, target);
-        if (draft.branch().equals(source)) sendButton(p, "draft-delete-button", "/bg branch delete " + source);
+        if (scope == null && draft.branch().equals(source)) sendButton(p, "draft-delete-button", "/bg branch delete " + source);
       }
     }, error -> {
       if (error instanceof Workspace.ConflictException c)
@@ -805,14 +805,16 @@ final class BgCommand implements Listener {
     ws().merges().start(kind, target, source, scope, c, author(sender), session -> {
       msg().send(sender, "merge-started", "cells", c.result.cellConflicts().size(), "entities", c.result.entityConflicts().size());
       msg().send(sender, "merge-help");
-      if (sender instanceof Player p) {
-        try {
-          ws().teleport(p, ws().openBranch(session.branch()));
-        } catch (IOException e) {
-          failed(p, e);
-        }
+      if (!(sender instanceof Player p)) {
+        listConflicts(sender, session);
+        return;
       }
-      listConflicts(sender, session);
+      try {
+        // 外框要等玩家到了整合世界才顯示（換世界時會清掉外框）。
+        ws().teleport(p, ws().openBranch(session.branch())).thenRun(() -> ws().sync(() -> listConflicts(p, session)));
+      } catch (IOException e) {
+        failed(p, e);
+      }
     }, e -> {
       plugin.getLogger().log(Level.WARNING, "無法開始衝突整合", e);
       failed(sender, e);
@@ -942,7 +944,8 @@ final class BgCommand implements Listener {
             var world = ws().openBranch(s.branch()).world(c.dimension());
             if (world == null) return;
             var b = c.box();
-            p.teleportAsync(new Location(world, (b.minX() + b.maxX()) / 2.0 + .5, b.maxY() + 1, (b.minZ() + b.maxZ()) / 2.0 + .5, p.getYaw(), p.getPitch()));
+            p.teleportAsync(new Location(world, (b.minX() + b.maxX()) / 2.0 + .5, b.maxY() + 1, (b.minZ() + b.maxZ()) / 2.0 + .5, p.getYaw(), p.getPitch()))
+                .thenRun(() -> ws().sync(() -> showConflicts(p, result, clusters)));
           } catch (IOException e) {
             failed(p, e);
           }
@@ -1048,18 +1051,21 @@ final class BgCommand implements Listener {
         if (sender instanceof Player) sender.sendMessage(line.clickEvent(ClickEvent.runCommand("/bg merge goto " + (i + 1))));
         else sender.sendMessage(line);
       }
-      if (sender instanceof Player p) {
-        String dim = ws().logicalDimension(p.getWorld());
-        var shapes = new ArrayList<Outlines.Shape>();
-        for (var c : result.cellConflicts())
-          if (c.dimension().equals(dim)) shapes.add(new Outlines.Shape(new Box(c.pos().x(), c.pos().y(), c.pos().z(), c.pos().x(), c.pos().y(), c.pos().z()), Outlines.CONFLICT));
-        if (shapes.size() > 400) {
-          shapes.clear();
-          for (var c : clusters) if (c.dimension().equals(dim)) shapes.add(new Outlines.Shape(c.box(), Outlines.CONFLICT));
-        }
-        plugin.outlines().show(p, p.getWorld(), shapes, OUTLINE_SECONDS * 5);
-      }
+      if (sender instanceof Player p) showConflicts(p, result, clusters);
     }));
+  }
+
+  /** 在玩家目前的世界標出衝突格；太多時改標每一群的包圍盒。 */
+  private void showConflicts(Player p, dev.twme.buildgit.core.overlay.ThreeWayMerge.Result result, List<MergeSessions.Cluster> clusters) {
+    String dim = ws().logicalDimension(p.getWorld());
+    var shapes = new ArrayList<Outlines.Shape>();
+    for (var c : result.cellConflicts())
+      if (c.dimension().equals(dim)) shapes.add(new Outlines.Shape(new Box(c.pos().x(), c.pos().y(), c.pos().z(), c.pos().x(), c.pos().y(), c.pos().z()), Outlines.CONFLICT));
+    if (shapes.size() > 400) {
+      shapes.clear();
+      for (var c : clusters) if (c.dimension().equals(dim)) shapes.add(new Outlines.Shape(c.box(), Outlines.CONFLICT));
+    }
+    plugin.outlines().show(p, p.getWorld(), shapes, OUTLINE_SECONDS * 5);
   }
 
   // ---- 還原（設計 §5.4） ----

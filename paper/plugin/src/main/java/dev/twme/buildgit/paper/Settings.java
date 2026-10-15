@@ -17,6 +17,7 @@ public record Settings(
     long autosaveIdleTicks,
     long autosaveMaxTicks,
     int journalFlushTicks,
+    long unloadIdleTicks,
     boolean worldEdit,
     boolean axiom) {
 
@@ -30,8 +31,14 @@ public record Settings(
         Math.max(0, c.getLong("autosave.idle-seconds", 300)) * 20,
         Math.max(0, c.getLong("autosave.max-interval-seconds", 1800)) * 20,
         Math.max(1, c.getInt("tracking.journal-flush-ticks", 20)),
+        unloadIdle(c.getLong("worlds.unload-idle-seconds", 60)),
         c.getBoolean("integrations.worldedit", true),
         c.getBoolean("integrations.axiom", true));
+  }
+
+  /** 負數表示不卸載；否則至少 10 秒，避免剛開的世界在玩家傳送進去之前就被卸載。 */
+  private static long unloadIdle(long seconds) {
+    return seconds < 0 ? -1 : Math.max(10, seconds) * 20;
   }
 
   private static Set<EntityType> types(List<String> names, Logger log) {
