@@ -1,5 +1,7 @@
 package dev.twme.buildgit.server;
 
+import dev.twme.buildgit.core.sync.Bundle;
+import dev.twme.buildgit.core.sync.Frame;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
@@ -87,6 +89,9 @@ public final class BgCommand {
     sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames() : List.of());
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames() : List.of());
     sub("back", "buildgit.go", (s, a) -> back(s), null);
+    sub("pull", "buildgit.sync", this::pull, null);
+    sub("push", "buildgit.sync", this::push, (s, b) -> b.isEmpty() && s.player() instanceof ServerPlayer p ? bg.sync().names(p) : List.of());
+    sub("load", null, this::load, (s, b) -> b.isEmpty() && bg.platform().syncFolder() != null ? LocalSync.names(bg.platform().syncFolder()) : List.of());
     sub("view", "buildgit.go", this::view, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm"), s.isPlayer() ? List.of() : draftNames()));
     sub("branch", "buildgit.view", this::branch, (s, b) -> b.isEmpty() ? List.of("list", "create", "delete")
@@ -147,7 +152,7 @@ public final class BgCommand {
   }
 
   private CompletableFuture<Suggestions> suggest(Sub sub, Sender sender, SuggestionsBuilder builder) {
-    if (sub.suggester() == null || !ws().isOpen()) return builder.buildFuture();
+    if (sub.suggester() == null || !ws().isOpen() && !sub.names().contains("load")) return builder.buildFuture();
     var remaining = builder.getRemaining();
     int space = remaining.lastIndexOf(' ');
     var before = space < 0 ? List.<String>of() : Arrays.asList(remaining.substring(0, space).trim().split(" +"));
@@ -164,7 +169,7 @@ public final class BgCommand {
 
   private int dispatch(Sub sub, Sender sender, String[] args) {
     String name = sub.names().getFirst();
-    if (!name.equals("init") && !name.equals("reload") && !name.equals("help") && !ws().isOpen()) {
+    if (!name.equals("init") && !name.equals("reload") && !name.equals("help") && !name.equals("load") && !ws().isOpen()) {
       if (bg.openError() != null) msg().send(sender, "open-failed", "error", bg.openError());
       else msg().send(sender, "not-initialized");
       return 1;
@@ -746,6 +751,81 @@ public final class BgCommand {
         failed(sender, e);
       }
     });
+  }
+
+  // ---- 與單人世界同步（設計 §6.7） ----
+
+  /** {@code pull <名稱>}：把選取範圍送到自己的用戶端。 */
+  private void pull(Sender sender, String[] args) {
+    var p = player(sender);
+    if (p == null) return;
+    var w = words(args);
+    String name = w.size() == 1 ? w.getFirst().toLowerCase(Locale.ROOT) : "";
+    if (!Frame.NAME.matcher(name).matches()) {
+      msg().send(s(p), "usage-pull");
+      return;
+    }
+    if (!bg.platform().canSync(p)) {
+      msg().send(s(p), "sync-no-client");
+      return;
+    }
+    var sel = bg.selections().get(p);
+    if (sel.isEmpty()) {
+      msg().send(s(p), "sel-none");
+      return;
+    }
+    var wt = ws().worktree(sel.get().level());
+    if (wt == null) {
+      msg().send(s(p), "sync-not-branch");
+      return;
+    }
+    var box = sel.get().box();
+    if (Bundle.volume(box) > bg.settings().syncMaxBlocks()) {
+      msg().send(s(p), "sync-too-big", "max", bg.settings().syncMaxBlocks());
+      return;
+    }
+    String dimension = ws().logicalDimension(sel.get().level());
+    autosaveThen(sender, wt, () -> bg.sync().pull(p, name, wt.branch(), dimension, box));
+  }
+
+  /** {@code push <名稱> [草稿名稱]}：收回單人世界改過的範圍，存成草稿。 */
+  private void push(Sender sender, String[] args) throws IOException {
+    var p = player(sender);
+    if (p == null) return;
+    var w = words(args);
+    String name = w.isEmpty() ? "" : w.getFirst().toLowerCase(Locale.ROOT);
+    if (w.size() > 2 || !Frame.NAME.matcher(name).matches()) {
+      msg().send(s(p), "usage-push");
+      return;
+    }
+    String draft = w.size() == 2 ? w.get(1).toLowerCase(Locale.ROOT) : name;
+    if (draft.equals(Repository.MAIN) || Workspace.isScratch(draft) || !Workspace.BRANCH_NAME.matcher(draft).matches()) {
+      msg().send(s(p), "branch-bad-name");
+      return;
+    }
+    if (!bg.platform().canSync(p)) {
+      msg().send(s(p), "sync-no-client");
+      return;
+    }
+    bg.sync().push(p, name, draft);
+  }
+
+  /** {@code load <名稱>}（單人世界）：把取出的範圍放進目前的世界。 */
+  private void load(Sender sender, String[] args) throws IOException {
+    var folder = bg.platform().syncFolder();
+    if (folder == null) {
+      msg().send(sender, "sync-load-singleplayer");
+      return;
+    }
+    var p = player(sender);
+    if (p == null) return;
+    var w = words(args);
+    String name = w.size() == 1 ? w.getFirst().toLowerCase(Locale.ROOT) : "";
+    if (!Frame.NAME.matcher(name).matches()) {
+      msg().send(s(p), "usage-load");
+      return;
+    }
+    bg.localSync().load(p, name, folder);
   }
 
   private void go(Sender sender, String[] args) throws IOException {

@@ -20,7 +20,8 @@ public record Settings(
     int journalFlushTicks,
     long unloadIdleTicks,
     boolean worldEdit,
-    boolean axiom) {
+    boolean axiom,
+    long syncMaxBlocks) {
 
   /** 讀取 {@code dir/config.yml}；不存在時先寫入內建的預設檔。 */
   public static Settings load(Path dir, Logger log) {
@@ -47,7 +48,8 @@ public record Settings(
         Math.max(1, c.getInt("tracking.journal-flush-ticks", 20)),
         unloadIdle(c.getLong("worlds.unload-idle-seconds", 60)),
         c.getBoolean("integrations.worldedit", true),
-        c.getBoolean("integrations.axiom", true));
+        c.getBoolean("integrations.axiom", true),
+        Math.max(1, c.getLong("sync.max-blocks", 2_000_000)));
   }
 
   /** 負數表示不卸載；否則至少 30 秒：開世界加傳送可能要好幾秒，太短會在玩家抵達前就卸載。 */

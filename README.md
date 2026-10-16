@@ -20,7 +20,7 @@
 
 版本不符時插件會在啟動時提示並自行停用；Fabric 版由 Fabric Loader 拒絕載入。
 
-Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-api 已包在 jar 裡。版本庫在伺服器目錄的 `buildgit/`，設定在 `config/buildgit/`。Fabric 版目前沒有 WorldEdit／Axiom 整合與公開 API。
+Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-api 已包在 jar 裡。版本庫在伺服器目錄的 `buildgit/`，設定在 `config/buildgit/`。Fabric 版目前沒有 WorldEdit／Axiom 整合與公開 API。用戶端也可以裝 Fabric 版，用來把選取範圍帶到單人世界改再送回（見下方「帶到單人世界改」）。
 
 ## 編譯
 
@@ -97,6 +97,17 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 - 拿不定主意？`/bg merge view ours`／`theirs` 去看兩邊原本的樣子，`/bg back` 回來
 - 處理完：`/bg merge continue`；不想合了：`/bg merge abort`（什麼都不會寫入）
 
+### 帶到單人世界改
+
+想在自己電腦上慢慢改？用戶端裝 BuildGit 的 Fabric 版（伺服器是 Paper 或 Fabric 都可以）：
+
+1. 在伺服器上選取範圍（`/bg sel pos1`、`pos2` 或 WorldEdit），輸入 `/bg pull house`。
+2. 開一個單人世界（版本相同或較新），輸入 `/bg load house`，範圍會放到同一個座標。
+3. 改好後離開世界，會自動存成改過的版本。
+4. 回到伺服器輸入 `/bg push house`：改的東西會變成草稿 `house`，用 `/bg go house` 看、`/bg publish` 併回。
+
+取出之後伺服器上別人改的部分照常合併，兩邊都改到同一格時就是一般的衝突。
+
 ### 小提示
 
 - 草稿世界沒人在裡面時會自動從記憶體卸載，下次進去會自動載入，內容不會不見。
@@ -119,6 +130,9 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg view <存檔>          唯讀地看舊版本
 /bg branch list|create|delete <名稱> [--force]  管理草稿
 /bg graph [頁數] [--all]  分支歷史圖（分頁）
+/bg pull <名稱>          把選取範圍帶到單人世界（用戶端要裝 BuildGit）
+/bg load <名稱>          （單人世界）放進取出的範圍
+/bg push <名稱> [草稿]   把單人世界改過的範圍送回，存成草稿
 /bg log、show、diff、blame、inspect、who、sel
 ```
 

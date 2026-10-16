@@ -6,6 +6,7 @@ import dev.twme.buildgit.paper.track.BlockListener;
 import dev.twme.buildgit.paper.track.BukkitTracker;
 import dev.twme.buildgit.paper.track.EntityListener;
 import dev.twme.buildgit.paper.worldedit.WorldEditHook;
+import dev.twme.buildgit.core.sync.Frame;
 import dev.twme.buildgit.server.BuildGit;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
@@ -103,6 +104,11 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
       }
     }
     getServer().getServicesManager().register(BuildGitApi.class, new ApiImpl(tracker), this, ServicePriority.Normal);
+
+    // 與單人世界同步：BuildGit 的 Fabric 用戶端以插件訊息頻道收發
+    getServer().getMessenger().registerOutgoingPluginChannel(this, Frame.CHANNEL);
+    getServer().getMessenger().registerIncomingPluginChannel(this, Frame.CHANNEL,
+        (channel, player, data) -> bg.syncReceived(((CraftPlayer) player).getHandle(), data));
 
     bg.enable();
     Bukkit.getScheduler().runTaskTimer(this, bg::tick, 1, 1);

@@ -167,12 +167,21 @@ public final class AnvilSource implements StateSource, Closeable {
 
   @Override
   public synchronized Optional<EntityState> readEntity(String dimension, UUID uuid) throws IOException {
+    return Optional.ofNullable(entityMap(dimension).get(uuid));
+  }
+
+  /** 起點世界這個維度的所有實體。 */
+  public synchronized List<EntityState> entities(String dimension) throws IOException {
+    return List.copyOf(entityMap(dimension).values());
+  }
+
+  private Map<UUID, EntityState> entityMap(String dimension) throws IOException {
     var index = entityIndex.get(dimension);
     if (index == null) {
       index = indexEntities(dimension);
       entityIndex.put(dimension, index);
     }
-    return Optional.ofNullable(index.get(uuid));
+    return index;
   }
 
   /** 起點世界是凍結的，所以第一次查詢時整個維度讀一次。 */

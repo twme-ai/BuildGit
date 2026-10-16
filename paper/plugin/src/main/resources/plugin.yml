@@ -35,6 +35,11 @@ permissions:
     children:
       buildgit.go: true
       buildgit.save: true
+  buildgit.sync:
+    description: 把選取範圍帶到單人世界、把改過的範圍送回成草稿（pull、push）
+    default: op
+    children:
+      buildgit.try: true
   buildgit.publish:
     description: 把草稿併回
     default: op
@@ -75,6 +80,7 @@ permissions:
       buildgit.inspect: true
       buildgit.mark: true
       buildgit.publish: true
+      buildgit.sync: true
       buildgit.merge: true
       buildgit.revert: true
       buildgit.restore: true

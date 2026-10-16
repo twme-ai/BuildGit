@@ -24,6 +24,15 @@ public record EntityState(UUID uuid, byte[] nbt) {
     return nbt.clone();
   }
 
+  /** 實體類型 id（{@code minecraft:armor_stand}）；NBT 損壞或沒有 id 時為空字串。 */
+  public String type() {
+    try {
+      return Nbt.read(nbt).string("id");
+    } catch (IOException | RuntimeException e) {
+      return "";
+    }
+  }
+
   /** 實體的位置；NBT 沒有 {@code Pos} 時回傳 null。 */
   public double[] position() {
     try {

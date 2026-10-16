@@ -54,6 +54,21 @@ public final class LiveWriter {
   }
 
   /**
+   * 從別處送來的一格能不能寫進世界：狀態解析得了、方塊實體 NBT 讀得了；
+   * {@code gameMaster} 為 false 時不接受指令方塊、結構方塊等管理員方塊。
+   */
+  public static boolean allowed(net.minecraft.core.HolderLookup.Provider registries, Cell cell, boolean gameMaster) {
+    try {
+      var state = BlockStateParser.parseForBlock(registries.lookupOrThrow(Registries.BLOCK), cell.state(), false).blockState();
+      var bytes = cell.blockEntity();
+      if (bytes != null) dev.twme.buildgit.core.nbt.Nbt.read(bytes); // 有深度與節點數上限
+      return gameMaster || !(state.getBlock() instanceof net.minecraft.world.level.block.GameMasterBlock);
+    } catch (com.mojang.brigadier.exceptions.CommandSyntaxException | IOException | RuntimeException e) {
+      return false;
+    }
+  }
+
+  /**
    * 依目前的鄰居重算這一格的形狀（設計 §5.2 形狀修補），例如柵欄、牆、玻璃片的連接。
    * 只接受同一種方塊、只有屬性不同的結果；會變成別種方塊（例如失去支撐而消失）的不改。含流體的格子不動，避免排程流動。
    *

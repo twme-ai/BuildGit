@@ -1,5 +1,6 @@
 package dev.twme.buildgit.paper;
 
+import dev.twme.buildgit.core.sync.Frame;
 import dev.twme.buildgit.paper.nms.RegionHook;
 import dev.twme.buildgit.paper.worldedit.WorldEditSelection;
 import dev.twme.buildgit.server.Platform;
@@ -359,6 +360,16 @@ final class PaperPlatform implements Platform, Listener {
   @EventHandler
   public void onDrag(InventoryDragEvent e) {
     if (e.getInventory().getHolder(false) instanceof Holder) e.setCancelled(true);
+  }
+
+  @Override
+  public boolean canSync(ServerPlayer player) {
+    return bukkit(player).getListeningPluginChannels().contains(Frame.CHANNEL);
+  }
+
+  @Override
+  public void sendSync(ServerPlayer player, byte[] data) {
+    bukkit(player).sendPluginMessage(plugin, Frame.CHANNEL, data);
   }
 
   @Override

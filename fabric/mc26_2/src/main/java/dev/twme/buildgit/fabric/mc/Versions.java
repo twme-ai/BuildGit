@@ -25,6 +25,14 @@ import xyz.nucleoid.fantasy.RuntimeLevelHandle;
 public final class Versions {
   private Versions() {}
 
+  /** 雙向的 play 封包。 */
+  public static <T extends net.minecraft.network.protocol.common.custom.CustomPacketPayload> void registerPayload(
+      net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<T> type,
+      net.minecraft.network.codec.StreamCodec<? super net.minecraft.network.RegistryFriendlyByteBuf, T> codec) {
+    net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.serverboundPlay().register(type, codec);
+    net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.clientboundPlay().register(type, codec);
+  }
+
   public static ServerBossEvent bossEvent(Component name, BossEvent.BossBarColor color) {
     return new ServerBossEvent(UUID.randomUUID(), name, color, BossEvent.BossBarOverlay.PROGRESS);
   }

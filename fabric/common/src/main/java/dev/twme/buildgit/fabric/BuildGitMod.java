@@ -1,11 +1,13 @@
 package dev.twme.buildgit.fabric;
 
+import dev.twme.buildgit.fabric.mc.Versions;
 import dev.twme.buildgit.server.BuildGit;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -21,6 +23,10 @@ public final class BuildGitMod implements ModInitializer {
 
   @Override
   public void onInitialize() {
+    Versions.registerPayload(SyncPayload.TYPE, SyncPayload.CODEC);
+    ServerPlayNetworking.registerGlobalReceiver(SyncPayload.TYPE, (payload, context) -> {
+      if (bg != null) bg.syncReceived(context.player(), payload.data());
+    });
     ServerLifecycleEvents.SERVER_STARTING.register(this::starting);
     ServerLifecycleEvents.SERVER_STARTED.register(server -> {
       if (bg != null) bg.enable();

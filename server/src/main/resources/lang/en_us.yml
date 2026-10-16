@@ -19,6 +19,10 @@ help: |-
   <gray>Undo:</gray>
   <aqua>/bg revert <save></aqua> <gray>— undo one save, keep later changes</gray>
   <aqua>/bg restore <save> [--selection]</aqua> <gray>— restore the branch or a selection to an old version</gray>
+  <gray>Single-player (BuildGit on the client):</gray>
+  <aqua>/bg pull <name></aqua> <gray>— take the selection to single-player</gray>
+  <aqua>/bg load <name></aqua> <gray>— place a pulled area in a single-player world</gray>
+  <aqua>/bg push <name> [draft]</aqua> <gray>— send the edited area back as a draft</gray>
   <gray>Conflicts:</gray>
   <aqua>/bg merge conflicts|goto|take|continue|abort</aqua> <gray>— resolve conflicts</gray>
   <gray>Other:</gray>
@@ -191,3 +195,27 @@ menu-draft: "<light_purple>draft <name></light_purple>"
 menu-draft-go: "<gray>Click to go</gray>"
 menu-draft-here: "<gray>You are here</gray>"
 menu-merge: "<red>resolution <id></red> <gray>→ <target></gray>"
+usage-pull: "<red>Usage: /bg pull <name> (lowercase letters, digits, _ and -)</red>"
+usage-push: "<red>Usage: /bg push <name> [draft name]</red>"
+usage-load: "<red>Usage: /bg load <name></red>"
+sync-no-client: "<red>Your client doesn't have BuildGit (Fabric) installed, so it can't sync with single-player.</red>"
+sync-not-branch: "<red>The selection isn't in the main world or a draft.</red>"
+sync-too-big: "<red>Area too large: at most <max> blocks (sync.max-blocks in config.yml).</red>"
+sync-pulling: "<gray>Pulling</gray> <aqua><name></aqua><gray>…</gray>"
+sync-pulled: "<green>Sent</green> <aqua><name></aqua> <green>to your client</green> <gray>(<kb> KB). In single-player run</gray> <aqua>/bg load <name></aqua><gray>, leave the world when done, then come back and run</gray> <aqua>/bg push <name></aqua><gray>.</gray>"
+sync-unknown: "<red>You haven't pulled</red> <aqua><name></aqua><red>. Use /bg pull first.</red>"
+sync-draft-exists: "<red>Draft</red> <light_purple><name></light_purple> <red>already exists; pick another: /bg push <name> <draft name></red>"
+sync-push-waiting: "<gray>Reading</gray> <aqua><name></aqua> <gray>from your client…</gray>"
+sync-push-missing: "<red>Your client has no edited</red> <aqua><name></aqua><red>: /bg load <name> in single-player, then leave the world when done.</red>"
+sync-push-client-failed: "<red>Your client couldn't handle</red> <aqua><name></aqua><red>; see the client log.</red>"
+sync-push-received: "<gray>Received</gray> <aqua><name></aqua><gray>, comparing with the pulled save…</gray>"
+sync-push-nochange: "<gray>Area</gray> <aqua><name></aqua> <gray>is unchanged; no draft created.</gray>"
+sync-pushed: "<green>Saved</green> <aqua><name></aqua> <green>as draft</green> <light_purple><draft></light_purple><gray>:</gray> <white><cells></white> <gray>blocks,</gray> <white><entities></white> <gray>entities. Check it in the draft, then /bg publish.</gray>"
+sync-push-dropped: "<yellow><count> blocks or entities were rejected (unparseable, game master blocks, outside the area) and kept as pulled.</yellow>"
+sync-go-button: "<aqua>[Go to draft <draft>]</aqua>"
+sync-failed: "<red>Sync failed: <error></red>"
+sync-load-singleplayer: "<red>/bg load only works in single-player.</red>"
+sync-load-missing: "<red>No pulled area</red> <aqua><name></aqua><red>: connect to the server and /bg pull it first.</red>"
+sync-loading: "<gray>Placing</gray> <aqua><name></aqua><gray>…</gray>"
+sync-loaded: "<green>Placed</green> <aqua><name></aqua> <gray>(<failed> failed). Leave the world when done to save the edited area, then /bg push <name> on the server.</gray>"
+sync-busy: "<red>Your previous pull or push is still running; try again later.</red>"

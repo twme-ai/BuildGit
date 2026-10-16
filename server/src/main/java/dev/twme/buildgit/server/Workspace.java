@@ -114,6 +114,10 @@ public final class Workspace {
     return genesis;
   }
 
+  DataUpgrader upgrader() {
+    return upgrader;
+  }
+
   public MergeSessions merges() {
     return merges;
   }

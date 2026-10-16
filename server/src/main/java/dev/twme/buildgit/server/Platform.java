@@ -131,4 +131,17 @@ public interface Platform {
   Optional<Selection> worldEditSelection(ServerPlayer player);
 
   record Selection(ServerLevel level, Box box) {}
+
+  // ---- 與單人世界同步（設計 §6.7） ----
+
+  /** 玩家的用戶端裝了 BuildGit，收得到 {@code buildgit:sync}。 */
+  boolean canSync(ServerPlayer player);
+
+  /** 送一個 {@code buildgit:sync} 封包給玩家。收到的封包由平台轉給 {@link BuildGit#syncReceived}（主執行緒）。 */
+  void sendSync(ServerPlayer player, byte[] data);
+
+  /** 單人世界放範圍檔的資料夾（與用戶端共用）；專用伺服器為 null。 */
+  default Path syncFolder() {
+    return null;
+  }
 }

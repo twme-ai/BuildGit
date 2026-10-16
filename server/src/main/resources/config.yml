@@ -65,6 +65,10 @@ worlds:
   # 有人再進去（go、try、併回等）時自動重新載入。最少 30 秒；-1 表示一直留在記憶體。
   unload-idle-seconds: 60
 
+sync:
+  # /bg pull 一次最多取出的方塊數（選取範圍的體積）。
+  max-blocks: 2000000
+
 integrations:
   # 記錄 WorldEdit／FastAsyncWorldEdit 的編輯。
   worldedit: true

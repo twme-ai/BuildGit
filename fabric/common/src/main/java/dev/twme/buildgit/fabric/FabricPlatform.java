@@ -1,5 +1,6 @@
 package dev.twme.buildgit.fabric;
 
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import com.mojang.serialization.JsonOps;
 import dev.twme.buildgit.fabric.mc.Versions;
 import dev.twme.buildgit.fabric.mixin.LevelAccessor;
@@ -374,6 +375,22 @@ final class FabricPlatform implements Platform {
         return player;
       }
     };
+  }
+
+  @Override
+  public boolean canSync(ServerPlayer player) {
+    return ServerPlayNetworking.canSend(player, SyncPayload.TYPE);
+  }
+
+  @Override
+  public void sendSync(ServerPlayer player, byte[] data) {
+    ServerPlayNetworking.send(player, new SyncPayload(data));
+  }
+
+  /** 單人世界（內建伺服器）與用戶端共用遊戲資料夾。 */
+  @Override
+  public Path syncFolder() {
+    return server.isDedicatedServer() ? null : FabricLoader.getInstance().getGameDir().resolve("buildgit").resolve("sync");
   }
 
   @Override

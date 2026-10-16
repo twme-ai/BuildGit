@@ -297,6 +297,12 @@ public final class Tracker {
     return !settings.ignoredEntities().contains(typeId(type));
   }
 
+  /** 同上，以類型 id 判斷；不認得的類型為 false。 */
+  public boolean isBuildEntity(String id) {
+    var key = net.minecraft.resources.Identifier.tryParse(id);
+    return key != null && BuiltInRegistries.ENTITY_TYPE.containsKey(key) && !settings.ignoredEntities().contains(key.toString());
+  }
+
   /** 被追蹤的實體的作者；沒被追蹤時為 null。 */
   public Author trackedAuthor(Entity entity) {
     var d = dimension(entity.level());

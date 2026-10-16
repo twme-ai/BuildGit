@@ -19,6 +19,10 @@ help: |-
   <gray>還原：</gray>
   <aqua>/bg revert <存檔></aqua> <gray>— 撤銷某次存檔，保留之後的變更</gray>
   <aqua>/bg restore <存檔> [--selection]</aqua> <gray>— 把整個分支或選取範圍還原到舊版本</gray>
+  <gray>單人世界（用戶端要裝 BuildGit）：</gray>
+  <aqua>/bg pull <名稱></aqua> <gray>— 把選取範圍帶到單人世界</gray>
+  <aqua>/bg load <名稱></aqua> <gray>— 在單人世界放進取出的範圍</gray>
+  <aqua>/bg push <名稱> [草稿]</aqua> <gray>— 把單人世界改過的範圍送回，存成草稿</gray>
   <gray>衝突：</gray>
   <aqua>/bg merge conflicts|goto|take|continue|abort</aqua> <gray>— 處理衝突</gray>
   <gray>其他：</gray>
@@ -191,3 +195,27 @@ menu-draft: "<light_purple>草稿 <name></light_purple>"
 menu-draft-go: "<gray>點一下前往</gray>"
 menu-draft-here: "<gray>你在這裡</gray>"
 menu-merge: "<red>整合 <id></red> <gray>→ <target></gray>"
+usage-pull: "<red>用法：/bg pull <名稱>（小寫英數、底線、連字號）</red>"
+usage-push: "<red>用法：/bg push <名稱> [草稿名稱]</red>"
+usage-load: "<red>用法：/bg load <名稱></red>"
+sync-no-client: "<red>你的用戶端沒有安裝 BuildGit（Fabric），無法和單人世界同步。</red>"
+sync-not-branch: "<red>選取範圍不在主世界或草稿裡。</red>"
+sync-too-big: "<red>範圍太大：最多 <max> 格（config.yml 的 sync.max-blocks）。</red>"
+sync-pulling: "<gray>正在取出</gray> <aqua><name></aqua><gray>…</gray>"
+sync-pulled: "<green>已把範圍</green> <aqua><name></aqua> <green>送到你的用戶端</green><gray>（<kb> KB）。在單人世界輸入</gray> <aqua>/bg load <name></aqua><gray>，改完離開世界，再回來輸入</gray> <aqua>/bg push <name></aqua><gray>。</gray>"
+sync-unknown: "<red>你沒有取出過範圍</red> <aqua><name></aqua><red>。先用 /bg pull。</red>"
+sync-draft-exists: "<red>草稿</red> <light_purple><name></light_purple> <red>已存在；換一個草稿名稱：/bg push <名稱> <草稿名稱></red>"
+sync-push-waiting: "<gray>正在從用戶端讀取</gray> <aqua><name></aqua><gray>…</gray>"
+sync-push-missing: "<red>用戶端沒有改過的</red> <aqua><name></aqua><red>：先在單人世界 /bg load <name>，改完後離開世界。</red>"
+sync-push-client-failed: "<red>用戶端無法處理</red> <aqua><name></aqua><red>，請看用戶端的記錄。</red>"
+sync-push-received: "<gray>已收到</gray> <aqua><name></aqua><gray>，正在和取出時的存檔比較…</gray>"
+sync-push-nochange: "<gray>範圍</gray> <aqua><name></aqua> <gray>和取出時一樣，沒有建立草稿。</gray>"
+sync-pushed: "<green>已把</green> <aqua><name></aqua> <green>存成草稿</green> <light_purple><draft></light_purple><gray>：</gray><white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體。到草稿裡確認後用 /bg publish 併回。</gray>"
+sync-push-dropped: "<yellow>有 <count> 個方塊或實體不接受（無法解析、管理員方塊、範圍外），維持取出時的樣子。</yellow>"
+sync-go-button: "<aqua>[前往草稿 <draft>]</aqua>"
+sync-failed: "<red>同步失敗：<error></red>"
+sync-load-singleplayer: "<red>/bg load 只能在單人世界使用。</red>"
+sync-load-missing: "<red>找不到範圍</red> <aqua><name></aqua><red>：先連上伺服器用 /bg pull 取出。</red>"
+sync-loading: "<gray>正在放入</gray> <aqua><name></aqua><gray>…</gray>"
+sync-loaded: "<green>已放入範圍</green> <aqua><name></aqua><gray>（<failed> 個寫不進去）。改完後離開世界就會存成改過的版本，連上伺服器用</gray> <aqua>/bg push <name></aqua> <gray>送回。</gray>"
+sync-busy: "<red>上一個 pull 或 push 還在進行，請稍後再試。</red>"

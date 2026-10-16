@@ -25,6 +25,8 @@ public final class BuildGit {
   private Hud hud;
   private Menu menu;
   private BgCommand command;
+  private Sync sync;
+  private LocalSync localSync;
   private long ticks;
   private String openError;
 
@@ -38,6 +40,8 @@ public final class BuildGit {
     selections = new Selections(platform);
     hud = new Hud(this);
     menu = new Menu(this);
+    sync = new Sync(this);
+    localSync = new LocalSync(this);
     command = new BgCommand(this);
   }
 
@@ -77,6 +81,19 @@ public final class BuildGit {
     return menu;
   }
 
+  Sync sync() {
+    return sync;
+  }
+
+  LocalSync localSync() {
+    return localSync;
+  }
+
+  /** 用戶端送來的 {@code buildgit:sync} 封包（主執行緒）。 */
+  public void syncReceived(ServerPlayer player, byte[] data) {
+    if (workspace.isOpen()) sync.receive(player, data);
+  }
+
   /** {@code /bg} 指令樹；平台在註冊指令時取用。 */
   public BgCommand command() {
     return command;
@@ -102,6 +119,7 @@ public final class BuildGit {
   }
 
   public void disable() {
+    if (platform.syncFolder() != null) localSync.packAll(platform.syncFolder());
     platform.clearBars();
     outlines.clearAll();
     if (commands != null) commands.unwrap();
@@ -126,6 +144,7 @@ public final class BuildGit {
         if (platform.hasPermission(p, "buildgit.view")) messages.send(platform.sender(p), "autosave-done", "id", id.abbrev(), "cells", r.cells());
     }));
     hud.tick();
+    sync.tick();
     workspace.unloadIdleTick(settings.unloadIdleTicks());
   }
 
@@ -153,6 +172,7 @@ public final class BuildGit {
     outlines.forget(player.getUUID());
     selections.quit(player.getUUID());
     command.quit(player.getUUID());
+    sync.quit(player.getUUID());
     hud.quit(player);
   }
 }

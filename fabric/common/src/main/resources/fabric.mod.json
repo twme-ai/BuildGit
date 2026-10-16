@@ -8,7 +8,8 @@
   "contact": { "homepage": "https://twme.dev" },
   "environment": "*",
   "entrypoints": {
-    "main": ["dev.twme.buildgit.fabric.BuildGitMod"]
+    "main": ["dev.twme.buildgit.fabric.BuildGitMod"],
+    "client": ["dev.twme.buildgit.fabric.client.BuildGitClient"]
   },
   "mixins": ["buildgit.mixins.json", "buildgit.version.mixins.json"],
   "depends": {
