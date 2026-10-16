@@ -218,17 +218,19 @@ public final class Worktree {
   /**
    * 現在讀不到的標記留在標記表，等下一次存檔：
    * 世界沒有載入的 section 不能當成空氣；找不到的實體只有確定被移除過才算移除（否則只是沒載入，例如重啟後還沒有人走近）；
-   * 起點世界還在複製的維度還不能比較。
+   * 起點世界還在複製的維度還不能比較；暫時被其他插件換掉的格子（{@link Tracker#held}）等換回來再存。
    */
   private Marks defer(Marks marks) {
     var tracker = ws.tracker();
     var sections = new TreeMap<SectionKey, Marks.Section>();
     marks.sections().forEach((key, section) -> {
-      if (worlds.get(key.dimension()) != null && !ws.copying(key.dimension())) {
-        sections.put(key, section);
+      var world = worlds.get(key.dimension());
+      var d = table.dimension(key.dimension());
+      if (world != null && !ws.copying(key.dimension())) {
+        if (tracker.hasHeld()) section = withoutHeld(world, key, section, marks, d);
+        if (!section.cells().isEmpty()) sections.put(key, section);
         return;
       }
-      var d = table.dimension(key.dimension());
       var cells = section.cells();
       for (int i = cells.nextSetBit(0); i >= 0; i = cells.nextSetBit(i + 1)) {
         var pos = key.pos(i);
@@ -247,6 +249,20 @@ public final class Worktree {
       if (!keep.isEmpty()) entities.put(dim, keep);
     });
     return new Marks(marks.authors(), sections, entities, marks.removed());
+  }
+
+  /** 拿掉暫時被換掉的格子，留在標記表等下次存檔。 */
+  private Marks.Section withoutHeld(ServerLevel world, SectionKey key, Marks.Section section, Marks marks, MarkTable.Dimension d) {
+    BitSet kept = null;
+    var cells = section.cells();
+    for (int i = cells.nextSetBit(0); i >= 0; i = cells.nextSetBit(i + 1)) {
+      var pos = key.pos(i);
+      if (!ws.tracker().held(world, pos.x(), pos.y(), pos.z())) continue;
+      if (kept == null) kept = (BitSet) cells.clone();
+      kept.clear(i);
+      d.markCell(pos.x(), pos.y(), pos.z(), section.author(marks, i));
+    }
+    return kept == null ? section : new Marks.Section(kept, section.authors(), section.uniformAuthor());
   }
 
   private record ChunkKey(String dimension, int x, int z) {}

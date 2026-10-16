@@ -21,6 +21,7 @@ public record Settings(
     long unloadIdleTicks,
     boolean worldEdit,
     boolean axiom,
+    boolean debugStickPro,
     long syncMaxBlocks) {
 
   /** 讀取 {@code dir/config.yml}；不存在時先寫入內建的預設檔。 */
@@ -49,6 +50,7 @@ public record Settings(
         unloadIdle(c.getLong("worlds.unload-idle-seconds", 60)),
         c.getBoolean("integrations.worldedit", true),
         c.getBoolean("integrations.axiom", true),
+        c.getBoolean("integrations.debugstickpro", true),
         Math.max(1, c.getLong("sync.max-blocks", 2_000_000)));
   }
 

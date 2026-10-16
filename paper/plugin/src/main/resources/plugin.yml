@@ -8,7 +8,7 @@ description: 給建築伺服器的版本控制：只記玩家造成的變更，�
 website: https://twme.dev
 libraries:
   - com.github.luben:zstd-jni:${zstd}
-softdepend: [WorldEdit, FastAsyncWorldEdit, AxiomPaper]
+softdepend: [WorldEdit, FastAsyncWorldEdit, AxiomPaper, DebugStickPro]
 # 包含關係（權限集、哪個節點帶出哪些節點）在程式裡判斷（PermissionSets），兩個平台相同，所以這裡不寫 children。
 permissions:
   buildgit.role.viewer:

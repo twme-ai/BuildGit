@@ -132,6 +132,7 @@ Cause { author: 玩家 UUID, origin: 起始座標, kind: 直接 | 連帶 }
 | 指令 | 玩家執行的指令執行期間（`/fill`、`/clone`、`/setblock`、`/summon` 等） |
 | WorldEdit／FAWE | 見 §3.8。FAWE 會非同步、繞過原版寫入，所以不能只靠寫入層掛點 |
 | Axiom | 見 §3.9 |
+| DebugStickPro | 見 §3.9.1 |
 | 其他插件 | 公開 API（§3.10） |
 
 ### 3.3 連帶變化：沿因果鏈傳遞
@@ -219,6 +220,12 @@ BuildGit 的做法：只記**位置**，不讀世界。
 - 以 AxiomPaper 的 `Integration.registerCustomIntegration` 註冊：`checkSection` 對整個 section 標記並回傳「全部允許」；`canPlaceBlock`／`canBreakBlock` 標記該格與鄰居。
 - 實體：AxiomPaper 只透過生成、修改、刪除三種封包碰實體（貼上剪貼簿裡的實體也走生成），三者都有事件。事件只帶一個實體，但生成會連乘客一起加入、修改可以讓實體騎上或趕下乘客，所以記下整串（最外層載具與所有乘客）；修改時修改前、後的整串都記。
 - 限制：擁有 `axiomadmin.bypass_region_checks` 的玩家（預設沒有，OP 也沒有）會跳過整合，因此不會被記錄。
+
+### 3.9.1 除錯棒與 DebugStickPro
+
+- **原版除錯棒**：右鍵改狀態走一般的「使用物品」流程（Paper 由互動事件標記點到的格子，Fabric 在 `useItemOn` 期間設定原因），會記錄；左鍵只選屬性，不改方塊。
+- **DebugStickPro**（Paper，`integrations.debugstickpro`）：經典、複製模式以 `setBlockData(…, false)` 改方塊，不發鄰居更新，還會取消觸發的互動事件，一般掛點看不到；改由它的 `ClassicModeChangingBlockEvent`、`CopyModePasteBlockDataEvent`（MONITOR、未取消）標記那一格。編譯期簽章在 `paper/debugstickpro-api`（Apache-2.0，不打包）。
+- **凍結模式**：DebugStickPro 把真的方塊暫時換成屏障、對玩家送假的方塊封包，解凍（含玩家離線、插件停用，這些沒有事件）時換回。存檔時以 `FreezeBlockManager.isFreezeBlock` 詢問，凍結中的格子留在標記表（`Tracker.held`），等換回來再存，屏障不會進版本。
 
 ### 3.10 公開 API
 
@@ -556,6 +563,7 @@ BuildGit/
 ├─ api/             # 公開 API（§3.10），只依賴 Bukkit API，Java 21
 ├─ paper/
 │   ├─ axiom-api/   # AxiomPaper API 的編譯用介面（MIT，不打包）
+│   ├─ debugstickpro-api/  # DebugStickPro 的編譯用介面（Apache-2.0，不打包）
 │   ├─ plugin/      # Paper 26.2 插件（paperweight userdev，Java 25），也是兩個 Paper 版本共用的原始碼
 │   ├─ plugin-1_21_11/  # Paper 1.21.11 插件：編譯同一份原始碼（Java 21），只放版本相依的類別
 │   └─ plugin-26_3/ # Paper 26.3 插件：編譯同一份原始碼（Java 25）
@@ -648,3 +656,4 @@ BuildGit/
 | 42 | 2026-10-16 | 支援 26.3（Paper、Fabric 各一個 jar）。26.3 改了 region 檔方塊調色盤與方塊狀態的寫法，BuildGit 不自己認格式，改由伺服器以原版的 `BlockState.CODEC` 轉換，以後再改格式也只要跟著伺服器版本編譯 |
 | 43 | 2026-10-16 | 主世界在它與它的草稿世界都沒有玩家時可以被多世界插件卸載（使用者要求）；沒載入時拒絕寫入那個分支，而不是自己把世界載回來（多世界插件的生成器等設定 BuildGit 不知道） |
 | 44 | 2026-10-16 | 權限集 `buildgit.role.viewer`／`builder`／`manager`（使用者要求，方便管理員授權）；包含關係改由程式判斷，Paper 與 Fabric 一致，`plugin.yml` 不再寫 `children` |
+| 45 | 2026-10-16 | 支援 DebugStickPro（使用者要求）：經典、複製模式以它的事件標記；凍結中的格子存檔時跳過，不把暫時的屏障存進版本（§3.9.1） |

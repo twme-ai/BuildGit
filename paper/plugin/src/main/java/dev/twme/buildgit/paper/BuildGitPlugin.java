@@ -2,6 +2,7 @@ package dev.twme.buildgit.paper;
 
 import dev.twme.buildgit.api.BuildGitApi;
 import dev.twme.buildgit.paper.axiom.AxiomHook;
+import dev.twme.buildgit.paper.debugstickpro.DebugStickProHook;
 import dev.twme.buildgit.paper.track.BlockListener;
 import dev.twme.buildgit.paper.track.BukkitTracker;
 import dev.twme.buildgit.paper.track.EntityListener;
@@ -104,6 +105,14 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
             .register(this, getLogger());
       } catch (LinkageError e) {
         getLogger().log(Level.WARNING, "無法掛上 AxiomPaper（版本不相容？）", e);
+      }
+    }
+    if (settings.debugStickPro() && pm.getPlugin("DebugStickPro") != null) {
+      try {
+        new DebugStickProHook(tracker).register(this, bg.tracker(), getLogger());
+      } catch (LinkageError e) {
+        bg.tracker().setHeld(null);
+        getLogger().log(Level.WARNING, "無法掛上 DebugStickPro（版本不相容？）", e);
       }
     }
     getServer().getServicesManager().register(BuildGitApi.class, new ApiImpl(tracker), this, ServicePriority.Normal);

@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":api"))
     compileOnly(project(":paper:axiom-api"))
+    compileOnly(project(":paper:debugstickpro-api"))
     compileOnly("com.fastasyncworldedit:FastAsyncWorldEdit-Core:2.15.2") { isTransitive = false }
 }
 

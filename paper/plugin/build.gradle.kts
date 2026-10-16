@@ -19,6 +19,7 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":api"))
     compileOnly(project(":paper:axiom-api"))
+    compileOnly(project(":paper:debugstickpro-api"))
     // FAWE 的 Core 含 WorldEdit API；只用兩者共有的類別處理原版 WorldEdit，FAWE 專用類別放在獨立 class。
     // 世界以名稱對應回 Bukkit，不需要 worldedit-bukkit。
     compileOnly("com.fastasyncworldedit:FastAsyncWorldEdit-Core:2.15.2") { isTransitive = false }

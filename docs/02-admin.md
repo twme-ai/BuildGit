@@ -16,7 +16,7 @@ BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE
 
 1. 依伺服器版本下載對應的 jar（[README 的下載表](../README.md#下載)），放進 `plugins/`（Paper）或 `mods/`（Fabric）。版本不符時插件會自行停用。
 2. Fabric 另外需要 Fabric API。
-3. 想記錄 WorldEdit、FAWE、Axiom 的編輯：裝上它們即可（Paper；Fabric 版目前沒有這些整合）。
+3. 想記錄 WorldEdit、FAWE、Axiom、DebugStickPro 的編輯：裝上它們即可（Paper；Fabric 版目前沒有這些整合）。原版除錯棒兩個平台都會記錄。
 4. 啟動伺服器。這時**還沒有任何世界受版本控制**，BuildGit 不會記錄任何東西。
 
 ## 3. 開始版本控制：`/bg init`
@@ -85,7 +85,7 @@ LuckPerms 範例：
 | `autosave.max-interval-seconds` | 1800 | 一直有人在蓋時，最長多久一定自動存檔一次；0 停用 |
 | `worlds.unload-idle-seconds` | 60 | 草稿世界沒人這麼久後卸載（見 §7）；-1 永不卸載 |
 | `sync.max-blocks` | 2000000 | `/bg pull` 一次最多帶走的方塊數 |
-| `integrations.worldedit`／`axiom` | true | 是否記錄 WorldEdit／FAWE、Axiom 的編輯 |
+| `integrations.worldedit`／`axiom`／`debugstickpro` | true | 是否記錄 WorldEdit／FAWE、Axiom、DebugStickPro 的編輯 |
 | `tracking.*` | | 連帶變化的時間窗與距離、哪些實體不記錄；通常不用改 |
 
 ## 6. 資料放在哪裡、占多少空間
@@ -128,6 +128,7 @@ LuckPerms 範例：
 ## 10. 已知限制
 
 - 有 Axiom bypass 權限（`axiomadmin.bypass_region_checks`）的玩家用 Axiom 改的方塊記錄不到；這種玩家開啟 Axiom 時會收到提醒。需要記錄的話請不要給這個權限。
+- DebugStickPro 凍結中的方塊（伺服器上暫時是屏障）先不存檔，解凍後才存進版本；凍結期間 `/bg status` 會一直顯示它未存。
 - 非玩家造成的實體移除（例如盔甲座被苦力怕炸掉）不記錄，和方塊的自然變化一樣。
 - `/place feature` 這類世界產生器放的大型結構可能記錄不完整，可以用 `/bg mark` 補記範圍。
 - 伺服器當機時，最後約 1 秒內的變更可能沒記到（`tracking.journal-flush-ticks`）。

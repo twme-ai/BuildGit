@@ -135,6 +135,26 @@ public final class Tracker {
   // ---- 原因 ----
 
   /** 目前執行緒的原因；沒有時為 null。 */
+  /** 某一格是否暫時被其他插件換掉（例如 DebugStickPro 凍結時換成屏障），存檔時不讀。主執行緒呼叫。 */
+  public interface Held {
+    boolean held(ServerLevel level, int x, int y, int z);
+  }
+
+  private volatile Held held;
+
+  public void setHeld(Held held) {
+    this.held = held;
+  }
+
+  public boolean hasHeld() {
+    return held != null;
+  }
+
+  public boolean held(ServerLevel level, int x, int y, int z) {
+    var h = held;
+    return h != null && h.held(level, x, y, z);
+  }
+
   public Author cause() {
     if (causes.get() == 0) return null;
     var stack = cause.get();

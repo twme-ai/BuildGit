@@ -40,7 +40,7 @@ val verifyNoAxiom = tasks.register("verifyNoAxiom") {
     inputs.file(artifact)
     doLast {
         ZipFile(artifact.get().asFile).use { zip ->
-            check(zip.entries().asSequence().none { it.name.startsWith("com/moulberry/") || it.name.startsWith("com/sk89q/") || it.name.startsWith("com/fastasyncworldedit/") || it.name.startsWith("com/github/luben/") }) {
+            check(zip.entries().asSequence().none { it.name.startsWith("com/moulberry/") || it.name.startsWith("dev/twme/debugstickpro/") || it.name.startsWith("com/sk89q/") || it.name.startsWith("com/fastasyncworldedit/") || it.name.startsWith("com/github/luben/") }) {
                 "選用插件的 API 不得打包進 BuildGit"
             }
         }
