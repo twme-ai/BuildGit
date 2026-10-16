@@ -308,16 +308,22 @@ public final class BgCommand {
 
   // ---- 基本 ----
 
+  /** 玩家所在的世界開始受版本控制；主控台為預設世界。 */
   private void init(Sender sender) {
-    if (ws().isOpen()) {
-      msg().send(sender, "already-initialized");
+    var p = sender.player();
+    var world = p != null ? p.level() : bg.platform().server().overworld();
+    if (ws().tracked(world)) {
+      msg().send(sender, "already-initialized", "world", bg.platform().levelName(world));
       return;
     }
-    msg().send(sender, "init-start");
+    String name = bg.platform().levelName(world);
     try {
-      var p = sender.player();
-      long size = ws().init(p != null ? bg.tracker().author(p) : bg.tracker().author(new UUID(0, 0), null));
-      msg().send(sender, "init-done", "size", size / (1024 * 1024));
+      var copy = ws().init(p != null ? bg.tracker().author(p) : bg.tracker().author(new UUID(0, 0), null), world);
+      msg().send(sender, "init-started", "world", name);
+      copy.whenDone(size -> ws().sync(() -> msg().send(sender, "init-done", "world", name, "size", size / (1024 * 1024))),
+          error -> ws().sync(() -> msg().send(sender, "init-failed", "error", String.valueOf(error.getMessage()))));
+    } catch (Workspace.Refused e) {
+      msg().send(sender, "init-failed", "error", e.getMessage());
     } catch (IOException e) {
       bg.platform().log().log(Level.SEVERE, "init 失敗", e);
       msg().send(sender, "init-failed", "error", e.getMessage());
@@ -756,7 +762,7 @@ public final class BgCommand {
   // ---- 與單人世界同步（設計 §6.7） ----
 
   /** {@code pull <名稱>}：把選取範圍送到自己的用戶端。 */
-  private void pull(Sender sender, String[] args) {
+  private void pull(Sender sender, String[] args) throws IOException {
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
@@ -785,6 +791,7 @@ public final class BgCommand {
       return;
     }
     String dimension = ws().logicalDimension(sel.get().level());
+    if (ws().copying(dimension)) throw new Workspace.Refused("這個世界的起點世界還在背景複製，請稍後再試");
     autosaveThen(sender, wt, () -> bg.sync().pull(p, name, wt.branch(), dimension, box));
   }
 

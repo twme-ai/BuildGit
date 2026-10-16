@@ -217,13 +217,13 @@ public final class Worktree {
 
   /**
    * 現在讀不到的標記留在標記表，等下一次存檔：
-   * 世界沒有載入的 section 不能當成空氣；沒有載入的被追蹤實體不能當成被移除。
+   * 世界沒有載入的 section 不能當成空氣；沒有載入的被追蹤實體不能當成被移除；起點世界還在複製的維度還不能比較。
    */
   private Marks defer(Marks marks) {
     var tracker = ws.tracker();
     var sections = new TreeMap<SectionKey, Marks.Section>();
     marks.sections().forEach((key, section) -> {
-      if (worlds.get(key.dimension()) != null) {
+      if (worlds.get(key.dimension()) != null && !ws.copying(key.dimension())) {
         sections.put(key, section);
         return;
       }
@@ -238,7 +238,7 @@ public final class Worktree {
     marks.entities().forEach((dim, map) -> {
       var keep = new TreeMap<UUID, Integer>();
       map.forEach((uuid, author) -> {
-        boolean absent = worlds.get(dim) == null || tracker.isUnloaded(uuid) && ws.entity(uuid) == null;
+        boolean absent = worlds.get(dim) == null || ws.copying(dim) || tracker.isUnloaded(uuid) && ws.entity(uuid) == null;
         if (absent) table.dimension(dim).markEntity(uuid, marks.authors().get(author));
         else keep.put(uuid, author);
       });

@@ -132,17 +132,8 @@ final class PaperPlatform implements Platform, Listener {
   // ---- 世界 ----
 
   @Override
-  public List<ServerLevel> mainLevels() {
-    var worlds = Bukkit.getWorlds();
-    if (worlds.isEmpty()) return List.of();
-    var main = worlds.getFirst();
-    var result = new ArrayList<ServerLevel>();
-    result.add(level(main));
-    for (var suffix : List.of("_nether", "_the_end")) {
-      var w = Bukkit.getWorld(main.getName() + suffix);
-      if (w != null) result.add(level(w));
-    }
-    return result;
+  public long[] loadedChunks(ServerLevel level) {
+    return java.util.Arrays.stream(level.getWorld().getLoadedChunks()).mapToLong(c -> (long) c.getX() << 32 | c.getZ() & 0xFFFFFFFFL).toArray();
   }
 
   @Override

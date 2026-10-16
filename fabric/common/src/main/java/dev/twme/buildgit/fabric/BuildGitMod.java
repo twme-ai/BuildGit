@@ -44,6 +44,15 @@ public final class BuildGitMod implements ModInitializer {
     ServerChunkEvents.CHUNK_GENERATE.register((level, chunk) -> {
       if (bg != null) bg.newChunk(level, chunk);
     });
+    // 多世界模組在遊戲中載入、卸載的世界
+    Versions.onChunkLoad((level, chunk) -> {
+      if (bg != null) bg.chunkLoaded(level, chunk.getPos().getMinBlockX() >> 4, chunk.getPos().getMinBlockZ() >> 4);
+    });
+    Versions.onLevelEvents(level -> {
+      if (bg != null) bg.levelLoaded(level);
+    }, level -> {
+      if (bg != null) bg.levelUnloaded(level);
+    });
   }
 
   private void starting(MinecraftServer server) {

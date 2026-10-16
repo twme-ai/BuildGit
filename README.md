@@ -110,6 +110,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 
 ### 小提示
 
+- 只有管理員在裡面執行過 `/bg init` 的世界受版本控制；地獄、終界與 Multiverse 等多世界插件的世界要各自 init。init 不會讓伺服器暫停：起點世界在背景複製。
 - 草稿世界沒人在裡面時會自動從記憶體卸載，下次進去會自動載入，內容不會不見。
 - 伺服器重開也不會遺失沒存的變更（當機時最多少記最後一秒）。
 - 完整指令清單：遊戲內 `/bg help`。
@@ -118,7 +119,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 
 ```
 /bg                      主選單（箱子介面）
-/bg init                 開始版本控制（管理員；複製一次起點世界）
+/bg init                 讓所在的世界開始受版本控制（管理員；每個世界各自 init）
 /bg try <名稱>           開草稿並傳送到同一個位置
 /bg go <草稿|main>       到某個草稿或主世界
 /bg save [訊息]          存檔（里程碑）

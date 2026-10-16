@@ -177,13 +177,10 @@ final class FabricPlatform implements Platform {
   // ---- 世界 ----
 
   @Override
-  public List<ServerLevel> mainLevels() {
-    var result = new ArrayList<ServerLevel>();
-    for (var key : List.of(Level.OVERWORLD, Level.NETHER, Level.END)) {
-      var level = server.getLevel(key);
-      if (level != null) result.add(level);
-    }
-    return result;
+  public long[] loadedChunks(ServerLevel level) {
+    // 鍵是 ChunkPos 的打包格式（z 在高位），換成 x 在高位
+    return ((dev.twme.buildgit.fabric.mixin.ChunkMapAccessor) level.getChunkSource().chunkMap).buildgit$chunks().keySet().longStream()
+        .map(k -> k << 32 | k >>> 32).toArray();
   }
 
   /** 世界名稱 → 維度 id。id 只能有 {@code [a-z0-9_-]}，其他字元寫成 {@code .u<十六進位>.}，可以還原。 */

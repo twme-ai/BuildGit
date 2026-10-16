@@ -156,6 +156,22 @@ public final class BuildGit {
   /** 世界載入（主執行緒）：掛上鄰居更新器。 */
   public void levelLoaded(ServerLevel level) {
     tracker.precise(level, CascadeUpdater.install(platform, level, tracker));
+    // 載入事件期間不存檔、不開新世界：下一刻再納入版本控制
+    platform.later(1, () -> workspace.worldLoaded(level));
+  }
+
+  /** 世界將被卸載。回傳 false 表示應該擋下（受版本控制的世界）；擋不下的平台之後呼叫 {@link #levelUnloaded}。 */
+  public boolean levelUnloading(ServerLevel level) {
+    return !workspace.isMainWorld(level);
+  }
+
+  public void levelUnloaded(ServerLevel level) {
+    workspace.worldUnloaded(level);
+  }
+
+  /** 載入一個已存在的 chunk（主執行緒）。 */
+  public void chunkLoaded(ServerLevel level, int chunkX, int chunkZ) {
+    workspace.chunkLoaded(level, chunkX, chunkZ);
   }
 
   /** 剛生成一個 chunk（主執行緒）。 */

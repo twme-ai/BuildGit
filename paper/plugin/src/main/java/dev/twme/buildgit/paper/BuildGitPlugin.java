@@ -39,6 +39,7 @@ import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.event.server.ServerLoadEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.WorldLoadEvent;
+import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -147,11 +148,20 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
   @EventHandler(priority = EventPriority.MONITOR)
   public void onChunkLoad(ChunkLoadEvent e) {
     if (e.isNewChunk()) bg.newChunk(PaperPlatform.level(e.getWorld()), PaperPlatform.level(e.getWorld()).getChunk(e.getChunk().getX(), e.getChunk().getZ()));
+    else bg.chunkLoaded(PaperPlatform.level(e.getWorld()), e.getChunk().getX(), e.getChunk().getZ());
   }
 
   @EventHandler
   public void onWorldLoad(WorldLoadEvent e) {
     bg.levelLoaded(PaperPlatform.level(e.getWorld()));
+  }
+
+  /** 受版本控制的世界不讓多世界插件卸載：卸載後併回與還原就寫不進去。 */
+  @EventHandler(ignoreCancelled = true)
+  public void onWorldUnload(WorldUnloadEvent e) {
+    if (bg.levelUnloading(PaperPlatform.level(e.getWorld()))) return;
+    e.setCancelled(true);
+    getLogger().warning("世界 " + e.getWorld().getName() + " 受版本控制，BuildGit 不讓它卸載（卸載後併回與還原寫不進去）");
   }
 
   @EventHandler

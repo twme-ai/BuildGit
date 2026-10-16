@@ -25,6 +25,19 @@ import xyz.nucleoid.fantasy.RuntimeLevelHandle;
 public final class Versions {
   private Versions() {}
 
+  /** 世界載入、卸載（包括多世界模組在遊戲中開關的世界）。 */
+  public static void onLevelEvents(java.util.function.Consumer<ServerLevel> load, java.util.function.Consumer<ServerLevel> unload) {
+    net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents.LOAD.register((server, level) -> load.accept(level));
+    net.fabricmc.fabric.api.event.lifecycle.v1.ServerLevelEvents.UNLOAD.register((server, level) -> unload.accept(level));
+  }
+
+  /** 已存在的 chunk 載入（不含剛生成的）。 */
+  public static void onChunkLoad(java.util.function.BiConsumer<ServerLevel, net.minecraft.world.level.chunk.LevelChunk> load) {
+    net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents.CHUNK_LOAD.register((level, chunk, generated) -> {
+      if (!generated) load.accept(level, chunk);
+    });
+  }
+
   /** 雙向的 play 封包。 */
   public static <T extends net.minecraft.network.protocol.common.custom.CustomPacketPayload> void registerPayload(
       net.minecraft.network.protocol.common.custom.CustomPacketPayload.Type<T> type,

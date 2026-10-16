@@ -52,8 +52,8 @@ public interface Platform {
 
   // ---- 世界 ----
 
-  /** 主分支的世界：伺服器的主世界與地獄、終界。 */
-  List<ServerLevel> mainLevels();
+  /** 已載入的 chunk，每個是 {@code x << 32 | z & 0xFFFFFFFFL}。 */
+  long[] loadedChunks(ServerLevel level);
 
   /** 合成一個 region 檔。檔案不存在時才會呼叫；在 IO 執行緒呼叫。 */
   interface Synthesizer {
