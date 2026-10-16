@@ -8,6 +8,12 @@ java { toolchain.languageVersion.set(JavaLanguageVersion.of(25)) }
 tasks.withType<JavaCompile>().configureEach { options.release.set(25) }
 paperweight.reobfArtifactConfiguration = ReobfArtifactConfiguration.MOJANG_PRODUCTION
 
+// 與 Fabric 版共用的伺服器邏輯（以原版類別撰寫）。
+sourceSets.main {
+    java.srcDir("../../server/src/main/java")
+    resources.srcDir("../../server/src/main/resources")
+}
+
 dependencies {
     paperweight.paperDevBundle("26.2.build.129-stable")
     implementation(project(":core"))

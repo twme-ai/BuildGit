@@ -1,4 +1,4 @@
-package dev.twme.buildgit.paper;
+package dev.twme.buildgit.server;
 
 import dev.twme.buildgit.core.anvil.AnvilSource;
 import dev.twme.buildgit.core.anvil.RegionSynthesizer;
@@ -15,10 +15,9 @@ import dev.twme.buildgit.core.repo.Commit;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.store.RefStore;
-import dev.twme.buildgit.paper.nms.LiveReader;
-import dev.twme.buildgit.paper.nms.LiveWriter;
-import dev.twme.buildgit.paper.nms.RegionHook;
-import dev.twme.buildgit.paper.track.Tracker;
+import dev.twme.buildgit.server.nms.LiveReader;
+import dev.twme.buildgit.server.nms.LiveWriter;
+import dev.twme.buildgit.server.track.Tracker;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.*;
@@ -32,14 +31,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-import org.bukkit.Bukkit;
-import org.bukkit.Chunk;
-import org.bukkit.Location;
-import org.bukkit.World;
-import org.bukkit.WorldCreator;
-import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.entity.Player;
-import org.bukkit.plugin.java.JavaPlugin;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 /**
  * 伺服器上的版本庫（設計 §2.1）：{@code <伺服器根目錄>/buildgit/}，以及每個分支的工作區與世界。
@@ -60,7 +55,7 @@ public final class Workspace {
   private static final String VIEW_PREFIX = "bgview_";
   private static final int MAX_SHAPE_FIX = 1 << 20;
 
-  private final JavaPlugin plugin;
+  private final Platform platform;
   private final Tracker tracker;
   private final Path dir;
   private Repository repo;
@@ -68,14 +63,12 @@ public final class Workspace {
   private GenesisRecorder genesisRecorder;
   private MergeSessions merges;
   private final Map<String, Worktree> worktrees = new LinkedHashMap<>();
-  /** 世界 UUID → 所屬工作區。 */
-  private final Map<UUID, Worktree> owners = new HashMap<>();
-  /** 正在建立的世界：名稱 → 合成來源。在 WorldInitEvent 掛上合成讀取。 */
-  private final Map<String, Pending> creating = new HashMap<>();
+  /** 世界 → 所屬工作區。 */
+  private final Map<ServerLevel, Worktree> owners = new HashMap<>();
   /** BuildGit 建立的世界 → 內容來源（新生成 chunk 補覆寫時用）。 */
-  private final Map<UUID, Pending> sources = new ConcurrentHashMap<>();
+  private final Map<ServerLevel, Pending> sources = new ConcurrentHashMap<>();
   /** 檢視世界 → 版本。 */
-  private final Map<UUID, View> views = new HashMap<>();
+  private final Map<ServerLevel, View> views = new HashMap<>();
   private final Map<String, RegionSynthesizer> synthesizers = new LinkedHashMap<>(16, 0.75f, true) {
     @Override
     protected boolean removeEldestEntry(Map.Entry<String, RegionSynthesizer> eldest) {
@@ -92,10 +85,10 @@ public final class Workspace {
 
   public record View(ObjectId commit, String dimension) {}
 
-  public Workspace(JavaPlugin plugin, Tracker tracker) {
-    this.plugin = plugin;
+  public Workspace(Platform platform, Tracker tracker) {
+    this.platform = platform;
     this.tracker = tracker;
-    this.dir = Path.of("").toAbsolutePath().resolve("buildgit");
+    this.dir = platform.repoDir();
   }
 
   Path dir() {
@@ -103,11 +96,11 @@ public final class Workspace {
   }
 
   Logger log() {
-    return plugin.getLogger();
+    return platform.log();
   }
 
-  JavaPlugin plugin() {
-    return plugin;
+  Platform platform() {
+    return platform;
   }
 
   Tracker tracker() {
@@ -118,17 +111,30 @@ public final class Workspace {
     return genesis;
   }
 
-  MergeSessions merges() {
+  public MergeSessions merges() {
     return merges;
   }
 
   void async(Runnable r) {
-    Bukkit.getScheduler().runTaskAsynchronously(plugin, r);
+    platform.async(r);
   }
 
   void sync(Runnable r) {
-    if (Bukkit.isPrimaryThread()) r.run();
-    else Bukkit.getScheduler().runTask(plugin, r);
+    platform.sync(r);
+  }
+
+  /** 世界仍然載入中（沒有被卸載）。 */
+  boolean loaded(ServerLevel level) {
+    return platform.server().getLevel(level.dimension()) == level;
+  }
+
+  /** 依 UUID 找已載入的實體；不在任何世界時為 null。 */
+  Entity entity(UUID uuid) {
+    for (var level : platform.server().getAllLevels()) {
+      var e = level.getEntity(uuid);
+      if (e != null) return e;
+    }
+    return null;
   }
 
   static Throwable unwrap(Throwable t) {
@@ -149,8 +155,8 @@ public final class Workspace {
   }
 
   /** 世界所屬的工作區；不受版本控制（含檢視世界）時為 null。 */
-  public Worktree worktree(World world) {
-    return world == null ? null : owners.get(world.getUID());
+  public Worktree worktree(ServerLevel world) {
+    return world == null ? null : owners.get(world);
   }
 
   public Worktree worktree(String branch) {
@@ -162,36 +168,27 @@ public final class Workspace {
   }
 
   /** 檢視世界的版本；不是檢視世界時為 null。 */
-  public View view(World world) {
-    return world == null ? null : views.get(world.getUID());
+  public View view(ServerLevel world) {
+    return world == null ? null : views.get(world);
   }
 
   /** 世界在版本中的維度 id：分支與檢視世界對應回主世界的維度。 */
-  public String logicalDimension(World world) {
-    var v = views.get(world.getUID());
+  public String logicalDimension(ServerLevel world) {
+    var v = views.get(world);
     if (v != null) return v.dimension();
     var d = tracker.logicalDimension(world);
     return d != null ? d : Tracker.dimensionId(world);
   }
 
-  /** 主分支的世界：伺服器的主世界與同名的地獄、終界。 */
-  public List<World> mainWorlds() {
-    var worlds = Bukkit.getWorlds();
-    if (worlds.isEmpty()) return List.of();
-    var main = worlds.getFirst();
-    var result = new ArrayList<World>();
-    result.add(main);
-    for (var suffix : List.of("_nether", "_the_end")) {
-      var w = Bukkit.getWorld(main.getName() + suffix);
-      if (w != null) result.add(w);
-    }
-    // 26.x 也可能把三個維度放在同一個世界資料夾；依維度 key 去重。
+  /** 主分支的世界：伺服器的主世界與地獄、終界。 */
+  public List<ServerLevel> mainWorlds() {
+    var result = new ArrayList<>(platform.mainLevels());
     var seen = new HashSet<String>();
     result.removeIf(w -> !seen.add(Tracker.dimensionId(w)));
     return result;
   }
 
-  private World mainWorld(String dimension) {
+  private ServerLevel mainWorld(String dimension) {
     for (var w : mainWorlds()) if (Tracker.dimensionId(w).equals(dimension)) return w;
     return null;
   }
@@ -211,12 +208,12 @@ public final class Workspace {
       var p = genesisDir(d);
       return Files.isDirectory(p) ? p : null;
     });
-    genesisRecorder = new GenesisRecorder(this::genesisDir, genesis, plugin.getLogger());
+    genesisRecorder = new GenesisRecorder(this::genesisDir, genesis, log());
     var main = new Worktree(this, Repository.MAIN);
     worktrees.put(Repository.MAIN, main);
     for (var w : mainWorlds()) {
       main.addWorld(Tracker.dimensionId(w), w);
-      owners.put(w.getUID(), main);
+      owners.put(w, main);
     }
     deleteStaleViews();
     merges = new MergeSessions(this);
@@ -224,10 +221,8 @@ public final class Workspace {
   }
 
   public void close() {
-    for (var w : List.copyOf(views.keySet())) {
-      var world = Bukkit.getWorld(w);
-      if (world != null) discardWorld(world, null);
-    }
+    for (var world : List.copyOf(views.keySet())) if (loaded(world)) discardWorld(world, null);
+    views.clear();
     worktrees.values().forEach(Worktree::close);
     worktrees.clear();
     owners.clear();
@@ -259,11 +254,11 @@ public final class Workspace {
    */
   public void unloadIdleTick(long idleTicks) {
     if (repo == null || idleTicks < 0) return;
-    long now = Bukkit.getCurrentTick();
+    long now = platform.tick();
     idleSince.keySet().retainAll(worktrees.keySet());
     for (var wt : worktrees()) {
       if (wt.branch().equals(Repository.MAIN)) continue;
-      boolean occupied = wt.worlds().values().stream().anyMatch(w -> !w.getPlayers().isEmpty());
+      boolean occupied = wt.worlds().values().stream().anyMatch(w -> !w.players().isEmpty());
       if (occupied || wt.isCommitting()) {
         idleSince.remove(wt.branch());
         continue;
@@ -278,12 +273,12 @@ public final class Workspace {
     if (wt.branch().equals(Repository.MAIN) || !wt.lock()) return false;
     try {
       for (var world : List.copyOf(wt.worlds().values())) {
-        if (!Bukkit.unloadWorld(world, true)) {
-          log().warning("無法卸載世界 " + world.getName() + "，" + wt.branch() + " 保持載入");
+        if (!platform.unloadLevel(world, true)) {
+          log().warning("無法卸載世界 " + platform.levelName(world) + "，" + wt.branch() + " 保持載入");
           return false;
         }
-        owners.remove(world.getUID());
-        sources.remove(world.getUID());
+        owners.remove(world);
+        sources.remove(world);
         wt.removeWorld(world);
       }
       worktrees.remove(wt.branch());
@@ -314,7 +309,7 @@ public final class Workspace {
     long size = 0;
     for (var world : mainWorlds()) {
       LiveReader.saveNow(world);
-      var source = LiveReader.directory(world);
+      var source = platform.levelDirectory(world);
       var target = genesisDir(Tracker.dimensionId(world));
       for (var sub : List.of("region", "entities")) size += copy(source.resolve(sub), target.resolve(sub));
     }
@@ -343,13 +338,13 @@ public final class Workspace {
    * 1. 受追蹤的世界：生成結果補進起點世界（設計 §2.3），已有的不覆寫；
    * 2. BuildGit 建立的世界：這個 chunk 若在覆寫表中有內容（起點世界沒有、所以沒被合成），套用上去。
    */
-  public void newChunk(Chunk chunk) {
-    var world = chunk.getWorld();
+  public void newChunk(ServerLevel world, LevelChunk chunk) {
+    if (repo == null) return;
     var owner = worktree(world);
-    if (owner != null) genesisRecorder.record(tracker.logicalDimension(world), chunk);
-    var source = sources.get(world.getUID());
+    if (owner != null) genesisRecorder.record(tracker.logicalDimension(world), world, chunk);
+    var source = sources.get(world);
     if (source == null) return;
-    int cx = chunk.getX(), cz = chunk.getZ();
+    int cx = chunk.getPos().getMinBlockX() >> 4, cz = chunk.getPos().getMinBlockZ() >> 4;
     async(() -> {
       try {
         var overlay = new OverlayReader(repo.overlays(), source.tree().tree()).chunk(source.dimension(), cx, cz);
@@ -375,8 +370,8 @@ public final class Workspace {
   }
 
   /** branches.yml：分支 → 來源分支、建立時間、種類。 */
-  private YamlConfiguration branchesFile() {
-    return YamlConfiguration.loadConfiguration(branchesPath().toFile());
+  private Yaml branchesFile() {
+    return Yaml.load(branchesPath());
   }
 
   /** 草稿的來源分支（併回的目標）；不知道時為 main。 */
@@ -413,7 +408,7 @@ public final class Workspace {
     yaml.set(name + ".source", from);
     yaml.set(name + ".created", System.currentTimeMillis());
     if (scratch) yaml.set(name + ".kind", "merge");
-    yaml.save(branchesPath().toFile());
+    yaml.save(branchesPath());
   }
 
   /**
@@ -422,8 +417,8 @@ public final class Workspace {
    * @param force 有未存的變更也刪
    */
   /** 預期中的拒絕（例如還有未存的變更）：只告訴玩家原因，不寫錯誤記錄。 */
-  static final class Refused extends IOException {
-    Refused(String message) {
+  public static final class Refused extends IOException {
+    public Refused(String message) {
       super(message);
     }
   }
@@ -445,7 +440,7 @@ public final class Workspace {
     if (name.equals(Repository.MAIN)) throw new Refused("不能刪除主世界");
     repo.head(name);
     var yaml = branchesFile();
-    for (var other : yaml.getKeys(false))
+    for (var other : yaml.keys())
       if (!other.equals(name) && name.equals(yaml.getString(other + ".source")) && repo.refs().get(other).isPresent())
         throw new Refused("草稿 " + other + " 以它為來源，請先刪除或併回 " + other);
     var wt = worktrees.get(name);
@@ -461,13 +456,13 @@ public final class Workspace {
       for (var world : List.copyOf(wt.worlds().values())) discardWorld(world, fallback);
     }
     for (var w : mainWorlds()) {
-      var folder = dimensionsDir().resolve(worldName(name, Tracker.dimensionId(w)));
-      if (Bukkit.getWorld(worldName(name, Tracker.dimensionId(w))) == null) deleteLater(folder);
+      var world = worldName(name, Tracker.dimensionId(w));
+      if (platform.findLevel(world) == null) deleteLater(platform.levelFolder(world));
     }
     deleteLater(dir.resolve("worktree").resolve(name));
     repo.deleteBranch(name);
     yaml.set(name, null);
-    yaml.save(branchesPath().toFile());
+    yaml.save(branchesPath());
   }
 
   /** 草稿某維度的世界名稱。 */
@@ -481,11 +476,6 @@ public final class Workspace {
       case "minecraft:the_end" -> "_the_end";
       default -> "";
     };
-  }
-
-  /** 世界資料夾的上層（26.x 的 {@code world/dimensions/minecraft}）。 */
-  private Path dimensionsDir() {
-    return LiveReader.directory(Bukkit.getWorlds().getFirst()).getParent();
   }
 
   /**
@@ -504,7 +494,7 @@ public final class Workspace {
         String dim = Tracker.dimensionId(mainWorld);
         var world = createWorld(worldName(branch, dim), mainWorld, new Pending(dim, () -> repo.commit(repo.head(branch)).tree()));
         wt.addWorld(dim, world);
-        owners.put(world.getUID(), wt);
+        owners.put(world, wt);
       }
     } catch (IOException | RuntimeException e) {
       worktrees.remove(branch);
@@ -514,34 +504,17 @@ public final class Workspace {
     return wt;
   }
 
-  private World createWorld(String name, World template, Pending source) throws IOException {
-    var world = Bukkit.getWorld(name);
+  private ServerLevel createWorld(String name, ServerLevel template, Pending source) throws IOException {
+    var world = platform.findLevel(name);
     if (world == null) {
-      creating.put(name, source);
-      try {
-        world = new WorldCreator(name).copy(template).createWorld();
-      } finally {
-        creating.remove(name);
-      }
-      if (world == null) throw new IOException("無法建立世界 " + name);
-    }
-    sources.put(world.getUID(), source);
-    return world;
-  }
-
-  /** 世界初始化（任何 chunk 讀取之前）：BuildGit 的世界掛上合成讀取。 */
-  public void worldInit(World world) {
-    var source = creating.get(world.getName());
-    if (source == null) return;
-    try {
-      RegionHook.install(world,
+      world = platform.openLevel(name, template,
           (target, rx, rz) -> synthesizer(source).blocks(target, rx, rz),
-          (target, rx, rz) -> synthesizer(source).entities(target, rx, rz),
-          plugin.getLogger());
-    } catch (ReflectiveOperationException | RuntimeException e) {
-      // 沒有合成讀取的世界會變成全新生成的世界：拒絕使用比給錯內容好。
-      throw new IllegalStateException("無法在 " + world.getName() + " 掛上合成讀取", e);
+          (target, rx, rz) -> synthesizer(source).entities(target, rx, rz));
+      if (world == null) throw new IOException("無法建立世界 " + name);
+      tracker.precise(world, dev.twme.buildgit.server.nms.CascadeUpdater.install(platform, world, tracker));
     }
+    sources.put(world, source);
+    return world;
   }
 
   /** 某個覆寫表、某個維度的合成器。IO 執行緒呼叫。 */
@@ -566,24 +539,24 @@ public final class Workspace {
   }
 
   /** 開啟某個版本、某個維度的唯讀世界（主執行緒）。 */
-  public World openView(ObjectId commit, String dimension) throws IOException {
+  public ServerLevel openView(ObjectId commit, String dimension) throws IOException {
     var template = mainWorld(dimension);
     if (template == null) throw new IOException("主世界沒有維度 " + dimension);
     var tree = repo.commit(commit).tree();
     var world = createWorld(viewName(commit, dimension), template, new Pending(dimension, () -> tree));
-    views.put(world.getUID(), new View(commit, dimension));
+    views.put(world, new View(commit, dimension));
     return world;
   }
 
   /** 沒有玩家的檢視世界卸載並刪除。 */
-  public void discardIfEmpty(World world) {
-    if (views.containsKey(world.getUID()) && world.getPlayers().isEmpty()) discardWorld(world, null);
+  public void discardIfEmpty(ServerLevel world) {
+    if (views.containsKey(world) && world.players().isEmpty()) discardWorld(world, null);
   }
 
   private void deleteStaleViews() {
-    try (var s = Files.list(dimensionsDir())) {
-      for (var p : s.filter(p -> p.getFileName().toString().startsWith(VIEW_PREFIX)).toList())
-        if (Bukkit.getWorld(p.getFileName().toString()) == null) deleteLater(p);
+    try {
+      for (var name : platform.levelFolders())
+        if (name.startsWith(VIEW_PREFIX) && platform.findLevel(name) == null) deleteLater(platform.levelFolder(name));
     } catch (IOException e) {
       log().log(Level.WARNING, "無法清理舊的檢視世界", e);
     }
@@ -592,36 +565,40 @@ public final class Workspace {
   /**
    * 卸載並刪除 BuildGit 建立的世界（主執行緒）。裡面的玩家傳送到 {@code fallback} 的同一個位置；沒給時回主世界。
    */
-  void discardWorld(World world, Worktree fallback) {
+  void discardWorld(ServerLevel world, Worktree fallback) {
     String dim = logicalDimension(world);
     var to = fallback != null ? fallback : main();
-    for (var p : world.getPlayers()) {
+    for (var p : List.copyOf(world.players())) {
       var target = to != null ? to.world(dim) : null;
-      if (target == null) target = Bukkit.getWorlds().getFirst();
-      var loc = p.getLocation().clone();
-      loc.setWorld(target);
-      p.teleport(loc);
+      if (target == null) target = platform.server().overworld();
+      teleportNow(p, target, p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot());
     }
-    var folder = LiveReader.directory(world);
-    owners.remove(world.getUID());
-    sources.remove(world.getUID());
-    views.remove(world.getUID());
-    if (!Bukkit.unloadWorld(world, false)) {
-      log().warning("無法卸載世界 " + world.getName() + "，資料夾保留");
+    var folder = platform.levelDirectory(world);
+    owners.remove(world);
+    sources.remove(world);
+    views.remove(world);
+    if (!platform.unloadLevel(world, false)) {
+      log().warning("無法卸載世界 " + platform.levelName(world) + "，資料夾保留");
       return;
     }
     deleteLater(folder);
   }
 
-  /** 下一刻在背景刪除資料夾（等伺服器關閉檔案）。 */
+  /** 立刻傳送（主執行緒）；收掉世界之前必須先把人移走。 */
+  static void teleportNow(ServerPlayer p, ServerLevel level, double x, double y, double z, float yaw, float pitch) {
+    p.teleport(new net.minecraft.world.level.portal.TeleportTransition(level, new net.minecraft.world.phys.Vec3(x, y, z),
+        net.minecraft.world.phys.Vec3.ZERO, yaw, pitch, net.minecraft.world.level.portal.TeleportTransition.DO_NOTHING));
+  }
+
+  /** 稍後在背景刪除資料夾（等伺服器關閉檔案）。 */
   private void deleteLater(Path folder) {
-    Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () -> {
+    platform.asyncLater(20, () -> {
       try {
         deleteRecursively(folder);
       } catch (IOException e) {
         log().log(Level.WARNING, "無法刪除 " + folder, e);
       }
-    }, 20);
+    });
   }
 
   /** 遞迴刪除；同一個資料夾可能同時被收掉世界與刪除分支各刪一次，已經不在的項目略過。 */
@@ -652,15 +629,13 @@ public final class Workspace {
   // ---- 傳送 ----
 
   /** 傳送到某個世界的同一個座標。 */
-  static CompletableFuture<Boolean> teleport(Player player, World world) {
-    var loc = player.getLocation().clone();
-    loc.setWorld(world);
-    return player.teleportAsync(loc);
+  CompletableFuture<Boolean> teleport(ServerPlayer player, ServerLevel world) {
+    return platform.teleport(player, world, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
   }
 
   /** 傳送到某個分支、玩家目前所在維度的世界。 */
-  CompletableFuture<Boolean> teleport(Player player, Worktree to) {
-    var world = to.world(logicalDimension(player.getWorld()));
+  CompletableFuture<Boolean> teleport(ServerPlayer player, Worktree to) {
+    var world = to.world(logicalDimension(player.level()));
     if (world == null) world = to.worlds().values().iterator().next();
     return teleport(player, world);
   }
@@ -774,7 +749,7 @@ public final class Workspace {
       if (world == null) return;
       var list = Collections.synchronizedList(new ArrayList<BlockPos>());
       written.put(dim, list);
-      byChunk.forEach((key, cells) -> futures.add(world.getChunkAtAsync((int) (key >> 32), (int) (long) key, true).thenAccept(chunk ->
+      byChunk.forEach((key, cells) -> futures.add(platform.loadChunk(world, (int) (key >> 32), (int) (long) key).thenAccept(chunk ->
           tracker.systemWrite(() -> {
             for (var w : cells)
               try {
@@ -791,7 +766,7 @@ public final class Workspace {
       for (var e : writes.entities()) {
         var world = wt.world(e.dimension());
         if (world == null) continue;
-        chain = chain.thenCompose(x -> world.getChunkAtAsync(e.chunkX(), e.chunkZ(), true)).thenCompose(this::entitiesLoaded).thenAccept(chunk ->
+        chain = chain.thenCompose(x -> platform.loadChunk(world, e.chunkX(), e.chunkZ())).thenCompose(c -> entitiesLoaded(world, c)).thenAccept(chunk ->
             tracker.systemWrite(() -> {
               try {
                 if (e.state().isEmpty()) LiveWriter.removeEntity(world, e.uuid());
@@ -805,14 +780,15 @@ public final class Workspace {
     }).thenApply(ignored -> written);
   }
 
-  /** Paper 的實體與方塊分開載入：等這個 chunk 的實體載入完成（最多約 5 秒）。 */
-  CompletableFuture<Chunk> entitiesLoaded(Chunk chunk) {
-    var result = new CompletableFuture<Chunk>();
+  /** 實體與方塊分開載入：等這個 chunk 的實體載入完成（最多約 5 秒）。 */
+  CompletableFuture<LevelChunk> entitiesLoaded(ServerLevel world, LevelChunk chunk) {
+    var result = new CompletableFuture<LevelChunk>();
     var tries = new int[] {0};
     Runnable[] check = new Runnable[1];
+    var pos = chunk.getPos();
     check[0] = () -> {
-      if (chunk.isEntitiesLoaded() || ++tries[0] > 100) result.complete(chunk);
-      else Bukkit.getScheduler().runTaskLater(plugin, check[0], 1);
+      if (platform.entitiesLoaded(world, pos.getMinBlockX() >> 4, pos.getMinBlockZ() >> 4) || ++tries[0] > 100) result.complete(chunk);
+      else platform.later(1, check[0]);
     };
     sync(check[0]);
     return result;
@@ -834,8 +810,8 @@ public final class Workspace {
       for (var p : List.copyOf(list))
         for (var o : AROUND) {
           var q = new BlockPos(p.x() + o[0], p.y() + o[1], p.z() + o[2]);
-          if (q.y() < world.getMinHeight() || q.y() >= world.getMaxHeight() || !seen.add(q)) continue;
-          if (!world.isChunkLoaded(q.x() >> 4, q.z() >> 4)) continue;
+          if (q.y() < world.getMinY() || q.y() > world.getMaxY() || !seen.add(q)) continue;
+          if (!world.hasChunk(q.x() >> 4, q.z() >> 4)) continue;
           if (LiveWriter.fixShape(world, q.x(), q.y(), q.z())) {
             d.markCell(q, Author.MERGE);
             fixed[0]++;
@@ -992,14 +968,15 @@ public final class Workspace {
   }
 
   /** 玩家剛離開或傳送出某個世界：空了的檢視世界收掉。 */
-  void left(World world) {
-    Bukkit.getScheduler().runTaskLater(plugin, () -> {
-      if (world.getPlayers().isEmpty() && Bukkit.getWorld(world.getUID()) != null) discardIfEmpty(world);
-    }, 20);
+  public void left(ServerLevel world) {
+    platform.later(20, () -> {
+      if (world.players().isEmpty() && loaded(world)) discardIfEmpty(world);
+    });
   }
 
-  /** 某個世界玩家目前位置的方塊座標。 */
-  static BlockPos pos(Location loc) {
-    return new BlockPos(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+  /** 玩家目前位置的方塊座標。 */
+  static BlockPos pos(ServerPlayer player) {
+    var p = player.blockPosition();
+    return new BlockPos(p.getX(), p.getY(), p.getZ());
   }
 }

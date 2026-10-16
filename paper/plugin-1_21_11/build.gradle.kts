@@ -6,8 +6,8 @@ plugins { id("io.papermc.paperweight.userdev") version "2.0.0-beta.21" }
 paperweight.reobfArtifactConfiguration = ReobfArtifactConfiguration.MOJANG_PRODUCTION
 
 sourceSets.main {
-    java.srcDirs("../plugin/src/main/java", "src/main/java")
-    resources.srcDirs("../plugin/src/main/resources")
+    java.srcDirs("../plugin/src/main/java", "../../server/src/main/java", "src/main/java")
+    resources.srcDirs("../plugin/src/main/resources", "../../server/src/main/resources")
 }
 
 dependencies {

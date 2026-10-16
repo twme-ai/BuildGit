@@ -1,9 +1,9 @@
-package dev.twme.buildgit.paper;
+package dev.twme.buildgit.server;
 
 import dev.twme.buildgit.core.anvil.AnvilSource;
 import dev.twme.buildgit.core.anvil.RegionFile;
 import dev.twme.buildgit.core.anvil.RegionWriter;
-import dev.twme.buildgit.paper.nms.LiveReader;
+import dev.twme.buildgit.server.nms.LiveReader;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -14,12 +14,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.bukkit.Chunk;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 /**
  * 把 init 之後才生成的 chunk 補進起點世界（設計 §2.3）。
  *
- * <p>新 chunk 的「原本樣子」就是剛生成時的內容。生成完成（{@code ChunkLoadEvent#isNewChunk}）時玩家還沒碰過它，
+ * <p>新 chunk 的「原本樣子」就是剛生成時的內容。生成完成（第一次以完整狀態載入）時玩家還沒碰過它，
  * 在主執行緒取快照，序列化與寫檔交給專用執行緒。起點世界已有的 chunk 永不覆寫。
  */
 final class GenesisRecorder {
@@ -54,9 +55,9 @@ final class GenesisRecorder {
   }
 
   /** 主執行緒呼叫。 */
-  void record(String dimension, Chunk chunk) {
-    int x = chunk.getX(), z = chunk.getZ();
-    var snapshot = LiveReader.snapshot(chunk);
+  void record(String dimension, ServerLevel level, LevelChunk chunk) {
+    int x = chunk.getPos().getMinBlockX() >> 4, z = chunk.getPos().getMinBlockZ() >> 4;
+    var snapshot = LiveReader.snapshot(level, chunk);
     io.execute(() -> {
       try {
         var file = genesisDir.apply(dimension).resolve("region").resolve(RegionFile.fileName(x, z));

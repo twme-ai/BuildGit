@@ -9,7 +9,7 @@ import com.sk89q.worldedit.extent.Extent;
 import com.sk89q.worldedit.math.BlockVector3;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.track.MarkTable;
-import dev.twme.buildgit.paper.track.Tracker;
+import dev.twme.buildgit.paper.track.BukkitTracker;
 import java.util.BitSet;
 import java.util.UUID;
 import org.bukkit.World;
@@ -22,12 +22,12 @@ import org.bukkit.World;
  * 看到的就是真正要寫入的格子。同一個 chunk 可能被處理多次，標記是冪等的。
  */
 final class FaweRecorder implements IBatchProcessor {
-  private final Tracker tracker;
+  private final BukkitTracker tracker;
   private final World world;
   private final MarkTable.Dimension dimension;
   private final Author author;
 
-  FaweRecorder(Tracker tracker, World world, MarkTable.Dimension dimension, Author author) {
+  FaweRecorder(BukkitTracker tracker, World world, MarkTable.Dimension dimension, Author author) {
     this.tracker = tracker;
     this.world = world;
     this.dimension = dimension;

@@ -5,7 +5,7 @@ import com.moulberry.axiom.event.AxiomRemoveEntityEvent;
 import com.moulberry.axiom.event.AxiomSpawnEntityEvent;
 import com.moulberry.axiom.integration.Integration;
 import com.moulberry.axiom.integration.SectionPermissionChecker;
-import dev.twme.buildgit.paper.track.Tracker;
+import dev.twme.buildgit.paper.track.BukkitTracker;
 import java.util.BitSet;
 import java.util.logging.Logger;
 import org.bukkit.Location;
@@ -36,9 +36,9 @@ public final class AxiomHook implements Listener {
     FULL.set(0, 4096);
   }
 
-  private final Tracker tracker;
+  private final BukkitTracker tracker;
 
-  public AxiomHook(Tracker tracker) {
+  public AxiomHook(BukkitTracker tracker) {
     this.tracker = tracker;
   }
 

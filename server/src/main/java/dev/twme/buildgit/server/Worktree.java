@@ -1,4 +1,4 @@
-package dev.twme.buildgit.paper;
+package dev.twme.buildgit.server;
 
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.model.Cell;
@@ -10,8 +10,7 @@ import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.track.MarkJournal;
 import dev.twme.buildgit.core.track.MarkTable;
 import dev.twme.buildgit.core.track.Marks;
-import dev.twme.buildgit.paper.nms.LiveReader;
-import dev.twme.buildgit.paper.track.Tracker;
+import dev.twme.buildgit.server.nms.LiveReader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.*;
@@ -20,9 +19,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.logging.Level;
-import org.bukkit.Bukkit;
-import org.bukkit.Chunk;
-import org.bukkit.World;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 /**
  * 一個分支的工作區（設計 §2.1 {@code worktree/<分支>/}）：它的世界、標記表與日誌、存檔。
@@ -36,7 +34,7 @@ public final class Worktree {
   private final MarkTable table;
   private final MarkJournal journal;
   /** 版本中的維度 id → 世界。 */
-  private final Map<String, World> worlds = new LinkedHashMap<>();
+  private final Map<String, ServerLevel> worlds = new LinkedHashMap<>();
   private final boolean uncleanShutdown;
   private final AtomicBoolean committing = new AtomicBoolean();
   private long lastSaveTick;
@@ -46,7 +44,8 @@ public final class Worktree {
     this.branch = branch;
     this.dir = ws.dir().resolve("worktree").resolve(branch);
     Files.createDirectories(dir);
-    table = new MarkTable(() -> Bukkit.getCurrentTick());
+    var platform = ws.platform();
+    table = new MarkTable(platform::tick);
     uncleanShutdown = Files.exists(lockFile());
     // 開新檔之前先列出舊檔，重播後由下次提交一併刪除。
     var old = new MarkJournal(dir);
@@ -55,7 +54,7 @@ public final class Worktree {
     MarkJournal.replay(files, table);
     journal = new MarkJournal(dir);
     Files.writeString(lockFile(), String.valueOf(ProcessHandle.current().pid()));
-    lastSaveTick = Bukkit.getCurrentTick();
+    lastSaveTick = platform.tick();
     if (table.cellCount() > 0) ws.log().info(branch + "：從標記日誌恢復 " + table.cellCount() + " 格未存的變更");
   }
 
@@ -75,28 +74,28 @@ public final class Worktree {
     return uncleanShutdown;
   }
 
-  public Map<String, World> worlds() {
+  public Map<String, ServerLevel> worlds() {
     return Collections.unmodifiableMap(worlds);
   }
 
-  public World world(String dimension) {
+  public ServerLevel world(String dimension) {
     return worlds.get(dimension);
   }
 
   /** 這個世界開始屬於本分支（主世界啟用時、分支世界載入時）。 */
-  void addWorld(String dimension, World world) {
+  void addWorld(String dimension, ServerLevel world) {
     worlds.put(dimension, world);
     ws.tracker().attach(table, Map.of(world, dimension));
   }
 
-  void removeWorld(World world) {
-    worlds.values().removeIf(w -> w.getUID().equals(world.getUID()));
+  void removeWorld(ServerLevel world) {
+    worlds.values().removeIf(w -> w == world);
     ws.tracker().detach(table);
     ws.tracker().attach(table, inverse());
   }
 
-  private Map<World, String> inverse() {
-    var m = new HashMap<World, String>();
+  private Map<ServerLevel, String> inverse() {
+    var m = new HashMap<ServerLevel, String>();
     worlds.forEach((d, w) -> m.put(w, d));
     return m;
   }
@@ -154,13 +153,13 @@ public final class Worktree {
       for (var entry : chunks(marks).entrySet()) {
         var key = entry.getKey();
         var world = worlds.get(key.dimension);
-        if (world.isChunkLoaded(key.x, key.z)) read(world.getChunkAt(key.x, key.z), entry.getValue(), marks, snapshot);
+        if (world.hasChunk(key.x, key.z)) read(world, world.getChunk(key.x, key.z), entry.getValue(), marks, snapshot);
         else
-          // gen=true：合成的 chunk 沒有光照資料，載入時要補完最後的步驟；gen=false 會把它當成不存在。
+          // 要生成到完整狀態：合成的 chunk 沒有光照資料，載入時要補完最後的步驟。
           // 從未生成的 chunk 也照常生成，讀到的就是玩家會看到的內容。讀不到絕不能當成空氣。
-          futures.add(world.getChunkAtAsync(key.x, key.z, true).thenAccept(chunk -> {
+          futures.add(ws.platform().loadChunk(world, key.x, key.z).thenAccept(chunk -> {
             if (chunk == null) throw new IllegalStateException("無法載入 chunk " + key.x + "," + key.z);
-            read(chunk, entry.getValue(), marks, snapshot);
+            read(world, chunk, entry.getValue(), marks, snapshot);
           }));
       }
     } catch (RuntimeException e) {
@@ -193,7 +192,7 @@ public final class Worktree {
         .whenComplete((result, error) -> ws.sync(() -> {
           committing.set(false);
           if (error == null) {
-            lastSaveTick = Bukkit.getCurrentTick();
+            lastSaveTick = ws.platform().tick();
             done.accept(result);
             return;
           }
@@ -239,7 +238,7 @@ public final class Worktree {
     marks.entities().forEach((dim, map) -> {
       var keep = new TreeMap<UUID, Integer>();
       map.forEach((uuid, author) -> {
-        boolean absent = worlds.get(dim) == null || tracker.isUnloaded(uuid) && Bukkit.getEntity(uuid) == null;
+        boolean absent = worlds.get(dim) == null || tracker.isUnloaded(uuid) && ws.entity(uuid) == null;
         if (absent) table.dimension(dim).markEntity(uuid, marks.authors().get(author));
         else keep.put(uuid, author);
       });
@@ -259,10 +258,10 @@ public final class Worktree {
 
   private final LiveReader reader = new LiveReader();
 
-  private void read(Chunk chunk, List<SectionKey> keys, Marks marks, Snapshot snapshot) {
+  private void read(ServerLevel world, LevelChunk chunk, List<SectionKey> keys, Marks marks, Snapshot snapshot) {
     for (var key : keys) {
       try {
-        snapshot.cells.put(key, reader.readSection(chunk, key.sectionY(), marks.sections().get(key).cells()));
+        snapshot.cells.put(key, reader.readSection(world, chunk, key.sectionY(), marks.sections().get(key).cells()));
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -273,9 +272,9 @@ public final class Worktree {
     marks.entities().forEach((dim, map) -> {
       var world = worlds.get(dim);
       for (var uuid : map.keySet()) {
-        var entity = Bukkit.getEntity(uuid);
+        var entity = ws.entity(uuid);
         Optional<EntityState> state = Optional.empty();
-        if (entity != null && !entity.isDead() && world != null && entity.getWorld().getUID().equals(world.getUID())) {
+        if (entity != null && entity.isAlive() && world != null && entity.level() == world) {
           try {
             state = Optional.of(LiveReader.readEntity(entity));
           } catch (IOException e) {
@@ -311,7 +310,7 @@ public final class Worktree {
   void autosaveTick(Consumer<SaveResult> done) {
     if (committing.get() || table.isEmpty()) return;
     var settings = ws.tracker().settings();
-    long now = Bukkit.getCurrentTick();
+    long now = ws.platform().tick();
     boolean idle = settings.autosaveIdleTicks() > 0 && now - table.lastChange() >= settings.autosaveIdleTicks();
     boolean overdue = settings.autosaveMaxTicks() > 0 && now - lastSaveTick >= settings.autosaveMaxTicks();
     if (!idle && !overdue) return;

@@ -10,7 +10,7 @@ import com.sk89q.worldedit.util.Location;
 import com.sk89q.worldedit.world.block.BlockStateHolder;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.track.MarkTable;
-import dev.twme.buildgit.paper.track.Tracker;
+import dev.twme.buildgit.paper.track.BukkitTracker;
 import java.util.UUID;
 
 /**
@@ -23,11 +23,11 @@ import java.util.UUID;
  * 由 {@link WorldEditHook} 在執行時加入。
  */
 public final class MarkingExtent extends AbstractDelegateExtent {
-  private final Tracker tracker;
+  private final BukkitTracker tracker;
   private final MarkTable.Dimension dimension;
   private final Author author;
 
-  public MarkingExtent(Extent extent, Tracker tracker, MarkTable.Dimension dimension, Author author) {
+  public MarkingExtent(Extent extent, BukkitTracker tracker, MarkTable.Dimension dimension, Author author) {
     super(extent);
     this.tracker = tracker;
     this.dimension = dimension;

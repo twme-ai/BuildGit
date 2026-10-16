@@ -1,23 +1,21 @@
-package dev.twme.buildgit.paper.nms;
+package dev.twme.buildgit.server.nms;
 
 import com.mojang.math.Transformation;
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundBundlePacket;
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Brightness;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.phys.Vec3;
-import org.bukkit.Material;
-import org.bukkit.craftbukkit.block.data.CraftBlockData;
-import org.bukkit.craftbukkit.entity.CraftEntityType;
-import org.bukkit.craftbukkit.entity.CraftPlayer;
-import org.bukkit.entity.Player;
 import org.joml.Vector3f;
 
 /**
@@ -31,15 +29,14 @@ public final class OutlinePackets {
   public record Box(int x, int y, int z, float sizeX, float sizeY, float sizeZ, int rgb) {}
 
   /** 送出外框（主執行緒），回傳實體 id，之後交給 {@link #remove}。 */
-  public static int[] show(Player player, List<Box> boxes) {
-    var handle = ((CraftPlayer) player).getHandle();
-    var level = handle.level();
+  @SuppressWarnings("unchecked")
+  public static int[] show(ServerPlayer player, List<Box> boxes) {
+    var level = player.level();
     var packets = new ArrayList<Packet<? super ClientGamePacketListener>>(boxes.size() * 2);
     var ids = new int[boxes.size()];
-    // 26.x 把實體類型常數移到 EntityTypes；經由 Bukkit 取得，兩個版本共用
-    @SuppressWarnings("unchecked")
-    var type = (EntityType<Display.BlockDisplay>) CraftEntityType.bukkitToMinecraft(org.bukkit.entity.EntityType.BLOCK_DISPLAY);
-    var glass = ((CraftBlockData) Material.WHITE_STAINED_GLASS.createBlockData()).getState();
+    // 26.x 把實體類型常數移到別的類別；以登錄表查詢，兩個版本共用
+    var type = (EntityType<Display.BlockDisplay>) BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.withDefaultNamespace("block_display"));
+    var glass = BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace("white_stained_glass")).defaultBlockState();
     for (int i = 0; i < boxes.size(); i++) {
       var b = boxes.get(i);
       // 只拿來產生封包，不會加入世界；建構時就分配到不會和真實體重複的 id
@@ -56,12 +53,12 @@ public final class OutlinePackets {
       packets.add(new ClientboundAddEntityPacket(d.getId(), d.getUUID(), b.x(), b.y(), b.z(), 0f, 0f, type, 0, Vec3.ZERO, 0));
       packets.add(new ClientboundSetEntityDataPacket(d.getId(), d.getEntityData().packAll()));
     }
-    if (!packets.isEmpty()) handle.connection.send(new ClientboundBundlePacket(packets));
+    if (!packets.isEmpty()) player.connection.send(new ClientboundBundlePacket(packets));
     return ids;
   }
 
   /** 移除先前送出的外框。玩家已換世界或離線時客戶端早就丟掉了，不必送。 */
-  public static void remove(Player player, int[] ids) {
-    if (ids.length > 0) ((CraftPlayer) player).getHandle().connection.send(new ClientboundRemoveEntitiesPacket(ids));
+  public static void remove(ServerPlayer player, int[] ids) {
+    if (ids.length > 0) player.connection.send(new ClientboundRemoveEntitiesPacket(ids));
   }
 }

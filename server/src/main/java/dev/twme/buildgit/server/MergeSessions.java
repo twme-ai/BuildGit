@@ -1,4 +1,4 @@
-package dev.twme.buildgit.paper;
+package dev.twme.buildgit.server;
 
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.model.BlockPos;
@@ -9,7 +9,7 @@ import dev.twme.buildgit.core.overlay.ThreeWayMerge;
 import dev.twme.buildgit.core.repo.Commit;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
-import dev.twme.buildgit.paper.nms.LiveWriter;
+import dev.twme.buildgit.server.nms.LiveWriter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -20,8 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.logging.Level;
-import org.bukkit.World;
-import org.bukkit.configuration.file.YamlConfiguration;
+import net.minecraft.server.level.ServerLevel;
 
 /**
  * 衝突整合（設計 §5.3）。
@@ -32,7 +31,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
  *
  * <p>進行中的整合存在 {@code buildgit/merge/<id>.yml}。
  */
-final class MergeSessions {
+public final class MergeSessions {
   enum Kind {
     /** 草稿整份併回或底層 merge：合併提交 */
     MERGE,
@@ -73,7 +72,7 @@ final class MergeSessions {
     if (!Files.isDirectory(dir())) return;
     try (var s = Files.list(dir())) {
       for (var f : s.filter(p -> p.getFileName().toString().endsWith(".yml")).toList()) {
-        var y = YamlConfiguration.loadConfiguration(f.toFile());
+        var y = Yaml.load(f);
         try {
           Workspace.Scope scope = null;
           if (y.isList("box")) {
@@ -94,7 +93,7 @@ final class MergeSessions {
 
   private void save(Session s) throws IOException {
     Files.createDirectories(dir());
-    var y = new YamlConfiguration();
+    var y = new Yaml();
     y.set("id", s.id());
     y.set("kind", s.kind().name());
     y.set("target", s.target());
@@ -108,7 +107,7 @@ final class MergeSessions {
       y.set("scope-dimension", s.scope().dimension());
       y.set("box", List.of(b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ()));
     }
-    y.save(dir().resolve(s.id() + ".yml").toFile());
+    y.save(dir().resolve(s.id() + ".yml"));
   }
 
   // ---- 查詢 ----
@@ -127,7 +126,7 @@ final class MergeSessions {
   }
 
   /** 玩家所在世界屬於哪個整合：整合世界本身，或兩邊的檢視世界。 */
-  Session of(World world) {
+  public Session of(ServerLevel world) {
     var wt = ws.worktree(world);
     if (wt != null) return byBranch(wt.branch());
     var view = ws.view(world);
@@ -301,7 +300,7 @@ final class MergeSessions {
       for (var v : values.getKey()) {
         var world = scratch.world(v.dimension());
         if (world == null) continue;
-        futures.add(world.getChunkAtAsync(v.pos().x() >> 4, v.pos().z() >> 4, true).thenAccept(chunk -> tracker.systemWrite(() -> {
+        futures.add(ws.platform().loadChunk(world, v.pos().x() >> 4, v.pos().z() >> 4).thenAccept(chunk -> tracker.systemWrite(() -> {
           try {
             LiveWriter.setCell(world, v.pos().x(), v.pos().y(), v.pos().z(), v.cell());
             scratch.table().dimension(v.dimension()).markCell(v.pos(), author);
@@ -313,7 +312,7 @@ final class MergeSessions {
       for (var v : values.getValue()) {
         var world = scratch.world(v.dimension());
         if (world == null) continue;
-        futures.add(world.getChunkAtAsync(v.chunkX(), v.chunkZ(), true).thenCompose(ws::entitiesLoaded).thenAccept(chunk ->
+        futures.add(ws.platform().loadChunk(world, v.chunkX(), v.chunkZ()).thenCompose(c -> ws.entitiesLoaded(world, c)).thenAccept(chunk ->
             tracker.systemWrite(() -> {
               try {
                 if (v.state().isPresent()) LiveWriter.spawnEntity(world, v.state().get());
@@ -382,10 +381,10 @@ final class MergeSessions {
     }
     var target = ws.worktree(s.target());
     for (var commit : List.of(s.ours(), s.theirs()))
-      for (var world : org.bukkit.Bukkit.getWorlds()) {
+      for (var world : ws.platform().server().getAllLevels()) {
         var view = ws.view(world);
         if (view == null || !view.commit().equals(commit)) continue;
-        if (target != null) for (var p : world.getPlayers()) ws.teleport(p, target);
+        if (target != null) for (var p : List.copyOf(world.players())) ws.teleport(p, target);
         ws.left(world);
       }
     try {

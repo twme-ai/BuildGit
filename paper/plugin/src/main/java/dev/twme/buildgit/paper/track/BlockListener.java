@@ -27,9 +27,9 @@ import org.bukkit.inventory.Inventory;
  * 所以這裡不讀方塊狀態也不複製容器內容。
  */
 public final class BlockListener implements Listener {
-  private final Tracker tracker;
+  private final BukkitTracker tracker;
 
-  public BlockListener(Tracker tracker) {
+  public BlockListener(BukkitTracker tracker) {
     this.tracker = tracker;
   }
 

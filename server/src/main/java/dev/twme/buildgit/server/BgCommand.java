@@ -1,4 +1,4 @@
-package dev.twme.buildgit.paper;
+package dev.twme.buildgit.server;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -14,8 +14,8 @@ import dev.twme.buildgit.core.repo.Commit;
 import dev.twme.buildgit.core.repo.Graph;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
-import io.papermc.paper.command.brigadier.CommandSourceStack;
-import io.papermc.paper.command.brigadier.Commands;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Instant;
@@ -23,28 +23,23 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.logging.Level;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.block.Block;
-import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
-import org.bukkit.event.block.Action;
-import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.inventory.EquipmentSlot;
+import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 
 /**
- * {@code /bg} 指令（設計 §6、§7），以 Paper 的 Brigadier 指令 API 註冊：子指令依權限顯示，參數有補全。
+ * {@code /bg} 指令（設計 §6、§7），Brigadier 指令樹：子指令依權限顯示，參數有補全。
+ * 指令來源的型別由平台決定（Paper 的 {@code CommandSourceStack} 介面、原版的類別），所以以泛型建構。
  *
  * <p>建築師日常用的三步流程（try／publish／back）與底層的分支、合併、還原都在這裡。
  */
-final class BgCommand implements Listener {
+public final class BgCommand {
   private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault());
   private static final int MAX_MARK = 1 << 22;
   private static final int SHOW_CELLS = 200;
@@ -52,27 +47,29 @@ final class BgCommand implements Listener {
   private static final int HERE_RADIUS = 8;
 
   private interface Handler {
-    void run(CommandSender sender, String[] args) throws IOException;
+    void run(Sender sender, String[] args) throws IOException;
   }
 
   private interface Suggester {
-    List<String> suggest(CommandSender sender, List<String> before);
+    List<String> suggest(Sender sender, List<String> before);
   }
 
   private record Sub(List<String> names, String permission, Handler handler, Suggester suggester) {}
 
-  private final BuildGitPlugin plugin;
+  private record Location(ServerLevel level, double x, double y, double z, float yaw, float pitch) {}
+
+  private final BuildGit bg;
   private final Set<UUID> inspecting = new HashSet<>();
   /** 進入檢視世界之前的位置，{@code back} 回到這裡。 */
   private final Map<UUID, Location> returnTo = new HashMap<>();
   private final List<Sub> subs = new ArrayList<>();
 
-  BgCommand(BuildGitPlugin plugin) {
-    this.plugin = plugin;
+  BgCommand(BuildGit bg) {
+    this.bg = bg;
     sub("help", null, (s, a) -> msg().send(s, "help"), null);
     sub("init", "buildgit.admin", (s, a) -> init(s), null);
     sub("reload", "buildgit.admin", (s, a) -> {
-      plugin.reload();
+      bg.reload();
       msg().send(s, "reloaded");
     }, null);
     sub("status", "buildgit.view", (s, a) -> status(s), null);
@@ -91,7 +88,7 @@ final class BgCommand implements Listener {
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames() : List.of());
     sub("back", "buildgit.go", (s, a) -> back(s), null);
     sub("view", "buildgit.go", this::view, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
-    sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm"), s instanceof Player ? List.of() : draftNames()));
+    sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm"), s.isPlayer() ? List.of() : draftNames()));
     sub("branch", "buildgit.view", this::branch, (s, b) -> b.isEmpty() ? List.of("list", "create", "delete")
         : b.size() == 1 && b.getFirst().equals("delete") ? draftNames()
         : b.size() == 2 && b.getFirst().equals("create") ? draftNames()
@@ -119,36 +116,37 @@ final class BgCommand implements Listener {
   }
 
   private Messages msg() {
-    return plugin.messages();
+    return bg.messages();
   }
 
   private Workspace ws() {
-    return plugin.workspace();
+    return bg.workspace();
   }
 
   // ---- Brigadier ----
 
-  LiteralCommandNode<CommandSourceStack> build() {
-    var root = Commands.literal("bg").executes(ctx -> {
-      var sender = ctx.getSource().getSender();
-      if (sender instanceof Player p && p.hasPermission("buildgit.view") && ws().isOpen()) plugin.menu().open(p);
-      else msg().send(sender, "help");
+  /** @param sender 把平台的指令來源轉成 {@link Sender} */
+  public <S> LiteralCommandNode<S> build(Function<S, Sender> sender) {
+    var root = LiteralArgumentBuilder.<S>literal("bg").executes(ctx -> {
+      var s = sender.apply(ctx.getSource());
+      if (s.player() != null && s.hasPermission("buildgit.view") && ws().isOpen()) bg.menu().open(s.player());
+      else msg().send(s, "help");
       return 1;
     });
     for (var sub : subs)
       for (var name : sub.names()) {
-        var literal = Commands.literal(name)
-            .requires(src -> sub.permission() == null || src.getSender().hasPermission(sub.permission()))
-            .executes(ctx -> dispatch(sub, ctx.getSource().getSender(), new String[0]));
-        literal.then(Commands.argument("args", StringArgumentType.greedyString())
-            .suggests((ctx, builder) -> suggest(sub, ctx, builder))
-            .executes(ctx -> dispatch(sub, ctx.getSource().getSender(), StringArgumentType.getString(ctx, "args").trim().split(" +"))));
+        var literal = LiteralArgumentBuilder.<S>literal(name)
+            .requires(src -> sub.permission() == null || sender.apply(src).hasPermission(sub.permission()))
+            .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), new String[0]));
+        literal.then(RequiredArgumentBuilder.<S, String>argument("args", StringArgumentType.greedyString())
+            .suggests((ctx, builder) -> suggest(sub, sender.apply(ctx.getSource()), builder))
+            .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), StringArgumentType.getString(ctx, "args").trim().split(" +"))));
         root.then(literal);
       }
     return root.build();
   }
 
-  private CompletableFuture<Suggestions> suggest(Sub sub, CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
+  private CompletableFuture<Suggestions> suggest(Sub sub, Sender sender, SuggestionsBuilder builder) {
     if (sub.suggester() == null || !ws().isOpen()) return builder.buildFuture();
     var remaining = builder.getRemaining();
     int space = remaining.lastIndexOf(' ');
@@ -156,7 +154,7 @@ final class BgCommand implements Listener {
     var current = remaining.substring(space + 1).toLowerCase(Locale.ROOT);
     var b = builder.createOffset(builder.getStart() + space + 1);
     try {
-      for (var option : sub.suggester().suggest(ctx.getSource().getSender(), before))
+      for (var option : sub.suggester().suggest(sender, before))
         if (option.toLowerCase(Locale.ROOT).startsWith(current)) b.suggest(option);
     } catch (RuntimeException e) {
       // 補全失敗不影響指令
@@ -164,7 +162,7 @@ final class BgCommand implements Listener {
     return b.buildFuture();
   }
 
-  private int dispatch(Sub sub, CommandSender sender, String[] args) {
+  private int dispatch(Sub sub, Sender sender, String[] args) {
     String name = sub.names().getFirst();
     if (!name.equals("init") && !name.equals("reload") && !name.equals("help") && !ws().isOpen()) {
       msg().send(sender, "not-initialized");
@@ -173,13 +171,13 @@ final class BgCommand implements Listener {
     try {
       sub.handler().run(sender, args);
     } catch (IOException | RuntimeException e) {
-      if (!(e instanceof Workspace.Refused)) plugin.getLogger().log(Level.WARNING, "/bg " + name + " 失敗", e);
+      if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "/bg " + name + " 失敗", e);
       failed(sender, e);
     }
     return 1;
   }
 
-  private void failed(CommandSender sender, Throwable e) {
+  private void failed(Sender sender, Throwable e) {
     msg().send(sender, "branch-failed", "error", String.valueOf(e.getMessage()));
   }
 
@@ -191,7 +189,7 @@ final class BgCommand implements Listener {
     }
   }
 
-  private List<String> recentCommits(CommandSender sender) {
+  private List<String> recentCommits(Sender sender) {
     try {
       var repo = ws().repo();
       var result = new ArrayList<String>();
@@ -213,8 +211,8 @@ final class BgCommand implements Listener {
   }
 
   /** 指令作用的分支：玩家所在世界的分支；主控台、檢視世界或不受控的世界為主分支。 */
-  private Worktree current(CommandSender sender) {
-    var wt = sender instanceof Player p ? ws().worktree(p.getWorld()) : null;
+  private Worktree current(Sender sender) {
+    var wt = sender.player() instanceof ServerPlayer p ? ws().worktree(p.level()) : null;
     return wt != null ? wt : ws().main();
   }
 
@@ -224,8 +222,8 @@ final class BgCommand implements Listener {
     return msg().get("branch-draft", "name", branch);
   }
 
-  private Author author(CommandSender sender) {
-    return sender instanceof Player p ? plugin.tracker().author(p) : Author.SYSTEM;
+  private Author author(Sender sender) {
+    return sender.player() instanceof ServerPlayer p ? bg.tracker().author(p) : Author.SYSTEM;
   }
 
   private static Set<String> flags(String[] args) {
@@ -240,10 +238,14 @@ final class BgCommand implements Listener {
     return list;
   }
 
-  private Player player(CommandSender sender) {
-    if (sender instanceof Player p) return p;
+  private ServerPlayer player(Sender sender) {
+    if (sender.player() instanceof ServerPlayer p) return p;
     msg().send(sender, "players-only");
     return null;
+  }
+
+  private Sender s(ServerPlayer p) {
+    return bg.platform().sender(p);
   }
 
   /** 存檔或分支名稱（分支表示它的最新存檔）。 */
@@ -258,39 +260,39 @@ final class BgCommand implements Listener {
   }
 
   /** 有未存的變更就先自動存檔，存好（或本來就沒有）再繼續。 */
-  private void autosaveThen(CommandSender sender, Worktree wt, Runnable next) {
+  private void autosaveThen(Sender sender, Worktree wt, Runnable next) {
     if (wt.table().isEmpty()) {
       next.run();
       return;
     }
     boolean started = wt.save(author(sender), "autosave", Commit.AUTO, r -> next.run(), e -> {
-      plugin.getLogger().log(Level.WARNING, "自動存檔失敗", e);
+      bg.platform().log().log(Level.WARNING, "自動存檔失敗", e);
       msg().send(sender, "save-failed", "error", String.valueOf(e.getMessage()));
     });
     if (!started) msg().send(sender, "save-busy");
   }
 
   /** 玩家的選取範圍換成版本中的維度與範圍。 */
-  private Workspace.Scope selection(Player p) {
-    var sel = plugin.selections().get(p);
+  private Workspace.Scope selection(ServerPlayer p) {
+    var sel = bg.selections().get(p);
     if (sel.isEmpty()) {
-      msg().send(p, "sel-none");
+      msg().send(s(p), "sel-none");
       return null;
     }
-    return new Workspace.Scope(ws().logicalDimension(sel.get().world()), sel.get().box());
+    return new Workspace.Scope(ws().logicalDimension(sel.get().level()), sel.get().box());
   }
 
-  private void outline(CommandSender sender, Collection<Workspace.Changed> changed) {
-    if (sender instanceof Player p)
-      plugin.outlines().show(p, p.getWorld(), Outlines.shapes(changed, ws().logicalDimension(p.getWorld())), OUTLINE_SECONDS);
+  private void outline(Sender sender, Collection<Workspace.Changed> changed) {
+    if (sender.player() instanceof ServerPlayer p)
+      bg.outlines().show(p, p.level(), Outlines.shapes(changed, ws().logicalDimension(p.level())), OUTLINE_SECONDS);
   }
 
   private Component button(String key, String command) {
     return msg().get(key).clickEvent(ClickEvent.runCommand(command));
   }
 
-  private void sendButton(CommandSender sender, String key, String command) {
-    if (sender instanceof Player) sender.sendMessage(button(key, command));
+  private void sendButton(Sender sender, String key, String command) {
+    if (sender.isPlayer()) sender.send(button(key, command));
     else msg().send(sender, "console-confirm", "command", command);
   }
 
@@ -300,22 +302,23 @@ final class BgCommand implements Listener {
 
   // ---- 基本 ----
 
-  private void init(CommandSender sender) {
+  private void init(Sender sender) {
     if (ws().isOpen()) {
       msg().send(sender, "already-initialized");
       return;
     }
     msg().send(sender, "init-start");
     try {
-      long size = ws().init(plugin.tracker().author(sender instanceof Player p ? p : Bukkit.getOfflinePlayer(new UUID(0, 0))));
+      var p = sender.player();
+      long size = ws().init(p != null ? bg.tracker().author(p) : bg.tracker().author(new UUID(0, 0), null));
       msg().send(sender, "init-done", "size", size / (1024 * 1024));
     } catch (IOException e) {
-      plugin.getLogger().log(Level.SEVERE, "init 失敗", e);
+      bg.platform().log().log(Level.SEVERE, "init 失敗", e);
       msg().send(sender, "init-failed", "error", e.getMessage());
     }
   }
 
-  private void status(CommandSender sender) throws IOException {
+  private void status(Sender sender) throws IOException {
     var repo = ws().repo();
     var wt = current(sender);
     msg().send(sender, "status-header", "branch", branchLabel(wt.branch()), "head", repo.head(wt.branch()).abbrev());
@@ -330,7 +333,7 @@ final class BgCommand implements Listener {
       msg().send(sender, "merge-entry", "id", s.id(), "source", s.source() == null ? s.base().abbrev() : s.source(), "target", s.target());
   }
 
-  private void save(CommandSender sender, String message) {
+  private void save(Sender sender, String message) {
     msg().send(sender, "save-start");
     boolean started = current(sender).save(author(sender), message.isBlank() ? "save" : message, 0,
         r -> {
@@ -338,14 +341,14 @@ final class BgCommand implements Listener {
           else msg().send(sender, "save-done", "id", r.commit().get().abbrev(), "cells", r.cells(), "entities", r.entities());
         },
         e -> {
-          plugin.getLogger().log(Level.WARNING, "存檔失敗", e);
+          bg.platform().log().log(Level.WARNING, "存檔失敗", e);
           msg().send(sender, "save-failed", "error", String.valueOf(e.getMessage()));
         });
     if (!started) msg().send(sender, "save-busy");
   }
 
   /** {@code log [分支] [頁數] [--all] [--author <玩家>]}：預設只列里程碑，自動存檔收合成一行；分頁顯示。 */
-  private void log(CommandSender sender, String[] args) throws IOException {
+  private void log(Sender sender, String[] args) throws IOException {
     var repo = ws().repo();
     String branch = current(sender).branch();
     int page = 1;
@@ -364,7 +367,7 @@ final class BgCommand implements Listener {
     final boolean showAll = all;
     final String who = author;
     var command = "/bg log " + branch + "%s" + (all ? " --all" : "") + (author != null ? " --author " + author : "");
-    ws().async(() -> {
+    bg.platform().async(() -> {
       // 每一行（存檔或收合的自動存檔）各算一列；多收一列判斷有沒有下一頁
       var lines = new ArrayList<Component>();
       int want = p * PAGE + 1;
@@ -406,7 +409,7 @@ final class BgCommand implements Listener {
    *
    * @param command 翻頁指令，{@code %s} 換成「 頁數」
    */
-  private void showPage(CommandSender sender, List<Component> lines, int page, String command) {
+  private void showPage(Sender sender, List<Component> lines, int page, String command) {
     int from = (page - 1) * PAGE;
     if (lines.size() <= from) {
       if (lines.isEmpty()) msg().send(sender, "log-empty");
@@ -414,7 +417,7 @@ final class BgCommand implements Listener {
       return;
     }
     var prefix = msg().get("prefix");
-    for (var line : lines.subList(from, Math.min(lines.size(), page * PAGE))) sender.sendMessage(prefix.append(line));
+    for (var line : lines.subList(from, Math.min(lines.size(), page * PAGE))) sender.send(prefix.append(line));
     boolean more = lines.size() > page * PAGE;
     if (page == 1 && !more) return;
     var prev = page > 1 ? msg().get("page-prev").clickEvent(ClickEvent.runCommand(command.formatted(" " + (page - 1)))) : Component.empty();
@@ -426,7 +429,7 @@ final class BgCommand implements Listener {
   private static final net.kyori.adventure.key.Key MONO = net.kyori.adventure.key.Key.key("minecraft", "uniform");
 
   /** {@code graph [頁數] [--all]}：像 git log --graph 的分支歷史圖，分頁顯示；預設略過自動存檔。 */
-  private void graph(CommandSender sender, String[] args) throws IOException {
+  private void graph(Sender sender, String[] args) throws IOException {
     boolean all = flags(args).contains("--all");
     var w = words(args);
     int page = Math.min(200, Math.max(1, w.isEmpty() ? 1 : parseInt(w.getFirst(), 1)));
@@ -435,7 +438,7 @@ final class BgCommand implements Listener {
     var heads = new LinkedHashMap<ObjectId, List<String>>();
     for (var e : ws().drafts().entrySet()) heads.computeIfAbsent(e.getValue(), k -> new ArrayList<>()).add(e.getKey());
     var repo = ws().repo();
-    ws().async(() -> {
+    bg.platform().async(() -> {
       List<Graph.Row> rows;
       try {
         rows = Graph.build(repo, heads.keySet(), c -> !c.parents().isEmpty() && (all || !c.auto()), limit);
@@ -462,7 +465,7 @@ final class BgCommand implements Listener {
     return false;
   }
 
-  private void show(CommandSender sender, String[] args) throws IOException {
+  private void show(Sender sender, String[] args) throws IOException {
     var repo = ws().repo();
     boolean listCells = flags(args).contains("--cells");
     var w = words(args);
@@ -491,7 +494,7 @@ final class BgCommand implements Listener {
   }
 
   /** {@code diff}：未存的變更；{@code diff <存檔>}：那次存檔；{@code diff <a> <b>}：兩個版本之間。在世界裡顯示外框。 */
-  private void diff(CommandSender sender, String[] args) throws IOException {
+  private void diff(Sender sender, String[] args) throws IOException {
     var w = words(args);
     var repo = ws().repo();
     if (w.isEmpty()) {
@@ -545,7 +548,7 @@ final class BgCommand implements Listener {
     }));
   }
 
-  private void mark(CommandSender sender, String[] args) {
+  private void mark(Sender sender, String[] args) {
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
@@ -566,126 +569,135 @@ final class BgCommand implements Listener {
       msg().send(sender, "mark-too-large", "max", MAX_MARK);
       return;
     }
-    if (!plugin.tracker().isTracked(p.getWorld())) {
+    if (!bg.tracker().isTracked(p.level())) {
       msg().send(sender, "inspect-untracked");
       return;
     }
-    plugin.tracker().markBox(p.getWorld(), box, plugin.tracker().author(p));
+    bg.tracker().markBox(p.level(), box, bg.tracker().author(p));
     msg().send(sender, "mark-done", "cells", volume);
   }
 
-  private void sel(CommandSender sender, String[] args) {
+  private void sel(Sender sender, String[] args) {
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
     var what = w.isEmpty() ? "show" : w.getFirst();
     switch (what) {
       case "pos1", "pos2" -> {
-        var block = p.getTargetBlockExact(8);
-        var at = block != null ? new BlockPos(block.getX(), block.getY(), block.getZ()) : Workspace.pos(p.getLocation());
-        plugin.selections().set(p, what.equals("pos1") ? 0 : 1, at);
-        msg().send(p, "sel-set", "corner", what, "pos", pos(at));
+        var block = target(p, 8);
+        var at = block != null ? block : Workspace.pos(p);
+        bg.selections().set(p, what.equals("pos1") ? 0 : 1, at);
+        msg().send(s(p), "sel-set", "corner", what, "pos", pos(at));
       }
       case "clear" -> {
-        plugin.selections().clear(p);
-        plugin.outlines().clear(p);
-        msg().send(p, "sel-cleared");
+        bg.selections().clear(p);
+        bg.outlines().clear(p);
+        msg().send(s(p), "sel-cleared");
       }
       default -> {
-        var sel = plugin.selections().get(p);
+        var sel = bg.selections().get(p);
         if (sel.isEmpty()) {
-          msg().send(p, "sel-none");
+          msg().send(s(p), "sel-none");
           return;
         }
         var b = sel.get().box();
-        msg().send(p, "sel-current", "world", sel.get().world().getName(), "from", b.minX() + " " + b.minY() + " " + b.minZ(),
+        msg().send(s(p), "sel-current", "world", bg.platform().levelName(sel.get().level()), "from", b.minX() + " " + b.minY() + " " + b.minZ(),
             "to", b.maxX() + " " + b.maxY() + " " + b.maxZ());
-        if (sel.get().world().equals(p.getWorld()))
-          plugin.outlines().show(p, p.getWorld(), List.of(new Outlines.Shape(b, Outlines.MODIFIED)), OUTLINE_SECONDS);
+        if (sel.get().level() == p.level())
+          bg.outlines().show(p, p.level(), List.of(new Outlines.Shape(b, Outlines.MODIFIED)), OUTLINE_SECONDS);
       }
     }
   }
 
-  private void who(CommandSender sender) {
-    for (var p : Bukkit.getOnlinePlayers()) {
-      var wt = ws().worktree(p.getWorld());
-      var view = ws().view(p.getWorld());
+  private void who(Sender sender) {
+    for (var p : bg.platform().server().getPlayerList().getPlayers()) {
+      var wt = ws().worktree(p.level());
+      var view = ws().view(p.level());
       Component where = wt != null ? branchLabel(wt.branch())
-          : view != null ? msg().get("place-view", "id", view.commit().abbrev()) : msg().get("place-other", "world", p.getWorld().getName());
-      msg().send(sender, "who-entry", "player", p.getName(), "place", where);
+          : view != null ? msg().get("place-view", "id", view.commit().abbrev())
+          : msg().get("place-other", "world", bg.platform().levelName(p.level()));
+      msg().send(sender, "who-entry", "player", p.getScoreboardName(), "place", where);
     }
+  }
+
+  /** 玩家看著的方塊（不含流體）；沒有時為 null。 */
+  private static BlockPos target(ServerPlayer p, double distance) {
+    var hit = p.pick(distance, 1f, false);
+    if (hit.getType() != HitResult.Type.BLOCK) return null;
+    var b = ((BlockHitResult) hit).getBlockPos();
+    return new BlockPos(b.getX(), b.getY(), b.getZ());
   }
 
   // ---- 檢查 ----
 
-  private void toggleInspect(CommandSender sender) {
+  private void toggleInspect(Sender sender) {
     var p = player(sender);
     if (p == null) return;
-    if (inspecting.remove(p.getUniqueId())) msg().send(p, "inspect-off");
+    if (inspecting.remove(p.getUUID())) msg().send(s(p), "inspect-off");
     else {
-      inspecting.add(p.getUniqueId());
-      msg().send(p, "inspect-on");
+      inspecting.add(p.getUUID());
+      msg().send(s(p), "inspect-on");
     }
   }
 
-  private void blame(CommandSender sender) {
+  private void blame(Sender sender) {
     var p = player(sender);
     if (p == null) return;
-    var block = p.getTargetBlockExact(10);
-    if (block == null) msg().send(p, "blame-no-target");
-    else describe(p, block);
+    var block = target(p, 10);
+    if (block == null) msg().send(s(p), "blame-no-target");
+    else describe(p, p.level(), block);
   }
 
-  @EventHandler(priority = EventPriority.LOWEST)
-  public void onInspect(PlayerInteractEvent e) {
-    if (!inspecting.contains(e.getPlayer().getUniqueId()) || e.getClickedBlock() == null || e.getHand() != EquipmentSlot.HAND) return;
-    if (e.getAction() != Action.LEFT_CLICK_BLOCK && e.getAction() != Action.RIGHT_CLICK_BLOCK) return;
-    e.setCancelled(true);
-    // 右鍵看放置面那一格（例如剛放下的方塊旁邊），左鍵看點到的那一格。
-    describe(e.getPlayer(), e.getAction() == Action.RIGHT_CLICK_BLOCK ? e.getClickedBlock().getRelative(e.getBlockFace()) : e.getClickedBlock());
+  /**
+   * 檢查模式下玩家點了方塊（主手）。回傳 true 表示已處理，平台要取消這次互動。
+   * 右鍵看放置面那一格（例如剛放下的方塊旁邊），左鍵看點到的那一格。
+   */
+  public boolean inspectClick(ServerPlayer p, net.minecraft.core.BlockPos clicked, Direction face, boolean right) {
+    if (!inspecting.contains(p.getUUID())) return false;
+    var b = right ? clicked.relative(face) : clicked;
+    describe(p, p.level(), new BlockPos(b.getX(), b.getY(), b.getZ()));
+    return true;
   }
 
-  @EventHandler
-  public void onQuit(PlayerQuitEvent e) {
-    inspecting.remove(e.getPlayer().getUniqueId());
+  void quit(UUID player) {
+    inspecting.remove(player);
   }
 
-  private void describe(Player player, Block block) {
-    var view = ws().view(block.getWorld());
-    var tracker = plugin.tracker();
-    var d = tracker.dimension(block.getWorld());
-    String pos = block.getX() + " " + block.getY() + " " + block.getZ();
+  private void describe(ServerPlayer player, ServerLevel world, BlockPos at) {
+    var view = ws().view(world);
+    var tracker = bg.tracker();
+    var d = tracker.dimension(world);
+    String pos = at.x() + " " + at.y() + " " + at.z();
     if (d == null && view == null) {
-      msg().send(player, "inspect-untracked");
+      msg().send(s(player), "inspect-untracked");
       return;
     }
     if (d != null) {
-      var pending = d.authorAt(block.getX(), block.getY(), block.getZ());
+      var pending = d.authorAt(at.x(), at.y(), at.z());
       if (pending != null) {
-        msg().send(player, "inspect-pending", "pos", pos, "author", pending.name());
+        msg().send(s(player), "inspect-pending", "pos", pos, "author", pending.name());
         return;
       }
     }
     var repo = ws().repo();
-    var dim = ws().logicalDimension(block.getWorld());
-    var at = new BlockPos(block.getX(), block.getY(), block.getZ());
-    var wt = ws().worktree(block.getWorld());
-    Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+    var dim = ws().logicalDimension(world);
+    var wt = ws().worktree(world);
+    bg.platform().async(() -> {
       try {
         var start = view != null ? view.commit() : repo.head(wt.branch());
         var blame = repo.blame(start, dim, at);
         String time = blame.isEmpty() ? "" : TIME.format(Instant.ofEpochMilli(repo.commit(blame.get().commit()).time()));
         ws().sync(() -> {
           if (blame.isEmpty()) {
-            msg().send(player, "inspect-none", "pos", pos);
+            msg().send(s(player), "inspect-none", "pos", pos);
             return;
           }
           var b = blame.get();
-          msg().send(player, "inspect-blame", "pos", pos, "author", b.author().name(), "id", b.commit().abbrev(), "time", time,
+          msg().send(s(player), "inspect-blame", "pos", pos, "author", b.author().name(), "id", b.commit().abbrev(), "time", time,
               "kind", msg().get(kind(b.kind())));
         });
       } catch (IOException ex) {
-        plugin.getLogger().log(Level.WARNING, "blame 失敗", ex);
+        bg.platform().log().log(Level.WARNING, "blame 失敗", ex);
       }
     });
   }
@@ -701,7 +713,7 @@ final class BgCommand implements Listener {
   // ---- 草稿（設計 §6.2） ----
 
   /** 主控台也可以用：從主世界開草稿並載入世界，不傳送。 */
-  private void tryDraft(CommandSender sender, String[] args) {
+  private void tryDraft(Sender sender, String[] args) {
     var w = words(args);
     if (w.size() != 1) {
       msg().send(sender, "usage-try");
@@ -722,15 +734,15 @@ final class BgCommand implements Listener {
         if (!exists) ws().createBranch(name, source.branch());
         msg().send(sender, exists ? "try-existing" : "try-created", "name", name);
         var draft = ws().openBranch(name);
-        if (sender instanceof Player p) ws().teleport(p, draft);
+        if (sender.player() instanceof ServerPlayer p) ws().teleport(p, draft);
       } catch (IOException | RuntimeException e) {
-        plugin.getLogger().log(Level.WARNING, "try 失敗", e);
+        bg.platform().log().log(Level.WARNING, "try 失敗", e);
         failed(sender, e);
       }
     });
   }
 
-  private void go(CommandSender sender, String[] args) throws IOException {
+  private void go(Sender sender, String[] args) throws IOException {
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
@@ -740,53 +752,54 @@ final class BgCommand implements Listener {
     }
     String name = w.getFirst().toLowerCase(Locale.ROOT);
     if (!ws().drafts().containsKey(name)) {
-      msg().send(p, "branch-unknown", "name", name);
+      msg().send(s(p), "branch-unknown", "name", name);
       return;
     }
     ws().teleport(p, ws().openBranch(name));
-    msg().send(p, "go-done", "branch", branchLabel(name));
+    msg().send(s(p), "go-done", "branch", branchLabel(name));
   }
 
-  private void back(CommandSender sender) throws IOException {
+  private void back(Sender sender) throws IOException {
     var p = player(sender);
     if (p == null) return;
-    var world = p.getWorld();
+    var world = p.level();
     if (ws().view(world) != null) {
       var session = ws().merges().of(world);
-      var saved = returnTo.remove(p.getUniqueId());
+      var saved = returnTo.remove(p.getUUID());
       if (session != null) ws().teleport(p, ws().openBranch(session.branch()));
-      else if (saved != null && saved.getWorld() != null) p.teleportAsync(saved);
+      else if (saved != null && ws().loaded(saved.level()))
+        bg.platform().teleport(p, saved.level(), saved.x(), saved.y(), saved.z(), saved.yaw(), saved.pitch());
       else ws().teleport(p, ws().main());
       return;
     }
     var wt = ws().worktree(world);
     if (wt == null || wt.branch().equals(Repository.MAIN)) {
-      msg().send(p, "not-in-draft");
+      msg().send(s(p), "not-in-draft");
       return;
     }
     String source = ws().source(wt.branch());
     ws().teleport(p, ws().openBranch(source));
-    msg().send(p, "go-done", "branch", branchLabel(source));
+    msg().send(s(p), "go-done", "branch", branchLabel(source));
   }
 
   /** {@code view <版本>}：唯讀地看某個版本（設計 §6.5）。 */
-  private void view(CommandSender sender, String[] args) throws IOException {
+  private void view(Sender sender, String[] args) throws IOException {
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
     if (w.size() != 1) {
-      msg().send(p, "usage-view");
+      msg().send(s(p), "usage-view");
       return;
     }
     var id = resolve(w.getFirst());
     if (id == null) {
-      msg().send(p, "unknown-commit", "id", w.getFirst());
+      msg().send(s(p), "unknown-commit", "id", w.getFirst());
       return;
     }
-    if (ws().view(p.getWorld()) == null) returnTo.put(p.getUniqueId(), p.getLocation());
-    var world = ws().openView(id, ws().logicalDimension(p.getWorld()));
-    Workspace.teleport(p, world);
-    msg().send(p, "view-opened", "id", id.abbrev());
+    if (ws().view(p.level()) == null) returnTo.put(p.getUUID(), new Location(p.level(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()));
+    var world = ws().openView(id, ws().logicalDimension(p.level()));
+    ws().teleport(p, world);
+    msg().send(s(p), "view-opened", "id", id.abbrev());
   }
 
   // ---- 併回（設計 §6.2） ----
@@ -795,14 +808,14 @@ final class BgCommand implements Listener {
    * 玩家：{@code publish [--selection] [confirm]}；主控台：{@code publish <草稿> [confirm]}。
    * 不帶 confirm 時只預覽：數量、作者，並在世界裡顯示會變動的位置。
    */
-  private void publish(CommandSender sender, String[] args) throws IOException {
+  private void publish(Sender sender, String[] args) throws IOException {
     var flags = flags(args);
     var w = words(args);
     Worktree draft;
-    if (sender instanceof Player p) {
-      draft = ws().worktree(p.getWorld());
+    if (sender.player() instanceof ServerPlayer p) {
+      draft = ws().worktree(p.level());
       if (draft != null && Workspace.isScratch(draft.branch())) {
-        msg().send(p, "merge-use-continue");
+        msg().send(s(p), "merge-use-continue");
         return;
       }
     } else draft = w.size() == 1 && ws().drafts().containsKey(w.getFirst()) ? ws().openBranch(w.getFirst()) : null;
@@ -833,7 +846,7 @@ final class BgCommand implements Listener {
     }));
   }
 
-  private void preview(CommandSender sender, Worktree target, String source, Workspace.Scope scope, boolean selection) {
+  private void preview(Sender sender, Worktree target, String source, Workspace.Scope scope, boolean selection) {
     ws().preview(target.branch(), source, scope).whenComplete((preview, error) -> ws().sync(() -> {
       if (error != null) {
         failed(sender, Workspace.unwrap(error));
@@ -849,13 +862,13 @@ final class BgCommand implements Listener {
       int conflicts = preview.result().cellConflicts().size() + preview.result().entityConflicts().size();
       if (conflicts > 0) msg().send(sender, "publish-preview-conflicts", "count", conflicts);
       outline(sender, preview.changed());
-      String command = "/bg publish " + (sender instanceof Player ? "" : source + " ") + (selection ? "--selection " : "") + "confirm";
+      String command = "/bg publish " + (sender.isPlayer() ? "" : source + " ") + (selection ? "--selection " : "") + "confirm";
       sendButton(sender, "publish-confirm-button", command);
     }));
   }
 
   /** 合併並寫入目標世界；有衝突時開始衝突整合。{@code draft} 不為 null 時，完成後把在草稿裡的玩家送回目標世界。 */
-  private void merge(CommandSender sender, Worktree target, String source, Workspace.Scope scope, Worktree draft) {
+  private void merge(Sender sender, Worktree target, String source, Workspace.Scope scope, Worktree draft) {
     ws().merge(target, source, scope, author(sender), applied -> {
       if (applied.isEmpty()) {
         msg().send(sender, "publish-nothing");
@@ -865,44 +878,44 @@ final class BgCommand implements Listener {
       msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
           branchLabel(target.branch()));
       if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
-      if (draft != null && sender instanceof Player p && p.isOnline() && ws().worktree(p.getWorld()) == draft) {
+      if (draft != null && sender.player() instanceof ServerPlayer p && !p.hasDisconnected() && ws().worktree(p.level()) == draft) {
         ws().teleport(p, target);
-        if (scope == null && draft.branch().equals(source)) sendButton(p, "draft-delete-button", "/bg branch delete " + source);
+        if (scope == null && draft.branch().equals(source)) sendButton(s(p), "draft-delete-button", "/bg branch delete " + source);
       }
     }, error -> {
       if (error instanceof Workspace.ConflictException c)
         startSession(sender, scope == null ? MergeSessions.Kind.MERGE : MergeSessions.Kind.PARTIAL, target.branch(), source, scope, c);
       else {
-        plugin.getLogger().log(Level.WARNING, "併回失敗", error);
+        bg.platform().log().log(Level.WARNING, "併回失敗", error);
         failed(sender, error);
       }
     });
   }
 
-  private void startSession(CommandSender sender, MergeSessions.Kind kind, String target, String source, Workspace.Scope scope,
+  private void startSession(Sender sender, MergeSessions.Kind kind, String target, String source, Workspace.Scope scope,
       Workspace.ConflictException c) {
     ws().merges().start(kind, target, source, scope, c, author(sender), session -> {
       msg().send(sender, "merge-started", "cells", c.result.cellConflicts().size(), "entities", c.result.entityConflicts().size());
       msg().send(sender, "merge-help");
-      if (!(sender instanceof Player p)) {
+      if (!(sender.player() instanceof ServerPlayer p)) {
         listConflicts(sender, session);
         return;
       }
       try {
         // 外框要等玩家到了整合世界才顯示（換世界時會清掉外框）。
-        ws().teleport(p, ws().openBranch(session.branch())).thenRun(() -> ws().sync(() -> listConflicts(p, session)));
+        ws().teleport(p, ws().openBranch(session.branch())).thenRun(() -> ws().sync(() -> listConflicts(s(p), session)));
       } catch (IOException e) {
-        failed(p, e);
+        failed(s(p), e);
       }
     }, e -> {
-      plugin.getLogger().log(Level.WARNING, "無法開始衝突整合", e);
+      bg.platform().log().log(Level.WARNING, "無法開始衝突整合", e);
       failed(sender, e);
     });
   }
 
   // ---- 分支 ----
 
-  private void branch(CommandSender sender, String[] args) throws IOException {
+  private void branch(Sender sender, String[] args) throws IOException {
     var w = words(args);
     var what = w.isEmpty() ? "list" : w.getFirst().toLowerCase(Locale.ROOT);
     switch (what) {
@@ -910,7 +923,7 @@ final class BgCommand implements Listener {
         for (var e : ws().drafts().entrySet()) {
           var wt = ws().worktree(e.getKey());
           int players = 0;
-          if (wt != null) for (var world : wt.worlds().values()) players += world.getPlayers().size();
+          if (wt != null) for (var world : wt.worlds().values()) players += world.players().size();
           msg().send(sender, "branch-entry", "branch", branchLabel(e.getKey()), "head", e.getValue().abbrev(), "players", players);
         }
         for (var s : ws().merges().all())
@@ -952,23 +965,23 @@ final class BgCommand implements Listener {
 
   // ---- 合併與衝突整合（設計 §5.2、§5.3） ----
 
-  private MergeSessions.Session session(CommandSender sender, List<String> w) {
+  private MergeSessions.Session session(Sender sender, List<String> w) {
     var merges = ws().merges();
     MergeSessions.Session s = null;
-    if (sender instanceof Player p) s = merges.of(p.getWorld());
+    if (sender.player() instanceof ServerPlayer p) s = merges.of(p.level());
     if (s == null && w.size() > 1) s = merges.get(w.getLast());
     if (s == null && merges.all().size() == 1) s = merges.all().iterator().next();
     if (s == null) msg().send(sender, "merge-none");
     return s;
   }
 
-  private boolean mayResolve(CommandSender sender) {
+  private boolean mayResolve(Sender sender) {
     if (sender.hasPermission("buildgit.merge") || sender.hasPermission("buildgit.publish") || sender.hasPermission("buildgit.revert")) return true;
     msg().send(sender, "no-permission");
     return false;
   }
 
-  private void merge(CommandSender sender, String[] args) throws IOException {
+  private void merge(Sender sender, String[] args) throws IOException {
     var w = words(args);
     if (w.isEmpty()) {
       msg().send(sender, "usage-merge");
@@ -984,17 +997,17 @@ final class BgCommand implements Listener {
       }
       case "view" -> {
         var p = player(sender);
-        if (p == null || !mayResolve(p)) return;
-        var s = session(p, w);
+        if (p == null || !mayResolve(s(p))) return;
+        var s = session(s(p), w);
         if (s == null) return;
         var side = w.size() > 1 ? w.get(1) : "result";
-        var dim = ws().logicalDimension(p.getWorld());
+        var dim = ws().logicalDimension(p.level());
         switch (side) {
-          case "ours" -> Workspace.teleport(p, ws().openView(s.ours(), dim));
-          case "theirs" -> Workspace.teleport(p, ws().openView(s.theirs(), dim));
+          case "ours" -> ws().teleport(p, ws().openView(s.ours(), dim));
+          case "theirs" -> ws().teleport(p, ws().openView(s.theirs(), dim));
           default -> ws().teleport(p, ws().openBranch(s.branch()));
         }
-        msg().send(p, "merge-view-" + (side.equals("ours") || side.equals("theirs") ? side : "result"), "target", s.target(), "source",
+        msg().send(s(p), "merge-view-" + (side.equals("ours") || side.equals("theirs") ? side : "result"), "target", s.target(), "source",
             String.valueOf(s.source()));
       }
       case "conflicts" -> {
@@ -1004,18 +1017,18 @@ final class BgCommand implements Listener {
       }
       case "goto" -> {
         var p = player(sender);
-        if (p == null || !mayResolve(p)) return;
-        var s = session(p, List.of());
+        if (p == null || !mayResolve(s(p))) return;
+        var s = session(s(p), List.of());
         if (s == null) return;
         int n = w.size() > 1 ? parseInt(w.get(1), 1) : 1;
         ws().merges().result(s).whenComplete((result, error) -> ws().sync(() -> {
           if (error != null) {
-            failed(p, Workspace.unwrap(error));
+            failed(s(p), Workspace.unwrap(error));
             return;
           }
           var clusters = MergeSessions.clusters(result);
           if (n > clusters.size()) {
-            msg().send(p, "merge-no-conflicts");
+            msg().send(s(p), "merge-no-conflicts");
             return;
           }
           var c = clusters.get(n - 1);
@@ -1023,10 +1036,10 @@ final class BgCommand implements Listener {
             var world = ws().openBranch(s.branch()).world(c.dimension());
             if (world == null) return;
             var b = c.box();
-            p.teleportAsync(new Location(world, (b.minX() + b.maxX()) / 2.0 + .5, b.maxY() + 1, (b.minZ() + b.maxZ()) / 2.0 + .5, p.getYaw(), p.getPitch()))
+            bg.platform().teleport(p, world, (b.minX() + b.maxX()) / 2.0 + .5, b.maxY() + 1, (b.minZ() + b.maxZ()) / 2.0 + .5, p.getYRot(), p.getXRot())
                 .thenRun(() -> ws().sync(() -> showConflicts(p, result, clusters)));
           } catch (IOException e) {
-            failed(p, e);
+            failed(s(p), e);
           }
         }));
       }
@@ -1037,8 +1050,8 @@ final class BgCommand implements Listener {
           msg().send(sender, "usage-merge-take");
           return;
         }
-        var range = w.size() > 2 ? w.get(2) : sender instanceof Player ? "here" : "all";
-        var p = sender instanceof Player player ? player : null;
+        var range = w.size() > 2 ? w.get(2) : sender.isPlayer() ? "here" : "all";
+        var p = sender.player() instanceof ServerPlayer player ? player : null;
         if (p == null && !range.equals("all")) {
           msg().send(sender, "players-only");
           return;
@@ -1049,8 +1062,8 @@ final class BgCommand implements Listener {
           case "all" -> null;
           case "selection" -> selection(p);
           default -> {
-            var at = Workspace.pos(p.getLocation());
-            yield new Workspace.Scope(ws().logicalDimension(p.getWorld()), new Box(at.x() - HERE_RADIUS, at.y() - HERE_RADIUS, at.z() - HERE_RADIUS,
+            var at = Workspace.pos(p);
+            yield new Workspace.Scope(ws().logicalDimension(p.level()), new Box(at.x() - HERE_RADIUS, at.y() - HERE_RADIUS, at.z() - HERE_RADIUS,
                 at.x() + HERE_RADIUS, at.y() + HERE_RADIUS, at.z() + HERE_RADIUS));
           }
         };
@@ -1109,7 +1122,7 @@ final class BgCommand implements Listener {
     }
   }
 
-  private void listConflicts(CommandSender sender, MergeSessions.Session s) {
+  private void listConflicts(Sender sender, MergeSessions.Session s) {
     ws().merges().result(s).whenComplete((result, error) -> ws().sync(() -> {
       if (error != null) {
         failed(sender, Workspace.unwrap(error));
@@ -1127,16 +1140,16 @@ final class BgCommand implements Listener {
         var b = c.box();
         var line = msg().get("merge-cluster", "n", i + 1, "cells", c.cells(), "dimension", c.dimension(), "from",
             b.minX() + " " + b.minY() + " " + b.minZ(), "to", b.maxX() + " " + b.maxY() + " " + b.maxZ());
-        if (sender instanceof Player) sender.sendMessage(line.clickEvent(ClickEvent.runCommand("/bg merge goto " + (i + 1))));
-        else sender.sendMessage(line);
+        if (sender.isPlayer()) sender.send(line.clickEvent(ClickEvent.runCommand("/bg merge goto " + (i + 1))));
+        else sender.send(line);
       }
-      if (sender instanceof Player p) showConflicts(p, result, clusters);
+      if (sender.player() instanceof ServerPlayer p) showConflicts(p, result, clusters);
     }));
   }
 
   /** 在玩家目前的世界標出衝突格；太多時改標每一群的包圍盒。 */
-  private void showConflicts(Player p, dev.twme.buildgit.core.overlay.ThreeWayMerge.Result result, List<MergeSessions.Cluster> clusters) {
-    String dim = ws().logicalDimension(p.getWorld());
+  private void showConflicts(ServerPlayer p, dev.twme.buildgit.core.overlay.ThreeWayMerge.Result result, List<MergeSessions.Cluster> clusters) {
+    String dim = ws().logicalDimension(p.level());
     var shapes = new ArrayList<Outlines.Shape>();
     for (var c : result.cellConflicts())
       if (c.dimension().equals(dim)) shapes.add(new Outlines.Shape(new Box(c.pos().x(), c.pos().y(), c.pos().z(), c.pos().x(), c.pos().y(), c.pos().z()), Outlines.CONFLICT));
@@ -1144,12 +1157,12 @@ final class BgCommand implements Listener {
       shapes.clear();
       for (var c : clusters) if (c.dimension().equals(dim)) shapes.add(new Outlines.Shape(c.box(), Outlines.CONFLICT));
     }
-    plugin.outlines().show(p, p.getWorld(), shapes, OUTLINE_SECONDS * 5);
+    bg.outlines().show(p, p.level(), shapes, OUTLINE_SECONDS * 5);
   }
 
   // ---- 還原（設計 §5.4） ----
 
-  private void revert(CommandSender sender, String[] args) throws IOException {
+  private void revert(Sender sender, String[] args) throws IOException {
     var w = words(args);
     if (w.size() != 1) {
       msg().send(sender, "usage-revert");
@@ -1178,7 +1191,7 @@ final class BgCommand implements Listener {
     }));
   }
 
-  private void restore(CommandSender sender, String[] args) throws IOException {
+  private void restore(Sender sender, String[] args) throws IOException {
     var w = words(args);
     var flags = flags(args);
     if (w.size() != 1) {

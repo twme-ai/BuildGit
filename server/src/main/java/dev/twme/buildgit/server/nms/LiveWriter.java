@@ -1,4 +1,4 @@
-package dev.twme.buildgit.paper.nms;
+package dev.twme.buildgit.server.nms;
 
 import dev.twme.buildgit.core.model.Cell;
 import dev.twme.buildgit.core.model.EntityState;
@@ -11,15 +11,13 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.entity.EntityProcessor;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.storage.TagValueInput;
-import org.bukkit.World;
-import org.bukkit.craftbukkit.CraftWorld;
-import org.bukkit.event.entity.CreatureSpawnEvent;
 
 /**
  * 把版本內容寫進執行中的世界（合併結果、合成時沒有起點的 chunk）。
@@ -33,8 +31,7 @@ public final class LiveWriter {
 
   private LiveWriter() {}
 
-  public static void setCell(World world, int x, int y, int z, Cell cell) throws IOException {
-    var level = ((CraftWorld) world).getHandle();
+  public static void setCell(ServerLevel level, int x, int y, int z, Cell cell) throws IOException {
     net.minecraft.world.level.block.state.BlockState state;
     try {
       state = BlockStateParser.parseForBlock(level.registryAccess().lookupOrThrow(Registries.BLOCK), cell.state(), false).blockState();
@@ -62,8 +59,7 @@ public final class LiveWriter {
    *
    * @return 是否改變
    */
-  public static boolean fixShape(World world, int x, int y, int z) {
-    var level = ((CraftWorld) world).getHandle();
+  public static boolean fixShape(ServerLevel level, int x, int y, int z) {
     var pos = new BlockPos(x, y, z);
     var state = level.getBlockState(pos);
     if (state.isAir() || !state.getFluidState().isEmpty()) return false;
@@ -73,21 +69,19 @@ public final class LiveWriter {
     return true;
   }
 
-  public static void removeEntity(World world, UUID uuid) {
-    var level = ((CraftWorld) world).getHandle();
+  public static void removeEntity(ServerLevel level, UUID uuid) {
     var entity = level.getEntity(uuid);
     if (entity != null) entity.discard();
   }
 
   /** 以版本中的內容放置實體；同 UUID 的舊實體先移除。 */
-  public static void spawnEntity(World world, EntityState state) throws IOException {
-    var level = ((CraftWorld) world).getHandle();
-    removeEntity(world, state.uuid());
+  public static void spawnEntity(ServerLevel level, EntityState state) throws IOException {
+    removeEntity(level, state.uuid());
     var tag = read(state.nbt());
     var input = TagValueInput.create(ProblemReporter.DISCARDING, level.registryAccess(), tag);
     var entity = EntityType.loadEntityRecursive(input, level, EntitySpawnReason.LOAD, EntityProcessor.NOP);
     if (entity == null) throw new IOException("無法建立實體：" + state.uuid());
-    level.tryAddFreshEntityWithPassengers(entity, CreatureSpawnEvent.SpawnReason.CUSTOM);
+    level.tryAddFreshEntityWithPassengers(entity);
   }
 
   private static CompoundTag read(byte[] bytes) throws IOException {

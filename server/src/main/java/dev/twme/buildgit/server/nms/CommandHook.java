@@ -1,4 +1,4 @@
-package dev.twme.buildgit.paper.nms;
+package dev.twme.buildgit.server.nms;
 
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.context.CommandContext;
@@ -6,20 +6,21 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.tree.CommandNode;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.model.Box;
-import dev.twme.buildgit.paper.track.Tracker;
+import dev.twme.buildgit.server.track.Tracker;
 import java.lang.reflect.Field;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.execution.CustomCommandExecutor;
 import net.minecraft.commands.arguments.coordinates.Coordinates;
+import net.minecraft.commands.execution.CustomCommandExecutor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 
 /**
  * 指令期間的原因（設計 §3.2）：把伺服器指令樹的每個可執行節點包一層，玩家執行時設定原因。
- * 原版、Bukkit 與 Paper 插件的指令都在同一棵樹上，所以其他插件的建築指令也會記錄。
+ * 原版、插件與模組的指令都在同一棵樹上，所以其他插件或模組的建築指令也會記錄。
  *
  * <p>{@code /fill}、{@code /clone} 的 strict 模式不發鄰居更新，所以另外依座標參數標記整個範圍。
  */
@@ -30,6 +31,7 @@ public final class CommandHook {
 
   static {
     try {
+      // Brigadier 是函式庫，不經過混淆對照，兩個平台都是這個名稱
       COMMAND = CommandNode.class.getDeclaredField("command");
       COMMAND.setAccessible(true);
     } catch (ReflectiveOperationException e) {
@@ -37,24 +39,26 @@ public final class CommandHook {
     }
   }
 
+  private final MinecraftServer server;
   private final Tracker tracker;
   private final Logger log;
   /** 已包裝過的節點；新節點（重新註冊、資料包重載）不在其中。 */
   private final Set<CommandNode<?>> wrapped = Collections.newSetFromMap(new IdentityHashMap<>());
   private boolean failed;
 
-  public CommandHook(Tracker tracker, Logger log) {
+  public CommandHook(MinecraftServer server, Tracker tracker, Logger log) {
+    this.server = server;
     this.tracker = tracker;
     this.log = log;
   }
 
   /**
-   * 包裝新出現的指令。每次指令執行前呼叫：Paper 與其他插件會在啟動後新增或替換節點（數量可能不變），
+   * 包裝新出現的指令。每次指令執行前呼叫：伺服器與其他插件會在啟動後新增或替換節點（數量可能不變），
    * 所以逐一比對根節點的子節點；平時只是一兩百次雜湊查詢。
    */
   public void ensure() {
     if (failed) return;
-    var root = MinecraftServer.getServer().getCommands().getDispatcher().getRoot();
+    var root = server.getCommands().getDispatcher().getRoot();
     try {
       for (var child : root.getChildren()) if (!wrapped.contains(child) && !OWN.contains(child.getName())) wrap(child);
     } catch (ReflectiveOperationException | RuntimeException e) {
@@ -73,12 +77,12 @@ public final class CommandHook {
     for (var child : node.getChildren()) wrap(child);
   }
 
-  /** 恢復原本的指令（停用插件時）。 */
+  /** 恢復原本的指令（停用時）。 */
   @SuppressWarnings("unchecked")
   public void unwrap() {
     var seen = Collections.<CommandNode<?>>newSetFromMap(new IdentityHashMap<>());
     var stack = new ArrayDeque<CommandNode<CommandSourceStack>>();
-    stack.push(MinecraftServer.getServer().getCommands().getDispatcher().getRoot());
+    stack.push(server.getCommands().getDispatcher().getRoot());
     while (!stack.isEmpty()) {
       var node = stack.pop();
       if (!seen.add(node)) continue;
@@ -101,10 +105,10 @@ public final class CommandHook {
 
     @Override
     public int run(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-      if (!tracker.isTracked(ctx.getSource().getLevel().getWorld())) return inner.run(ctx);
+      if (!tracker.isTracked(ctx.getSource().getLevel())) return inner.run(ctx);
       var player = ctx.getSource().getPlayer();
       // 主控台、指令方塊沒有玩家：只有其他插件以 API 指定了作者時才記。
-      var author = player != null ? tracker.author(player.getBukkitEntity()) : tracker.cause();
+      var author = player != null ? tracker.author(player) : tracker.cause();
       if (author == null) return inner.run(ctx);
       markArguments(ctx, author);
       try (var scope = tracker.push(author)) {
@@ -122,7 +126,7 @@ public final class CommandHook {
   }
 
   private void markArguments(CommandContext<CommandSourceStack> ctx, Author author) {
-    var world = ctx.getSource().getLevel().getWorld();
+    var world = ctx.getSource().getLevel();
     var from = position(ctx, "from");
     var to = position(ctx, "to");
     if (from != null && to != null) mark(world, from, to, author);
@@ -140,7 +144,7 @@ public final class CommandHook {
     if (pos != null) mark(world, pos, pos, author);
   }
 
-  private void mark(org.bukkit.World world, BlockPos a, BlockPos b, Author author) {
+  private void mark(ServerLevel world, BlockPos a, BlockPos b, Author author) {
     // 外擴一格：範圍邊界外的鄰居形狀也會變。
     var box =
         new Box(

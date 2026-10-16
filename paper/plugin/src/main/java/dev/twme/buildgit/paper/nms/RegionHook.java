@@ -12,8 +12,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.storage.RegionFile;
 import net.minecraft.world.level.chunk.storage.RegionFileStorage;
-import org.bukkit.World;
-import org.bukkit.craftbukkit.CraftWorld;
+import dev.twme.buildgit.server.Platform.Synthesizer;
 
 /**
  * 分支世界的合成讀取（設計 §4.2）：region 檔第一次被開啟前，若不存在就先合成。
@@ -39,18 +38,13 @@ public final class RegionHook {
 
   private RegionHook() {}
 
-  /** 合成一個 region 檔。檔案不存在時才會呼叫；沒有內容可寫時回傳 false。在 IO 執行緒呼叫。 */
-  public interface Synthesizer {
-    boolean synthesize(Path target, int regionX, int regionZ) throws IOException;
-  }
-
   /** 世界初始化時（讀取任何 chunk 之前）呼叫。 */
-  public static void install(World world, Synthesizer blocks, Synthesizer entities, Logger log) throws ReflectiveOperationException {
-    ServerLevel level = ((CraftWorld) world).getHandle();
+  public static void install(ServerLevel level, String name, Synthesizer blocks, Synthesizer entities, Logger log)
+      throws ReflectiveOperationException {
     var chunkStorage = ((ca.spottedleaf.moonrise.patches.chunk_system.storage.ChunkSystemSimpleRegionStorage) level.getChunkSource().chunkMap)
         .moonrise$getRegionStorage();
-    hook(chunkStorage, blocks, log, world.getName() + " region");
-    hook(level.moonrise$getEntityChunkDataController().getCache(), entities, log, world.getName() + " entities");
+    hook(chunkStorage, blocks, log, name + " region");
+    hook(level.moonrise$getEntityChunkDataController().getCache(), entities, log, name + " entities");
   }
 
   @SuppressWarnings("unchecked")

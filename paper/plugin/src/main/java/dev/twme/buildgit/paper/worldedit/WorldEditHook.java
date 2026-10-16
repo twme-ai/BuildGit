@@ -7,7 +7,7 @@ import com.sk89q.worldedit.extent.AbstractDelegateExtent;
 import com.sk89q.worldedit.extent.Extent;
 import com.sk89q.worldedit.util.eventbus.Subscribe;
 import dev.twme.buildgit.core.model.Author;
-import dev.twme.buildgit.paper.track.Tracker;
+import dev.twme.buildgit.paper.track.BukkitTracker;
 import java.util.logging.Logger;
 import org.bukkit.Bukkit;
 
@@ -25,11 +25,11 @@ import org.bukkit.Bukkit;
  * （{@code Recorder#attribute}）。
  */
 public final class WorldEditHook {
-  private final Tracker tracker;
+  private final BukkitTracker tracker;
   private final Logger log;
   private final boolean fawe;
 
-  public WorldEditHook(Tracker tracker, Logger log) {
+  public WorldEditHook(BukkitTracker tracker, Logger log) {
     this.tracker = tracker;
     this.log = log;
     this.fawe = Bukkit.getPluginManager().getPlugin("FastAsyncWorldEdit") != null;

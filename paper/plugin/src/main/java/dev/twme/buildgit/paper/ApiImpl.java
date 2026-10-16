@@ -5,7 +5,7 @@ import dev.twme.buildgit.api.BuildGitApi;
 import dev.twme.buildgit.api.Recorder;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.model.Box;
-import dev.twme.buildgit.paper.track.Tracker;
+import dev.twme.buildgit.paper.track.BukkitTracker;
 import java.util.BitSet;
 import java.util.Optional;
 import org.bukkit.World;
@@ -17,9 +17,9 @@ final class ApiImpl implements BuildGitApi, Recorder {
   /** 單次 {@link #recordBox} 的上限，防止誤傳整個世界的範圍。 */
   private static final long MAX_BOX = 64L * 1024 * 1024;
 
-  private final Tracker tracker;
+  private final BukkitTracker tracker;
 
-  ApiImpl(Tracker tracker) {
+  ApiImpl(BukkitTracker tracker) {
     this.tracker = tracker;
   }
 

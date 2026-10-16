@@ -21,9 +21,9 @@ import org.bukkit.event.vehicle.VehicleDestroyEvent;
  * 另外記住會把原因帶到方塊上的實體（掉落方塊、TNT、投射物）。
  */
 public final class EntityListener implements Listener {
-  private final Tracker tracker;
+  private final BukkitTracker tracker;
 
-  public EntityListener(Tracker tracker) {
+  public EntityListener(BukkitTracker tracker) {
     this.tracker = tracker;
   }
 
@@ -123,30 +123,12 @@ public final class EntityListener implements Listener {
 
   @EventHandler(priority = EventPriority.MONITOR)
   public void onAdd(EntityAddToWorldEvent e) {
-    var entity = e.getEntity();
-    tracker.entityLoaded(entity.getUniqueId());
-    // 跨維度傳送：新維度的實體以同一個 UUID 加入（先於舊的移除），沿用原作者繼續追蹤。
-    tracker.followMove(entity);
+    tracker.entityLoaded(e.getEntity());
   }
 
   @EventHandler(priority = EventPriority.MONITOR)
   public void onRemove(EntityRemoveEvent e) {
-    var entity = e.getEntity();
-    var d = tracker.dimension(entity.getWorld());
-    if (d == null) return;
-    var author = d.entityAuthor(entity.getUniqueId());
-    switch (e.getCause()) {
-      case UNLOAD, PLAYER_QUIT -> {
-        if (author != null) tracker.entityUnloaded(entity.getUniqueId(), d.id());
-      }
-      default -> {
-        // 死亡、被拆除、被撿起：被追蹤的實體在下次存檔記成移除。
-        // 沒被追蹤（例如已提交、這次還沒碰過）但正由玩家造成（/kill 等指令）時也記。
-        var by = tracker.cause();
-        if (author != null) d.markEntity(entity.getUniqueId(), by != null ? by : author);
-        else if (by != null && tracker.isBuildEntity(entity.getType())) d.markEntity(entity.getUniqueId(), by);
-        tracker.forgetCarrier(entity.getUniqueId());
-      }
-    }
+    var cause = e.getCause();
+    tracker.entityRemoved(e.getEntity(), cause == EntityRemoveEvent.Cause.UNLOAD || cause == EntityRemoveEvent.Cause.PLAYER_QUIT);
   }
 }
