@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "dev.twme.buildgit.fabric.mc.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["ArmorStandMixin", "InteractMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

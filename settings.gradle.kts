@@ -1,5 +1,6 @@
 pluginManagement {
     repositories {
+        maven("https://maven.fabricmc.net/") { name = "Fabric" }
         gradlePluginPortal()
         maven("https://repo.papermc.io/repository/maven-public/")
     }
@@ -13,4 +14,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "buildgit"
-include("core", "api", "paper:axiom-api", "paper:plugin", "paper:plugin-1_21_11")
+include("core", "api", "paper:axiom-api", "paper:plugin", "paper:plugin-1_21_11", "fabric:mc26_2", "fabric:mc1_21_11")

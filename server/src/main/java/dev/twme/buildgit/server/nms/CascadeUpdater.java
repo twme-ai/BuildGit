@@ -77,8 +77,14 @@ public final class CascadeUpdater extends CollectingNeighborUpdater {
     if (d == null) return;
     var probe = tracker.probe(d, level, pos.getX(), pos.getY(), pos.getZ());
     if (probe == null) return;
-    var before = level.getBlockStateIfLoaded(pos);
+    var before = stateIfLoaded(pos);
     if (before != null) candidates.add(new Candidate(pos.immutable(), before, probe));
+  }
+
+  /** 不會觸發 chunk 載入。 */
+  private BlockState stateIfLoaded(BlockPos pos) {
+    var chunk = level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
+    return chunk == null ? null : chunk.getBlockState(pos);
   }
 
   private void enter() {
@@ -93,7 +99,7 @@ public final class CascadeUpdater extends CollectingNeighborUpdater {
     candidates.clear();
     if (d == null) return;
     for (var c : list) {
-      var now = level.getBlockStateIfLoaded(c.pos());
+      var now = stateIfLoaded(c.pos());
       if (now != null && now != c.before()) tracker.apply(d, c.pos().getX(), c.pos().getY(), c.pos().getZ(), c.probe());
     }
   }

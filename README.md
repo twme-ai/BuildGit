@@ -2,7 +2,7 @@
 
 給 Minecraft 建築師用的版本控制。只記錄玩家造成的變更（含 WorldEdit／FAWE、Axiom 與連帶變化），以「起點世界＋覆寫表」保存每個版本；可以開草稿世界試做、存檔、併回、查歷史與責任歸屬。
 
-- 平台：Paper 26.2、Paper 1.21.11（Fabric 之後支援）
+- 平台：Paper 26.2、Paper 1.21.11、Fabric 26.2、Fabric 1.21.11
 - 設計文件：[`docs/01-design.md`](docs/01-design.md)；需求：[`docs/00-requirements.md`](docs/00-requirements.md)
 
 ## 下載
@@ -15,8 +15,12 @@
 |---|---|---|
 | Paper 26.2 | `BuildGit-<版本>-paper-26.2.jar` | 25 |
 | Paper 1.21.11 | `BuildGit-<版本>-paper-1.21.11.jar` | 21 以上 |
+| Fabric 26.2 | `BuildGit-<版本>-fabric-26.2.jar` | 25 |
+| Fabric 1.21.11 | `BuildGit-<版本>-fabric-1.21.11.jar` | 21 以上 |
 
-版本不符時插件會在啟動時提示並自行停用。
+版本不符時插件會在啟動時提示並自行停用；Fabric 版由 Fabric Loader 拒絕載入。
+
+Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-api 已包在 jar 裡。版本庫在伺服器目錄的 `buildgit/`，設定在 `config/buildgit/`。Fabric 版目前沒有 WorldEdit／Axiom 整合與公開 API。
 
 ## 編譯
 
@@ -26,6 +30,8 @@
 ./gradlew build
 # 產物：paper/plugin/build/libs/BuildGit-<版本>-paper-26.2.jar
 #       paper/plugin-1_21_11/build/libs/BuildGit-<版本>-paper-1.21.11.jar
+#       fabric/mc26_2/build/libs/BuildGit-<版本>-fabric-26.2.jar
+#       fabric/mc1_21_11/build/libs/BuildGit-<版本>-fabric-1.21.11.jar
 ```
 
 ## 玩家使用說明

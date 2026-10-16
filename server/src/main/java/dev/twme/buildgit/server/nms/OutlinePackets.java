@@ -51,7 +51,7 @@ public final class OutlinePackets {
       d.setViewRange(4f);
       ids[i] = d.getId();
       packets.add(new ClientboundAddEntityPacket(d.getId(), d.getUUID(), b.x(), b.y(), b.z(), 0f, 0f, type, 0, Vec3.ZERO, 0));
-      packets.add(new ClientboundSetEntityDataPacket(d.getId(), d.getEntityData().packAll()));
+      packets.add(new ClientboundSetEntityDataPacket(d.getId(), d.getEntityData().getNonDefaultValues()));
     }
     if (!packets.isEmpty()) player.connection.send(new ClientboundBundlePacket(packets));
     return ids;

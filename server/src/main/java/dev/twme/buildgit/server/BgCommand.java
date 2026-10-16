@@ -660,6 +660,11 @@ public final class BgCommand {
     return true;
   }
 
+  /** 玩家在檢查模式中（Fabric 用來連副手的點擊一起擋下）。 */
+  public boolean isInspecting(ServerPlayer p) {
+    return inspecting.contains(p.getUUID());
+  }
+
   void quit(UUID player) {
     inspecting.remove(player);
   }

@@ -192,6 +192,10 @@ public final class Tracker {
   public void tick() {
     suppressed.clear();
     suppressedLevel = null;
+    if (!removedCarriers.isEmpty()) {
+      for (var uuid : removedCarriers) carriers.remove(uuid);
+      removedCarriers.clear();
+    }
     if (!pendingSpawns.isEmpty()) {
       long now = now();
       pendingSpawns.values().removeIf(p -> p.until < now);
@@ -351,6 +355,8 @@ public final class Tracker {
 
   /** 會把原因帶到方塊上的實體（掉落方塊、TNT、投射物）→ 作者。不會進版本，只在記憶體中。 */
   private final Map<UUID, Author> carriers = new ConcurrentHashMap<>();
+  /** 已移除、下一刻才忘掉的帶原因實體：TNT 先移除自己再爆炸，爆炸時還要查得到。 */
+  private final List<UUID> removedCarriers = new ArrayList<>();
 
   public boolean isPropagating(EntityType<?> type) {
     return settings.propagatingEntities().contains(typeId(type));
@@ -398,7 +404,7 @@ public final class Tracker {
     var by = cause();
     if (author != null) d.markEntity(entity.getUUID(), by != null ? by : author);
     else if (by != null && isBuildEntity(entity.getType())) d.markEntity(entity.getUUID(), by);
-    forgetCarrier(entity.getUUID());
+    if (carriers.containsKey(entity.getUUID())) removedCarriers.add(entity.getUUID());
   }
 
   /** 被追蹤、但目前不在世界中（卸載）的實體。 */

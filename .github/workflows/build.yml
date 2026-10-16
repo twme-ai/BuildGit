@@ -1,4 +1,4 @@
-# 每次推送與 PR 都編譯並跑測試，附上插件 jar；推送 v* 標籤時另建 GitHub Release。
+# 每次推送與 PR 都編譯並跑測試，附上 Paper 插件與 Fabric 模組的 jar；推送 v* 標籤時另建 GitHub Release。
 name: build
 
 on:
@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Paper 26.2 版用 Java 25，core／api 與 Paper 1.21.11 版用 Java 21；兩個都裝，Gradle toolchain 會自己挑。
+      # 26.2 版（Paper、Fabric）用 Java 25，core／api 與 1.21.11 版用 Java 21；兩個都裝，Gradle toolchain 會自己挑。
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -42,7 +42,9 @@ jobs:
       - uses: actions/upload-artifact@v5
         with:
           name: BuildGit-${{ steps.version.outputs.version }}
-          path: paper/*/build/libs/BuildGit-*.jar
+          path: |
+            paper/*/build/libs/BuildGit-*.jar
+            fabric/*/build/libs/BuildGit-*-fabric-*.jar
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v5
@@ -65,5 +67,5 @@ jobs:
       - name: 建立 Release
         env:
           GH_TOKEN: ${{ github.token }}
-        # 兩個版本的 jar 在各自模組的子目錄裡
+        # 各平台、各版本的 jar 在各自模組的子目錄裡
         run: gh release create "$GITHUB_REF_NAME" $(find . -name 'BuildGit-*.jar') --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

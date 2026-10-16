@@ -1,0 +1,73 @@
+package dev.twme.buildgit.fabric.mc;
+
+import java.util.function.IntConsumer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerBossEvent;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.BossEvent;
+import net.minecraft.world.Container;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ChunkPos;
+import xyz.nucleoid.fantasy.Fantasy;
+import xyz.nucleoid.fantasy.RuntimeWorldConfig;
+import xyz.nucleoid.fantasy.RuntimeWorldHandle;
+
+/** 26.2 與 1.21.11 不同的部分（1.21.11 版）。共用程式碼只透過這個類別碰這些 API。 */
+public final class Versions {
+  private Versions() {}
+
+  public static ServerBossEvent bossEvent(Component name, BossEvent.BossBarColor color) {
+    return new ServerBossEvent(name, color, BossEvent.BossBarOverlay.PROGRESS);
+  }
+
+  public static boolean entitiesLoaded(ServerLevel level, int chunkX, int chunkZ) {
+    return level.areEntitiesLoaded(ChunkPos.asLong(chunkX, chunkZ));
+  }
+
+  /** 6 排的箱子畫面；點了上面的格子呼叫 {@code onClick}，物品不會被拿走。 */
+  public static AbstractContainerMenu chestMenu(int id, Inventory inventory, Container container, IntConsumer onClick) {
+    return new ChestMenu(MenuType.GENERIC_9x6, id, inventory, container, 6) {
+      @Override
+      public void clicked(int slot, int button, ClickType type, Player player) {
+        if (slot >= 0 && slot < container.getContainerSize()) onClick.accept(slot);
+        sendAllDataToRemote();
+      }
+
+      @Override
+      public ItemStack quickMoveStack(Player player, int slot) {
+        return ItemStack.EMPTY;
+      }
+    };
+  }
+
+  // ---- Fantasy（1.21.x 的 API 以 World 命名） ----
+
+  public static Object openLevel(MinecraftServer server, Identifier id, ServerLevel template) {
+    var config = new RuntimeWorldConfig()
+        .setDimensionType(template.dimensionTypeRegistration())
+        .setGenerator(template.getChunkSource().getGenerator())
+        .setSeed(template.getSeed())
+        .setShouldTickTime(true);
+    return Fantasy.get(server).getOrOpenPersistentWorld(id, config);
+  }
+
+  public static ServerLevel level(Object handle) {
+    return ((RuntimeWorldHandle) handle).asWorld();
+  }
+
+  public static void unload(Object handle) {
+    ((RuntimeWorldHandle) handle).unload();
+  }
+
+  public static void delete(Object handle) {
+    ((RuntimeWorldHandle) handle).delete();
+  }
+}
