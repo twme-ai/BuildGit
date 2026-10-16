@@ -106,12 +106,12 @@ public final class AnvilSource implements StateSource, Closeable {
     if (dir == null) return null;
     var region = region(dir.resolve("region"), chunkX, chunkZ);
     var nbt = region == null ? null : region.read(RegionFile.index(chunkX, chunkZ));
-    var data = nbt == null ? new ChunkData(Map.of(), Map.of()) : decode(upgrader.chunk(nbt));
+    var data = nbt == null ? new ChunkData(Map.of(), Map.of()) : decode(upgrader.chunk(nbt), upgrader);
     chunks.put(id, data);
     return data;
   }
 
-  static ChunkData decode(Nbt.Compound chunk) throws IOException {
+  static ChunkData decode(Nbt.Compound chunk, Upgrader upgrader) throws IOException {
     var sections = new HashMap<Integer, Section>();
     for (var o : chunk.list("sections").values()) {
       if (!(o instanceof Nbt.Compound s) || !(s.get("Y") instanceof Byte y)) continue;
@@ -119,12 +119,7 @@ public final class AnvilSource implements StateSource, Closeable {
       var palette = states.list("palette").values();
       if (palette.isEmpty()) continue;
       var names = new String[palette.size()];
-      for (int i = 0; i < names.length; i++) {
-        if (!(palette.get(i) instanceof Nbt.Compound p)) throw new IOException("調色盤項目無效");
-        var props = new TreeMap<String, String>();
-        p.compound("Properties").forEach((k, v) -> props.put(k, String.valueOf(v)));
-        names[i] = BlockStates.format(p.string("Name"), props);
-      }
+      for (int i = 0; i < names.length; i++) names[i] = upgrader.paletteState(Nbt.unwrap(palette.get(i)));
       long[] packed = null;
       int bits = 0;
       if (names.length > 1) {

@@ -41,6 +41,24 @@ public final class Nbt {
     }
   }
 
+  /**
+   * 混合型別的 list：原版把不是 compound 的元素包成 {@code {"": 值}}（26.3 起的方塊調色盤會這樣存）。
+   * 全部同型別時照常存。
+   */
+  public static ListTag list(List<Object> values) {
+    if (values.isEmpty()) return new ListTag(0, List.of());
+    int type = type(values.getFirst());
+    if (values.stream().allMatch(v -> type(v) == type)) return new ListTag(type, values);
+    var wrapped = new ArrayList<Object>(values.size());
+    for (var v : values) wrapped.add(v instanceof Compound ? v : new Compound().with("", v));
+    return new ListTag(10, wrapped);
+  }
+
+  /** {@link #list} 包起來的元素還原；其他原樣傳回。 */
+  public static Object unwrap(Object value) {
+    return value instanceof Compound c && c.size() == 1 && c.containsKey("") ? c.get("") : value;
+  }
+
   public static int type(Object value) {
     return switch (value) {
       case Byte v -> 1;

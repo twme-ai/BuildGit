@@ -1,9 +1,9 @@
 package dev.twme.buildgit.core.anvil;
 
 import dev.twme.buildgit.core.model.BlockPos;
-import dev.twme.buildgit.core.model.BlockStates;
 import dev.twme.buildgit.core.model.Cell;
 import dev.twme.buildgit.core.model.EntityState;
+import dev.twme.buildgit.core.model.Upgrader;
 import dev.twme.buildgit.core.nbt.Nbt;
 import dev.twme.buildgit.core.overlay.SectionOverlay;
 import java.io.IOException;
@@ -18,8 +18,9 @@ public final class ChunkPatcher {
   private ChunkPatcher() {}
 
   /** 方塊與方塊實體。 */
-  public static Nbt.Compound blocks(Nbt.Compound chunk, int chunkX, int chunkZ, SortedMap<Integer, SectionOverlay> overlay)
-      throws IOException {
+  /** @param upgrader 調色盤項目的格式依伺服器版本而定 */
+  public static Nbt.Compound blocks(Nbt.Compound chunk, int chunkX, int chunkZ, SortedMap<Integer, SectionOverlay> overlay,
+      Upgrader upgrader) throws IOException {
     var result = Nbt.copy(chunk);
     var sections = new TreeMap<Integer, Nbt.Compound>();
     for (var o : result.list("sections").values())
@@ -37,7 +38,7 @@ public final class ChunkPatcher {
         if (neighbour != null && neighbour.get("biomes") instanceof Nbt.Compound b) section.with("biomes", Nbt.copy(b));
         sections.put(sy, section);
       }
-      patchSection(section, entry.getValue());
+      patchSection(section, entry.getValue(), upgrader);
       section.remove("BlockLight");
       section.remove("SkyLight");
       for (var cell : entry.getValue().cells().entrySet()) {
@@ -82,15 +83,10 @@ public final class ChunkPatcher {
     return new BlockPos(chunkX << 4 | index & 15, sectionY << 4 | index >> 8, chunkZ << 4 | index >> 4 & 15);
   }
 
-  private static void patchSection(Nbt.Compound section, SectionOverlay overlay) throws IOException {
+  private static void patchSection(Nbt.Compound section, SectionOverlay overlay, Upgrader upgrader) throws IOException {
     var states = section.compound("block_states");
     var palette = new ArrayList<String>();
-    for (var o : states.list("palette").values()) {
-      if (!(o instanceof Nbt.Compound p)) throw new IOException("調色盤項目無效");
-      var props = new TreeMap<String, String>();
-      p.compound("Properties").forEach((k, v) -> props.put(k, String.valueOf(v)));
-      palette.add(BlockStates.format(p.string("Name"), props));
-    }
+    for (var o : states.list("palette").values()) palette.add(upgrader.paletteState(Nbt.unwrap(o)));
     if (palette.isEmpty()) palette.add(Cell.AIR.state());
     int[] indices = palette.size() > 1 && states.get("data") instanceof long[] data
         ? AnvilSource.unpack(data, palette.size())
@@ -122,17 +118,8 @@ public final class ChunkPatcher {
       indices[i] = remap[old];
     }
     var entries = new ArrayList<Object>(used.size());
-    for (var state : used) {
-      var parsed = BlockStates.parse(state);
-      var c = new Nbt.Compound().with("Name", parsed.name());
-      if (!parsed.properties().isEmpty()) {
-        var props = new Nbt.Compound();
-        parsed.properties().forEach(props::with);
-        c.with("Properties", props);
-      }
-      entries.add(c);
-    }
-    var out = new Nbt.Compound().with("palette", new Nbt.ListTag(10, entries));
+    for (var state : used) entries.add(upgrader.paletteEntry(state));
+    var out = new Nbt.Compound().with("palette", Nbt.list(entries));
     if (used.size() > 1) out.with("data", pack(indices, used.size()));
     section.with("block_states", out);
   }

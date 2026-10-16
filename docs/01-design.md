@@ -172,18 +172,18 @@ Cause { author: 玩家 UUID, origin: 起始座標, kind: 直接 | 連帶 }
 
 **共用層**：兩個平台的邏輯（記錄、存檔、分支世界、指令、介面）都在 `server/`，以原版類別（Mojang 名稱）操作世界；平台只實作 `Platform` 介面（排程、世界的建立與卸載、權限、訊息、bossbar、箱子選單）與下面的掛點。指令包裝（`CommandHook`）與連帶判斷（換掉 `neighborUpdater`）兩個平台共用。
 
-**Fabric 26.2／1.21.11**（已實作；mixin，`defaultRequire = 1`，掛不上就無法啟動，不會靜靜漏記）：
+**Fabric 26.3／26.2／1.21.11**（已實作；mixin，`defaultRequire = 1`，掛不上就無法啟動，不會靜靜漏記）：
 - 原因（MixinExtras `@WrapMethod`，期間設定原因）：`ServerPlayerGameMode` 的 `destroyBlock`／`useItemOn`／`useItem`；`ServerGamePacketListenerImpl` 的容器點擊、容器按鈕（講台）、告示牌編輯；`Player.attack`、`Player.interactOn`（1.21.11 另掛 `ArmorStand.interactAt`）。
 - 寫入：`LevelChunk.setBlockState`（回傳非 null 才算改變）是單一入口，有原因就標記；方塊實體內容改變另掛 `BlockEntity.setChanged`。所以不需要 Paper 那樣逐一列舉事件，也不會多標記鄰居。
 - 傳遞實體與自然變化：`FallingBlockEntity.tick`、`Projectile.onHit`、`ServerExplosion.explode` 以實體記住的作者設定原因；活塞 `moveBlocks` 用附近最近的作者；`ServerLevel.tickChunk`（隨機刻、降雪、雷擊）、`FireBlock.tick` 與沒有作者的爆炸是自然變化，期間的寫入加入抑制集合。
 - 實體：`ServerLevel.addFreshEntity` 決定作者；`ServerLevel$EntityCallbacks` 的 `onTrackingStart`／`onTrackingEnd` 對應載入與移除（卸載不算移除）。TNT 先移除自己再爆炸，所以傳遞實體移除後下一刻才忘掉作者。
 - 檢查模式與唯讀檢視：`handleBlockBreakAction`（左鍵）與 `useItemOn`（右鍵，副手一併擋下）在開頭攔截；被擋的左鍵回送原本的方塊。
-- 分支世界：Fantasy 的持久世界，維度 `buildgit:<名稱>`（名稱中 `[a-z0-9_-]` 以外的字元寫成 `.u<十六進位>.`），存在 `<存檔>/dimensions/buildgit/`。合成讀取掛在 `RegionFileStorage.getRegionFile` 開頭：region 檔第一次開啟、檔案不存在時先合成；資料夾在建立世界前登記。
+- 分支世界：Fantasy 的持久世界，維度 `buildgit:<名稱>`（名稱中 `[a-z0-9_-]` 以外的字元寫成 `.u<十六進位>.`），存在 `<存檔>/dimensions/buildgit/`。合成讀取掛在 `RegionFileStorage.getRegionFile` 開頭：region 檔第一次開啟、檔案不存在時先合成；資料夾在建立世界前登記。26.3 的 `getRegionFile` 多了一個參數、快取的值改成 `Optional<RegionFile>`，所以以 `@Local(argsOnly = true)` 只取 `ChunkPos`、只看快取有沒有這個鍵，各版本共用。
 - 其他：`Commands.performCommand` 前確認指令都包好；`PlayerList.remove`（離線）、`ServerPlayer.triggerDimensionChangeTriggers`（換世界）；新 chunk 用 Fabric API 的 `ServerChunkEvents.CHUNK_GENERATE`。
 - 版本庫：專用伺服器在伺服器目錄的 `buildgit/`（同 Paper）；單人遊戲在存檔資料夾裡，每個存檔一個。設定在 `config/buildgit/`。
-- 兩版只差在少數 API（bossbar 建構子、chunk 座標打包、箱子畫面的點擊型別、Fantasy 的 Level／World 命名、`interactOn` 的參數），各自放在 `dev.twme.buildgit.fabric.mc`；26.2 不混淆、直接以 Mojang 名稱執行，1.21.11 由 Loom 轉成 intermediary。
+- 兩版只差在少數 API（bossbar 建構子、chunk 座標打包、箱子畫面的點擊型別、Fantasy 的 Level／World 命名、`interactOn` 的參數），各自放在 `dev.twme.buildgit.fabric.mc`；26.2 不混淆、直接以 Mojang 名稱執行，1.21.11 由 Loom 轉成 intermediary。26.3 與 26.2 用同一份版本相依的類別（`fabric/mc26_3` 直接編譯 `fabric/mc26_2` 的原始碼）。
 
-**Paper 26.2**（已實作；不能用 mixin，改用事件加上 NMS 包裝）：
+**Paper 26.3／26.2／1.21.11**（已實作；不能用 mixin，改用事件加上 NMS 包裝）：
 - 直接操作：Bukkit／Paper 事件（全部 `MONITOR`，只讀不改），涵蓋 CoreProtect 的事件清單再加上 Spyglass 補的部分：
   - 放置（含多格）、破壞、桶子、告示牌、點火、骨粉、玩家種樹、傳送門、採收、講台、鍋釜；
   - 互動：右鍵標記點到的格子、鄰居與放置面；容器點擊／拖曳依容器持有者標記（含大箱子兩側、實體容器）。
@@ -324,7 +324,8 @@ Paper 的世界名稱見 §2.4，以 `WorldCreator.copy(主世界)` 建立（同
 - **讀取時升級**：資料版本比伺服器舊的方塊狀態（依「版本＋狀態」快取）、方塊實體、實體，以及起點世界的 chunk，先升級再使用。合成分支世界時，有覆寫的 chunk 先升級再套用；沒有覆寫的 chunk 原樣複製，交給伺服器載入時自己升級。
 - **雜湊不受影響**：舊物件不改寫，所以舊存檔的雜湊不變；升級後內容相同的格子在新存檔裡會變成新版的寫法，比對時以升級後的內容為準。
 - **不能降版**：`data-version` 的 `newest` 記錄寫過這個 repo 的最新版本。伺服器版本比它舊時拒絕開啟 repo（舊版看不懂新版的方塊與 NBT），提示改用較新的伺服器。
-- 驗收：1.21.11 建立的 repo（含方塊實體、實體、未併回的草稿）搬到 26.2 後，`view`、`go`、`diff`、`publish`、`restore` 都正常，箱子內容保留。
+- **方塊狀態的寫法**：26.3（資料版本 5006 起）把方塊狀態的欄位 `Name`／`Properties` 改名為 `id`／`properties`，region 檔調色盤裡的預設狀態更只存方塊 ID（混合時包成 `{"": ID}`）。BuildGit 內部一律用 `名稱[屬性=值,…]`（列出全部屬性）；region 檔調色盤的讀寫交給伺服器以原版的 `BlockState.CODEC` 轉換（`Upgrader.paletteState`／`paletteEntry`），伺服器是哪一版就讀寫哪一版的寫法。升級舊的方塊狀態時，DataFixer 的輸入依寫下時的版本選欄位名稱，輸出也由 `BlockState.CODEC` 讀。
+- 驗收：1.21.11 建立的 repo（含方塊實體、實體、未併回的草稿）搬到 26.2 後，`view`、`go`、`diff`、`publish`、`restore` 都正常，箱子內容保留。1.21.11、26.2 的 repo 搬到 26.3（Paper 與 Fabric）後，非預設狀態的方塊（樓梯朝向、上下半、箱子朝向）與箱子內容在草稿世界裡都正確，可以併回與檢視。
 
 ## 5. 提交、合併、還原
 
@@ -547,11 +548,13 @@ BuildGit/
 ├─ paper/
 │   ├─ axiom-api/   # AxiomPaper API 的編譯用介面（MIT，不打包）
 │   ├─ plugin/      # Paper 26.2 插件（paperweight userdev，Java 25），也是兩個 Paper 版本共用的原始碼
-│   └─ plugin-1_21_11/  # Paper 1.21.11 插件：編譯同一份原始碼（Java 21），只放版本相依的類別
+│   ├─ plugin-1_21_11/  # Paper 1.21.11 插件：編譯同一份原始碼（Java 21），只放版本相依的類別
+│   └─ plugin-26_3/ # Paper 26.3 插件：編譯同一份原始碼（Java 25）
 ├─ server/          # 兩個平台共用的邏輯（原版類別、Mojang 名稱）；不是獨立模組，由各平台的建置一起編譯
 ├─ fabric/
 │   ├─ common/      # Fabric 共用：入口（伺服器與用戶端）、平台實作、mixin
 │   ├─ mc26_2/      # Fabric 26.2 模組（Java 25，不需要 remap），只放版本相依的類別
+│   ├─ mc26_3/      # Fabric 26.3 模組：與 26.2 共用版本相依的類別
 │   └─ mc1_21_11/   # Fabric 1.21.11 模組（Java 21，Mojang 名稱編譯、Loom remap）
 └─ docs/
 ```
@@ -633,3 +636,4 @@ BuildGit/
 | 39 | 2026-10-16 | Fabric 版以 mixin 掛在原版的寫入單一入口（`LevelChunk.setBlockState`）並以 `@WrapMethod` 設定原因；分支世界用 Fantasy。與 Paper 共用 `server/` 的邏輯，每個 Minecraft 版本各一個 jar（`-fabric-26.2`、`-fabric-1.21.11`），版本由 `fabric.mod.json` 限定 |
 | 40 | 2026-10-16 | 單人世界同步以選取範圍為單位，經遊戲內連線（`buildgit:sync` 頻道）傳輸，送回後從取出時的存檔開草稿，照一般流程併回；上傳內容視為不可信任，大小、段數、時間、實體數與方塊種類都有上限（§6.7） |
 | 41 | 2026-10-16 | `init` 只對玩家所在的世界；每個世界（含多世界插件建立的世界）各自 init，之後載入的世界自動納入、不讓卸載。起點世界在背景逐 chunk 複製，伺服器不暫停（§2.4、§4.3） |
+| 42 | 2026-10-16 | 支援 26.3（Paper、Fabric 各一個 jar）。26.3 改了 region 檔方塊調色盤與方塊狀態的寫法，BuildGit 不自己認格式，改由伺服器以原版的 `BlockState.CODEC` 轉換，以後再改格式也只要跟著伺服器版本編譯 |

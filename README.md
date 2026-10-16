@@ -2,7 +2,7 @@
 
 給 Minecraft 建築師用的版本控制。只記錄玩家造成的變更（含 WorldEdit／FAWE、Axiom 與連帶變化），以「起點世界＋覆寫表」保存每個版本；可以開草稿世界試做、存檔、併回、查歷史與責任歸屬。
 
-- 平台：Paper 26.2、Paper 1.21.11、Fabric 26.2、Fabric 1.21.11
+- 平台：Paper 26.3、26.2、1.21.11；Fabric 26.3、26.2、1.21.11
 - 設計文件：[`docs/01-design.md`](docs/01-design.md)；需求：[`docs/00-requirements.md`](docs/00-requirements.md)
 
 ## 下載
@@ -13,8 +13,10 @@
 
 | 伺服器 | 檔案 | Java |
 |---|---|---|
+| Paper 26.3 | `BuildGit-<版本>-paper-26.3.jar` | 25 |
 | Paper 26.2 | `BuildGit-<版本>-paper-26.2.jar` | 25 |
 | Paper 1.21.11 | `BuildGit-<版本>-paper-1.21.11.jar` | 21 以上 |
+| Fabric 26.3 | `BuildGit-<版本>-fabric-26.3.jar` | 25 |
 | Fabric 26.2 | `BuildGit-<版本>-fabric-26.2.jar` | 25 |
 | Fabric 1.21.11 | `BuildGit-<版本>-fabric-1.21.11.jar` | 21 以上 |
 
@@ -47,16 +49,16 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 
 ### 一次完整的流程
 
-1. **開草稿**：`/bg try 新屋頂`
-   會開出一個和主世界一模一樣的副本，把你傳送到同一個位置。畫面上方的提示條會顯示「草稿 新屋頂」。
+1. **開草稿**：`/bg try new-roof`
+   會開出一個和主世界一模一樣的副本，把你傳送到同一個位置。畫面上方的提示條會顯示「草稿 new-roof」。
 2. **盡情蓋**：手動、WorldEdit、FAWE、Axiom 都可以，改了什麼、誰改的都會自動記下來。
 3. **存檔**（可選）：`/bg save 屋頂骨架完成`
    就像遊戲的存檔點，之後可以回頭看或還原。就算忘了存，沒人在蓋一陣子後也會自動存檔。
 4. **併回主世界**：`/bg publish`
    會先列出改了多少格、誰改的，按聊天欄的 **[確認併回]** 才會真的寫進主世界。
    併回後可以按 **[刪除草稿]** 收掉這個草稿。
-5. **不要了？** `/bg back` 回到原本的世界，草稿留著，之後還能 `/bg go 新屋頂` 回來繼續。
-6. **刪除草稿**：`/bg branch delete 新屋頂`（主世界不能刪）。
+5. **不要了？** `/bg back` 回到原本的世界，草稿留著，之後還能 `/bg go new-roof` 回來繼續。
+6. **刪除草稿**：`/bg branch delete new-roof`（主世界不能刪）。
    還有沒存的變更時會被擋下，確定不要了再加 `--force`；如果別的草稿是從它開出來的，要先處理那個草稿。
    `/bg branch list` 可以看所有草稿。
 
@@ -120,7 +122,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 ```
 /bg                      主選單（箱子介面）
 /bg init                 讓所在的世界開始受版本控制（管理員；每個世界各自 init）
-/bg try <名稱>           開草稿並傳送到同一個位置
+/bg try <名稱>           開草稿並傳送到同一個位置（名稱只能用小寫英文、數字、底線、連字號）
 /bg go <草稿|main>       到某個草稿或主世界
 /bg save [訊息]          存檔（里程碑）
 /bg publish [--selection] 預覽併回，點確認後寫入；--selection 只併回選取範圍

@@ -54,7 +54,7 @@ public final class RegionSynthesizer {
         if (!in.has(i)) continue;
         int cx = regionX * 32 + (i & 31), cz = regionZ * 32 + (i >>> 5);
         if (patched.contains(i)) {
-          var chunk = ChunkPatcher.blocks(upgrader.chunk(in.read(i)), cx, cz, overlay.chunk(dimension, cx, cz));
+          var chunk = ChunkPatcher.blocks(upgrader.chunk(in.read(i)), cx, cz, overlay.chunk(dimension, cx, cz), upgrader);
           out.write(i, Nbt.write(chunk));
         } else {
           out.write(i, in.readBytes(i));

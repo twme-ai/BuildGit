@@ -1,6 +1,8 @@
 package dev.twme.buildgit.core.model;
 
 import dev.twme.buildgit.core.nbt.Nbt;
+import java.io.IOException;
+import java.util.TreeMap;
 
 /**
  * 把舊版 Minecraft 寫下的資料升級到伺服器目前的格式（設計 §4.6）。版本庫裡的歷史不改寫，
@@ -50,4 +52,27 @@ public interface Upgrader {
 
   /** 實體 region 檔裡的 chunk，同上。 */
   Nbt.Compound entityChunk(Nbt.Compound chunk);
+
+  /**
+   * region 檔方塊調色盤的一項（目前版本的格式）→ 方塊狀態字串。預設是 26.2 以前的 {@code {Name, Properties}}；
+   * 26.3 起預設狀態只存方塊 ID，由伺服器以原版的方塊狀態格式實作。
+   */
+  default String paletteState(Object entry) throws IOException {
+    if (!(entry instanceof Nbt.Compound p)) throw new IOException("調色盤項目無效");
+    var props = new TreeMap<String, String>();
+    p.compound("Properties").forEach((k, v) -> props.put(k, String.valueOf(v)));
+    return BlockStates.format(p.string("Name"), props);
+  }
+
+  /** 方塊狀態字串 → 目前版本格式的調色盤項目（{@link #paletteState} 的反向）。 */
+  default Object paletteEntry(String state) {
+    var parsed = BlockStates.parse(state);
+    var c = new Nbt.Compound().with("Name", parsed.name());
+    if (!parsed.properties().isEmpty()) {
+      var props = new Nbt.Compound();
+      parsed.properties().forEach(props::with);
+      c.with("Properties", props);
+    }
+    return c;
+  }
 }

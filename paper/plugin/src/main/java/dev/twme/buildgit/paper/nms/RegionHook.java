@@ -10,7 +10,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.chunk.storage.RegionFile;
 import net.minecraft.world.level.chunk.storage.RegionFileStorage;
 import dev.twme.buildgit.server.Platform.Synthesizer;
 
@@ -20,6 +19,9 @@ import dev.twme.buildgit.server.Platform.Synthesizer;
  * <p>Paper 的 chunk 系統開啟 region 檔一定先查 {@code RegionFileStorage.regionCache}（在儲存物件的鎖內），
  * 查不到才檢查檔案是否存在。把這個快取換成子類別，就能在檢查之前寫好檔案；
  * 讀取方法本身是 final，不必也不能改。方塊與實體各有一個儲存物件，分別掛上。
+ *
+ * <p>快取的值在 26.3 起是 {@code Optional<RegionFile>}（之前是 {@code RegionFile}）；兩者都是「查不到時為 null」，
+ * 所以這裡不看值的型別，原樣傳回。
  */
 public final class RegionHook {
   private static final Field CACHE;
@@ -50,7 +52,7 @@ public final class RegionHook {
   @SuppressWarnings("unchecked")
   private static void hook(RegionFileStorage storage, Synthesizer synth, Logger log, String name) throws ReflectiveOperationException {
     synchronized (storage) {
-      var current = (Long2ObjectLinkedOpenHashMap<RegionFile>) CACHE.get(storage);
+      var current = (Long2ObjectLinkedOpenHashMap<Object>) CACHE.get(storage);
       if (current instanceof SynthCache) return;
       var replacement = new SynthCache((Path) FOLDER.get(storage), synth, log, name);
       replacement.putAll(current);
@@ -58,7 +60,7 @@ public final class RegionHook {
     }
   }
 
-  private static final class SynthCache extends Long2ObjectLinkedOpenHashMap<RegionFile> {
+  private static final class SynthCache extends Long2ObjectLinkedOpenHashMap<Object> {
     private final Path folder;
     private final Synthesizer synth;
     private final Logger log;
@@ -74,7 +76,7 @@ public final class RegionHook {
     }
 
     @Override
-    public RegionFile getAndMoveToFirst(long key) {
+    public Object getAndMoveToFirst(long key) {
       var r = super.getAndMoveToFirst(key);
       if (r != null || !done.add(key)) return r;
       int x = ChunkPos.getX(key), z = ChunkPos.getZ(key);
