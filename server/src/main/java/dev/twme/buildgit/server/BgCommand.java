@@ -989,12 +989,24 @@ public final class BgCommand {
         msg().send(sender, "publish-nothing");
         return;
       }
-      msg().send(sender, "publish-preview", "cells", preview.cells(), "entities", preview.entities(), "target", branchLabel(target.branch()));
-      preview.authors().entrySet().stream().sorted(Map.Entry.<String, Integer>comparingByValue().reversed()).limit(10)
-          .forEach(e -> msg().send(sender, "publish-preview-author", "author", e.getKey(), "cells", e.getValue()));
+      // 草稿裡的其他玩家也看得到同一份預覽，方便一起討論；確認按鈕只給執行的人。
+      var viewers = new ArrayList<Sender>(List.of(sender));
+      var draft = ws().worktree(source);
+      if (draft != null)
+        for (var world : draft.worlds().values())
+          for (var p : world.players())
+            if (p != sender.player()) {
+              viewers.add(s(p));
+              msg().send(s(p), "publish-preview-shared", "player", author(sender).name(), "name", source);
+            }
       int conflicts = preview.result().cellConflicts().size() + preview.result().entityConflicts().size();
-      if (conflicts > 0) msg().send(sender, "publish-preview-conflicts", "count", conflicts);
-      outline(sender, preview.changed());
+      for (var viewer : viewers) {
+        msg().send(viewer, "publish-preview", "cells", preview.cells(), "entities", preview.entities(), "target", branchLabel(target.branch()));
+        preview.authors().entrySet().stream().sorted(Map.Entry.<String, Integer>comparingByValue().reversed()).limit(10)
+            .forEach(e -> msg().send(viewer, "publish-preview-author", "author", e.getKey(), "cells", e.getValue()));
+        if (conflicts > 0) msg().send(viewer, "publish-preview-conflicts", "count", conflicts);
+        outline(viewer, preview.changed());
+      }
       String command = "/bg publish " + (sender.isPlayer() ? "" : source + " ") + (selection ? "--selection " : "") + "confirm";
       sendButton(sender, "publish-confirm-button", command);
     }));

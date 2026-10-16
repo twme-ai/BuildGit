@@ -122,6 +122,7 @@ draft-delete-button: "<gray>草稿已全部併回。</gray> <red><u>[刪除草�
 
 publish-preview-start: "<gray>正在比較草稿</gray> <light_purple><name></light_purple> <gray>和</gray> <target><gray>…</gray>"
 publish-preview: "<gray>併回</gray> <target> <gray>會改動</gray> <white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體（已在世界裡標出）：</gray>"
+publish-preview-shared: "<white><player></white> <gray>正在預覽把草稿</gray> <light_purple><name></light_purple> <gray>併回：</gray>"
 publish-preview-author: "  <gray>-</gray> <white><author></white> <gray><cells> 格</gray>"
 publish-preview-conflicts: "<yellow><count> 處兩邊都改了，確認後會進入衝突整合。</yellow>"
 publish-confirm-button: "<green><u>[確認併回]</u></green>"
