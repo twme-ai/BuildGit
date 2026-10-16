@@ -119,6 +119,8 @@ public final class BuildGit {
   }
 
   public void disable() {
+    // 關閉時玩家的離線事件可能在停用之後才發生：先記下還在草稿裡的玩家
+    for (var p : platform.server().getPlayerList().getPlayers()) workspace.playerLeft(p);
     if (platform.syncFolder() != null) localSync.packAll(platform.syncFolder());
     platform.clearBars();
     outlines.clearAll();
@@ -184,7 +186,13 @@ public final class BuildGit {
     hud.changedWorld(player, from);
   }
 
+  /** 玩家上線（主執行緒）。 */
+  public void joined(ServerPlayer player) {
+    workspace.playerJoined(player);
+  }
+
   public void quit(ServerPlayer player) {
+    workspace.playerLeft(player);
     outlines.forget(player.getUUID());
     selections.quit(player.getUUID());
     command.quit(player.getUUID());

@@ -6,6 +6,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import com.mojang.brigadier.CommandDispatcher;
@@ -45,6 +46,9 @@ public final class BuildGitMod implements ModInitializer {
       if (bg != null) bg.newChunk(level, chunk);
     });
     // 多世界模組在遊戲中載入、卸載的世界
+    ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+      if (bg != null) bg.joined(handler.player);
+    });
     Versions.onChunkLoad((level, chunk) -> {
       if (bg != null) bg.chunkLoaded(level, chunk.getPos().getMinBlockX() >> 4, chunk.getPos().getMinBlockZ() >> 4);
     });

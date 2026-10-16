@@ -767,6 +767,59 @@ public final class Workspace {
     return teleport(player, world);
   }
 
+  // ---- 離線時所在的草稿（設計 §4.4） ----
+
+  private Path playersPath() {
+    return dir.resolve("players.yml");
+  }
+
+  /**
+   * 玩家離線或伺服器關閉時（主執行緒）：在草稿或整合世界裡就記下位置，下次上線送回；否則清掉紀錄。
+   * 草稿世界之後可能閒置卸載或隨伺服器關閉，玩家上線時伺服器找不到那個世界，所以由 BuildGit 送回。
+   */
+  public void playerLeft(ServerPlayer p) {
+    if (repo == null) return;
+    var wt = worktree(p.level());
+    String key = p.getUUID().toString();
+    var yaml = Yaml.load(playersPath());
+    if (wt == null || wt == main()) {
+      if (!yaml.contains(key)) return;
+      yaml.set(key, null);
+    } else {
+      yaml.set(key + ".branch", wt.branch());
+      yaml.set(key + ".dimension", logicalDimension(p.level()));
+      yaml.set(key + ".pos", List.of(p.getX(), p.getY(), p.getZ(), (double) p.getYRot(), (double) p.getXRot()));
+    }
+    try {
+      yaml.save(playersPath());
+    } catch (IOException e) {
+      log().log(Level.WARNING, "無法記錄 " + p.getScoreboardName() + " 離線時的位置", e);
+    }
+  }
+
+  /** 玩家上線（主執行緒）：上次在草稿裡離線的，送回那個草稿的同一個位置。草稿已刪除時留在原地。 */
+  public void playerJoined(ServerPlayer p) {
+    if (repo == null) return;
+    String key = p.getUUID().toString();
+    var yaml = Yaml.load(playersPath());
+    if (!yaml.contains(key)) return;
+    String branch = yaml.getString(key + ".branch");
+    String dimension = yaml.getString(key + ".dimension");
+    var pos = yaml.get(key + ".pos") instanceof List<?> l ? l : List.of();
+    yaml.set(key, null);
+    try {
+      yaml.save(playersPath());
+      if (branch == null || pos.size() != 5 || !branches().containsKey(branch)) return;
+      var world = openBranch(branch).world(dimension);
+      if (world == null || p.level() == world) return;
+      double[] v = new double[5];
+      for (int i = 0; i < 5; i++) v[i] = pos.get(i) instanceof Number n ? n.doubleValue() : 0;
+      platform.teleport(p, world, v[0], v[1], v[2], (float) v[3], (float) v[4]);
+    } catch (IOException | RuntimeException e) {
+      log().log(Level.WARNING, "無法把 " + p.getScoreboardName() + " 送回草稿 " + branch, e);
+    }
+  }
+
   // ---- 寫入版本並套用到世界 ----
 
   /** 一次寫入的結果。{@code shapes} 是形狀修補改到的格子數（另存成一個自動存檔）。 */

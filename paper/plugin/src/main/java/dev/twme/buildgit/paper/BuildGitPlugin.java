@@ -34,6 +34,7 @@ import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.event.server.ServerLoadEvent;
@@ -167,6 +168,15 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
   @EventHandler
   public void onChangeWorld(PlayerChangedWorldEvent e) {
     bg.changedWorld(handle(e.getPlayer()), PaperPlatform.level(e.getFrom()));
+  }
+
+  @EventHandler
+  public void onJoin(PlayerJoinEvent e) {
+    var p = handle(e.getPlayer());
+    // 加入事件期間不傳送：下一刻再送回草稿
+    getServer().getScheduler().runTask(this, () -> {
+      if (e.getPlayer().isOnline()) bg.joined(p);
+    });
   }
 
   @EventHandler
