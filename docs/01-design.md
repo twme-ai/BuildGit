@@ -217,7 +217,7 @@ BuildGit 的做法：只記**位置**，不讀世界。
 ### 3.9 Axiom
 
 - 以 AxiomPaper 的 `Integration.registerCustomIntegration` 註冊：`checkSection` 對整個 section 標記並回傳「全部允許」；`canPlaceBlock`／`canBreakBlock` 標記該格與鄰居。
-- 實體：AxiomPaper 的生成、修改、移除實體事件。
+- 實體：AxiomPaper 只透過生成、修改、刪除三種封包碰實體（貼上剪貼簿裡的實體也走生成），三者都有事件。事件只帶一個實體，但生成會連乘客一起加入、修改可以讓實體騎上或趕下乘客，所以記下整串（最外層載具與所有乘客）；修改時修改前、後的整串都記。
 - 限制：擁有 `axiomadmin.bypass_region_checks` 的玩家（預設沒有，OP 也沒有）會跳過整合，因此不會被記錄。
 
 ### 3.10 公開 API
