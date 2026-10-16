@@ -569,6 +569,10 @@ public final class Workspace {
     // 已卸載的分支沒有標記表，未存的變更只在標記日誌裡（存檔成功後舊日誌會刪掉，所以有內容就是還沒存）
     boolean unsaved = wt != null ? !wt.table().isEmpty() : hasJournal(dir.resolve("worktree").resolve(name));
     if (!force && unsaved) throw new Refused("有未存的變更（加上 --force 仍要刪除）");
+    // 存過、但還沒整份併回的存檔，刪掉草稿後就找不到了
+    var sourceHead = repo.refs().get(source(name));
+    if (!force && sourceHead.isPresent() && !repo.isAncestor(repo.head(name), sourceHead.get()))
+      throw new Refused("有還沒併回的存檔（加上 --force 仍要刪除）");
     if (wt != null && wt.isCommitting()) throw new Refused("正在存檔或併回，請稍後再試");
     var fallback = worktrees.get(source(name));
     if (fallback == null) fallback = main();

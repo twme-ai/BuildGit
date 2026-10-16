@@ -59,7 +59,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
    併回後可以按 **[刪除草稿]** 收掉這個草稿。
 5. **不要了？** `/bg back` 回到原本的世界，草稿留著，之後還能 `/bg go new-roof` 回來繼續。
 6. **刪除草稿**：`/bg branch delete new-roof`（主世界不能刪）。
-   還有沒存的變更時會被擋下，確定不要了再加 `--force`；如果別的草稿是從它開出來的，要先處理那個草稿。
+   還有沒存的變更、或有存過但還沒併回的存檔時會被擋下，確定不要了再加 `--force`；如果別的草稿是從它開出來的，要先處理那個草稿。
    `/bg branch list` 可以看所有草稿。
 
 只想併回一部分？先用 WorldEdit 選取範圍（或 `/bg sel pos1`、`/bg sel pos2`），再 `/bg publish --selection`。

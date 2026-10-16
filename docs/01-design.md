@@ -510,7 +510,7 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 | `/bg show <提交> [--cells]` | 這次提交的變更統計與作者；`--cells` 列出每一格 |
 | `/bg diff [<提交> [<提交>]]` | 在世界裡顯示差異外框；沒給參數時顯示未提交的變更 |
 | `/bg blame` | 看著的那一格，最後是誰在哪次提交改的 |
-| `/bg branch list\|create\|delete` | 分支管理；`delete` 在有未存變更或有草稿以它為來源時拒絕，`--force` 強制 |
+| `/bg branch list\|create\|delete` | 分支管理；`delete` 在有未存變更、有還沒整份併回的存檔（草稿最新存檔不在來源的歷史裡）時拒絕，`--force` 強制；有草稿以它為來源時一律拒絕 |
 | `/bg merge <分支>` | 把任一分支合併進目前所在的分支（底層） |
 | `/bg who` | 每位玩家所在的分支或檢視世界 |
 | `/bg sel pos1\|pos2\|show\|clear` | 不用 WorldEdit 時的選取範圍 |
