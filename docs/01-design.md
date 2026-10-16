@@ -246,7 +246,7 @@ recorder.pendingAuthor(block);                               // 尚未存檔的�
 - 非玩家造成的實體移除（例如盔甲座被苦力怕炸掉）不記錄，與方塊的自然變化相同；版本保留它，世界裡已經沒有。玩家碰過、或在玩家原因期間（指令）移除的實體都會記錄。
 - 伺服器當機時最後一次 flush（預設 1 秒）之後的標記可能遺失（§3.6）。
 - Fabric 版尚未整合 WorldEdit 與 Axiom，也沒有公開 API（§3.10 依賴 Bukkit）；`/bg sel` 的 WorldEdit 選取範圍在 Fabric 上不可用。
-- Fabric 的權限透過 fabric-permissions-api：沒有權限模組時是權限等級 2；有 LuckPerms 時各節點分別授予，不會像 Paper 那樣由 `buildgit.admin` 帶出子節點。
+- Fabric 的權限透過 fabric-permissions-api：沒有權限模組時是權限等級 2。
 
 ## 4. 分支世界
 
@@ -522,23 +522,31 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 
 ## 8. 權限
 
-預設全部只有 OP（Paper：`default: op`；Fabric：權限等級 2）。可用權限插件逐項開放：
+預設全部只有 OP（Paper：`default: op`；Fabric：權限等級 2）。節點之間的包含關係由 `PermissionSets` 判斷，兩個平台相同（Fabric 的權限模組不知道 Paper 的 `children`），所以 `plugin.yml` 只宣告節點、不寫 `children`。給管理員的說明與權限集用途見[管理員手冊 §4](02-admin.md#4-權限)。
 
-| 節點 | 範圍 |
+| 權限集 | 包含 |
 |---|---|
-| `buildgit.view` | status、log、show、diff、blame、branch list |
-| `buildgit.go` | 進出分支世界、`back`、`view` |
-| `buildgit.try` | 開草稿（含建立分支） |
-| `buildgit.publish` | 併回草稿（含 `--selection`） |
-| `buildgit.sync` | `pull`、`push`：帶到單人世界改再送回（§6.7）；單人世界的 `load` 不需要權限 |
-| `buildgit.save` | 手動存檔（里程碑） |
-| `buildgit.inspect` | 檢查工具 |
-| `buildgit.commit` | 提交 |
-| `buildgit.branch.create`／`buildgit.branch.delete` | 建立、刪除分支 |
-| `buildgit.merge` | 底層 `merge <分支>`；衝突處理（有 `publish` 或 `revert` 權限的人也能處理自己引起的整合） |
-| `buildgit.revert`／`buildgit.restore` | 還原 |
-| `buildgit.mark` | 手動補標記 |
-| `buildgit.admin` | init（玩家所在的世界）、設定重新載入 |
+| `buildgit.role.viewer` | view、inspect、go |
+| `buildgit.role.builder` | viewer、try、save、sync |
+| `buildgit.role.manager` | builder、publish、commit、merge、revert、restore、mark、branch.create、branch.delete |
+| `buildgit.admin` | manager，加上 init、reload、disk |
+
+| 節點 | 範圍 | 同時帶出 |
+|---|---|---|
+| `buildgit.view` | status、log、graph、show、diff、blame、who、sel、branch list | |
+| `buildgit.inspect` | 檢查工具 | view |
+| `buildgit.go` | 進出分支世界、`back`、`view` | |
+| `buildgit.save` | 手動存檔 | view |
+| `buildgit.try` | 開草稿 | go、save |
+| `buildgit.sync` | `pull`、`push`：帶到單人世界改再送回（§6.7）；單人世界的 `load` 不需要權限 | try |
+| `buildgit.publish` | 併回草稿（含 `--selection`） | try |
+| `buildgit.commit` | 自訂訊息存檔 | save |
+| `buildgit.merge` | 底層 `merge <分支>`；衝突處理（有 `publish` 或 `revert` 權限的人也能處理自己引起的整合） | publish |
+| `buildgit.revert`／`buildgit.restore` | 撤銷、還原 | save |
+| `buildgit.mark` | 手動補標記 | |
+| `buildgit.branch.create`／`buildgit.branch.delete` | 建立、刪除分支 | |
+
+包含關係是程式判斷，所以權限集裡的單一節點設成 false 不會拿掉它；要少給某一項時逐項給節點。
 
 ## 9. 專案結構
 
@@ -639,3 +647,4 @@ BuildGit/
 | 41 | 2026-10-16 | `init` 只對玩家所在的世界；每個世界（含多世界插件建立的世界）各自 init，之後載入的世界自動納入、不讓卸載。起點世界在背景逐 chunk 複製，伺服器不暫停（§2.4、§4.3） |
 | 42 | 2026-10-16 | 支援 26.3（Paper、Fabric 各一個 jar）。26.3 改了 region 檔方塊調色盤與方塊狀態的寫法，BuildGit 不自己認格式，改由伺服器以原版的 `BlockState.CODEC` 轉換，以後再改格式也只要跟著伺服器版本編譯 |
 | 43 | 2026-10-16 | 主世界在它與它的草稿世界都沒有玩家時可以被多世界插件卸載（使用者要求）；沒載入時拒絕寫入那個分支，而不是自己把世界載回來（多世界插件的生成器等設定 BuildGit 不知道） |
+| 44 | 2026-10-16 | 權限集 `buildgit.role.viewer`／`builder`／`manager`（使用者要求，方便管理員授權）；包含關係改由程式判斷，Paper 與 Fabric 一致，`plugin.yml` 不再寫 `children` |

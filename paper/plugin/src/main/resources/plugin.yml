@@ -9,80 +9,59 @@ website: https://twme.dev
 libraries:
   - com.github.luben:zstd-jni:${zstd}
 softdepend: [WorldEdit, FastAsyncWorldEdit, AxiomPaper]
+# 包含關係（權限集、哪個節點帶出哪些節點）在程式裡判斷（PermissionSets），兩個平台相同，所以這裡不寫 children。
 permissions:
+  buildgit.role.viewer:
+    description: 權限集：看歷史與方塊來源、進出草稿與舊版本，不能改
+    default: op
+  buildgit.role.builder:
+    description: 權限集：viewer＋開草稿、存檔、帶到單人世界改；不能併回主世界
+    default: op
+  buildgit.role.manager:
+    description: 權限集：builder＋併回、撤銷、還原、處理衝突、建立與刪除草稿、手動補記
+    default: op
+  buildgit.admin:
+    description: 全部權限，加上 init、reload、disk
+    default: op
   buildgit.view:
     description: 查看狀態、歷史、存檔內容與方塊來源
     default: op
   buildgit.inspect:
-    description: 檢查模式
+    description: 檢查模式（含 view）
     default: op
-    children:
-      buildgit.view: true
+  buildgit.go:
+    description: 進出草稿世界、唯讀看舊版本（go、back、view）
+    default: op
   buildgit.save:
-    description: 存檔
+    description: 存檔（含 view）
     default: op
-    children:
-      buildgit.view: true
+  buildgit.try:
+    description: 開草稿（含 go、save）
+    default: op
+  buildgit.sync:
+    description: 把選取範圍帶到單人世界、把改過的範圍送回成草稿（pull、push；含 try）
+    default: op
+  buildgit.publish:
+    description: 把草稿併回（含 try）
+    default: op
+  buildgit.commit:
+    description: 以自訂訊息存檔（含 save）
+    default: op
+  buildgit.merge:
+    description: 底層合併任意分支、處理衝突整合（含 publish）
+    default: op
+  buildgit.revert:
+    description: 撤銷某次存檔（含 save）
+    default: op
+  buildgit.restore:
+    description: 把分支或範圍還原到舊版本（含 save）
+    default: op
   buildgit.mark:
     description: 手動補記範圍
     default: op
-  buildgit.go:
-    description: 進出草稿世界（go、back）
-    default: op
-  buildgit.try:
-    description: 開草稿
-    default: op
-    children:
-      buildgit.go: true
-      buildgit.save: true
-  buildgit.sync:
-    description: 把選取範圍帶到單人世界、把改過的範圍送回成草稿（pull、push）
-    default: op
-    children:
-      buildgit.try: true
-  buildgit.publish:
-    description: 把草稿併回
-    default: op
-    children:
-      buildgit.try: true
-  buildgit.commit:
-    description: 以自訂訊息存檔（里程碑）
-    default: op
-    children:
-      buildgit.save: true
   buildgit.branch.create:
     description: 建立分支（不傳送）
     default: op
   buildgit.branch.delete:
     description: 刪除草稿與它的世界
     default: op
-  buildgit.merge:
-    description: 底層合併任意分支、處理衝突整合
-    default: op
-    children:
-      buildgit.publish: true
-  buildgit.revert:
-    description: 撤銷某次存檔
-    default: op
-    children:
-      buildgit.save: true
-  buildgit.restore:
-    description: 把分支或範圍還原到舊版本
-    default: op
-    children:
-      buildgit.save: true
-  buildgit.admin:
-    description: 初始化、重新載入與所有權限
-    default: op
-    children:
-      buildgit.save: true
-      buildgit.commit: true
-      buildgit.inspect: true
-      buildgit.mark: true
-      buildgit.publish: true
-      buildgit.sync: true
-      buildgit.merge: true
-      buildgit.revert: true
-      buildgit.restore: true
-      buildgit.branch.create: true
-      buildgit.branch.delete: true

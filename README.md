@@ -3,6 +3,7 @@
 給 Minecraft 建築師用的版本控制。只記錄玩家造成的變更（含 WorldEdit／FAWE、Axiom 與連帶變化），以「起點世界＋覆寫表」保存每個版本；可以開草稿世界試做、存檔、併回、查歷史與責任歸屬。
 
 - 平台：Paper 26.3、26.2、1.21.11；Fabric 26.3、26.2、1.21.11
+- 管理員手冊（安裝、init、權限集、備份、升級）：[`docs/02-admin.md`](docs/02-admin.md)
 - 設計文件：[`docs/01-design.md`](docs/01-design.md)；需求：[`docs/00-requirements.md`](docs/00-requirements.md)
 
 ## 下載
@@ -140,7 +141,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg log、show、diff、blame、inspect、who、sel
 ```
 
-權限節點見 [設計文件 §8](docs/01-design.md#8-權限)。
+權限與權限集見[管理員手冊 §4](docs/02-admin.md#4-權限)。
 
 ## 給其他插件的 API
 

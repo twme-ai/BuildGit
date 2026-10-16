@@ -5,6 +5,7 @@ import com.mojang.serialization.JsonOps;
 import dev.twme.buildgit.fabric.mc.Versions;
 import dev.twme.buildgit.fabric.mixin.LevelAccessor;
 import dev.twme.buildgit.fabric.mixin.MinecraftServerAccessor;
+import dev.twme.buildgit.server.PermissionSets;
 import dev.twme.buildgit.server.Platform;
 import dev.twme.buildgit.server.Sender;
 import java.io.IOException;
@@ -344,7 +345,7 @@ final class FabricPlatform implements Platform {
 
       @Override
       public boolean hasPermission(String permission) {
-        return Permissions.check(source, permission, 2);
+        return PermissionSets.check(p -> Permissions.check(source, p, 2), permission);
       }
 
       @Override
@@ -392,7 +393,7 @@ final class FabricPlatform implements Platform {
 
   @Override
   public boolean hasPermission(ServerPlayer player, String permission) {
-    return Permissions.check(player, permission, 2);
+    return PermissionSets.check(p -> Permissions.check(player, p, 2), permission);
   }
 
   @Override

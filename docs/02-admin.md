@@ -1,0 +1,148 @@
+# BuildGit 管理員手冊
+
+給架設與管理伺服器的人看。玩家怎麼用請看 [README 的玩家使用說明](../README.md#玩家使用說明)；內部怎麼運作請看[設計文件](01-design.md)。
+
+## 1. BuildGit 做什麼
+
+BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE、Axiom，以及它們引起的連帶變化，例如水流、紅石、方塊掉落），像 git 一樣存成一個個版本。玩家可以：
+
+- 開「草稿」（主世界的副本）試做，滿意了再併回主世界；
+- 查歷史、看某一格是誰在哪次存檔改的；
+- 撤銷某次存檔，或把整個世界、某個範圍還原到舊版本。
+
+自然變化（作物生長、生物、天氣）不會進版本。
+
+## 2. 安裝
+
+1. 依伺服器版本下載對應的 jar（[README 的下載表](../README.md#下載)），放進 `plugins/`（Paper）或 `mods/`（Fabric）。版本不符時插件會自行停用。
+2. Fabric 另外需要 Fabric API。
+3. 想記錄 WorldEdit、FAWE、Axiom 的編輯：裝上它們即可（Paper；Fabric 版目前沒有這些整合）。
+4. 啟動伺服器。這時**還沒有任何世界受版本控制**，BuildGit 不會記錄任何東西。
+
+## 3. 開始版本控制：`/bg init`
+
+站在要管理的世界裡執行 `/bg init`。
+
+- **每個世界各自 init**：在主世界 init 不會連帶管理地獄、終界；Multiverse 等多世界插件的世界也一樣，進去那個世界再 init。
+- init 會把這個世界目前的樣子複製一份當「起點世界」，**在背景進行，伺服器不會暫停**。複製完成前，這個世界的變更先不存檔，也還不能開草稿；完成時會通知。
+- 起點世界大約和那個世界的資料夾一樣大，請先確認磁碟空間。
+- 沒有 init 的世界完全不受影響。
+
+## 4. 權限
+
+預設所有指令只有 OP 能用（Fabric：沒有權限模組時是權限等級 2）。建議用權限插件（例如 LuckPerms）給**權限集**：
+
+| 權限集 | 適合給誰 | 可以做的事 |
+|---|---|---|
+| `buildgit.role.viewer` | 訪客、評審 | 看狀態、歷史、存檔內容、方塊是誰改的（`status`、`log`、`graph`、`show`、`diff`、`blame`、`inspect`、`who`、`sel`、`branch list`）；進出草稿、唯讀看舊版本（`go`、`back`、`view`） |
+| `buildgit.role.builder` | 一般建築師 | viewer 全部，加上開草稿（`try`）、存檔（`save`）、帶到單人世界改再送回（`pull`、`push`）。**不能把草稿併回主世界** |
+| `buildgit.role.manager` | 負責審核、維護主世界的人 | builder 全部，加上併回（`publish`）、自訂訊息存檔（`commit`）、處理衝突與底層合併（`merge`）、撤銷（`revert`）、還原（`restore`）、手動補記（`mark`）、建立與刪除草稿（`branch create`、`branch delete`） |
+| `buildgit.admin` | 伺服器管理員 | 全部，加上 `init`、`reload`、`disk` |
+
+LuckPerms 範例：
+
+```
+/lp group builder permission set buildgit.role.builder true
+/lp group staff permission set buildgit.role.manager true
+```
+
+也可以只給單一節點：
+
+| 節點 | 內容 | 同時帶出 |
+|---|---|---|
+| `buildgit.view` | 看狀態、歷史、方塊來源 | |
+| `buildgit.inspect` | 檢查模式 | view |
+| `buildgit.go` | 進出草稿、唯讀看舊版本 | |
+| `buildgit.save` | 存檔 | view |
+| `buildgit.try` | 開草稿 | go、save |
+| `buildgit.sync` | `pull`、`push` | try |
+| `buildgit.publish` | 併回草稿 | try |
+| `buildgit.commit` | 自訂訊息存檔 | save |
+| `buildgit.merge` | 底層合併、處理衝突 | publish |
+| `buildgit.revert` | 撤銷某次存檔 | save |
+| `buildgit.restore` | 還原到舊版本 | save |
+| `buildgit.mark` | 手動補記範圍 | |
+| `buildgit.branch.create`／`buildgit.branch.delete` | 建立／刪除草稿 | |
+
+注意：
+
+- 包含關係由 BuildGit 自己判斷，Paper 與 Fabric 相同，所以在 Fabric 上給權限集也有效。
+- 因為這樣，**對權限集裡的單一節點設成 false 不會把它拿掉**。想少給某一項時，請改成逐項給節點，不要用權限集。
+- 沒有某項權限的玩家看不到那個子指令。
+- 有衝突時，有 `publish` 或 `revert` 權限的人也能處理自己引起的衝突整合。
+- 玩家的建築本身不需要任何 BuildGit 權限：只要世界受版本控制，誰改的都會記錄。
+
+## 5. 設定
+
+設定檔：Paper 在 `plugins/BuildGit/config.yml`，Fabric 在 `config/buildgit/config.yml`。改完執行 `/bg reload`。
+
+常會調整的項目：
+
+| 設定 | 預設 | 說明 |
+|---|---|---|
+| `language` | `zh_tw` | 訊息語言（`zh_tw`、`en_us`） |
+| `autosave.idle-seconds` | 300 | 世界裡所有玩家停手這麼久後自動存檔；0 停用 |
+| `autosave.max-interval-seconds` | 1800 | 一直有人在蓋時，最長多久一定自動存檔一次；0 停用 |
+| `worlds.unload-idle-seconds` | 60 | 草稿世界沒人這麼久後卸載（見 §7）；-1 永不卸載 |
+| `sync.max-blocks` | 2000000 | `/bg pull` 一次最多帶走的方塊數 |
+| `integrations.worldedit`／`axiom` | true | 是否記錄 WorldEdit／FAWE、Axiom 的編輯 |
+| `tracking.*` | | 連帶變化的時間窗與距離、哪些實體不記錄；通常不用改 |
+
+## 6. 資料放在哪裡、占多少空間
+
+| 位置 | 內容 |
+|---|---|
+| `<伺服器目錄>/buildgit/` | 版本庫：所有世界的版本紀錄、起點世界副本、未存的標記、進行中的衝突整合 |
+| `world/dimensions/minecraft/bg_<草稿>…` | 每個草稿的世界（Paper 26.x 的位置；舊版與 Fabric 依伺服器的世界資料夾規則） |
+| `…/bgview_<存檔>…` | 唯讀看舊版本時的暫時世界，用完就刪 |
+
+`/bg disk`（需要 `buildgit.admin`）會列出：
+
+- **版本紀錄**：所有分支共用，相同內容只存一份，所以沒辦法拆給個別分支；通常很小。
+- **起點世界副本**：大約等於 init 時那些世界的大小。
+- **每個草稿的世界**：只有走過、生成過的範圍才會寫進磁碟。不需要的草稿用 `/bg branch delete` 刪掉就會收回空間。
+
+`/bg branch list` 會列出所有草稿、最新存檔與時間，方便找出很久沒動的草稿。
+
+**請不要把其他世界取名為 `bg_` 或 `bgview_` 開頭**：BuildGit 用這兩個前綴命名自己的世界，`bgview_` 開頭的資料夾在啟動時會被當成殘留的暫時世界刪除。
+
+## 7. 世界的載入與卸載
+
+- **草稿世界**：有人需要時才載入（`try`、`go`、併回、玩家重新上線回到草稿）。一個草稿的所有世界都沒人超過 `worlds.unload-idle-seconds` 後，存到磁碟並卸載；下次進去自動載入，內容不會不見。
+- **主世界**（受版本控制的原本世界）：多世界插件要卸載它時，只有在**它和所有草稿裡對應的世界都沒有玩家**、沒有在存檔或併回、起點世界也不在複製中時才放行，否則 BuildGit 會擋下並在主控台說明原因（Fabric 無法擋下）。
+- 主世界卸載後，還沒存的變更會保留，再次載入時接回。
+- **世界沒載入時不能寫入**：版本是先記錄、再寫進世界的，所以只要分支有任何受版本控制的世界沒載入，併回、撤銷、還原、衝突整合都會被拒絕，並告訴你要先載入哪個世界。用多世界插件把它載回來就能繼續。
+
+## 8. 備份與搬家
+
+- **一起備份**：`buildgit/` 與所有世界資料夾（包含 `bg_` 開頭的草稿世界）要在**同一個時間點**備份，最好先關服。只還原其中一邊，世界和版本紀錄會對不上。
+- 搬到新主機：關服後整個伺服器目錄一起搬即可。
+- 不要手動修改 `buildgit/` 裡的檔案。
+
+## 9. 升級 Minecraft 版本
+
+- 換成新版本的 jar 即可。舊的歷史、起點世界不會被改寫，讀取時由伺服器自己的資料升級程式（DataFixer）轉成新版格式，所以升級後仍然可以看舊存檔、還原到升級前的版本。
+- **不能降版**：版本庫被較新版本的伺服器寫過之後，較舊的伺服器會拒絕開啟它。升級前請先備份（§8）。
+- 用戶端帶到單人世界改的範圍，單人世界的版本要和伺服器相同或較新。
+
+## 10. 已知限制
+
+- 有 Axiom bypass 權限（`axiomadmin.bypass_region_checks`）的玩家用 Axiom 改的方塊記錄不到；這種玩家開啟 Axiom 時會收到提醒。需要記錄的話請不要給這個權限。
+- 非玩家造成的實體移除（例如盔甲座被苦力怕炸掉）不記錄，和方塊的自然變化一樣。
+- `/place feature` 這類世界產生器放的大型結構可能記錄不完整，可以用 `/bg mark` 補記範圍。
+- 伺服器當機時，最後約 1 秒內的變更可能沒記到（`tracking.journal-flush-ticks`）。
+- Fabric 版目前沒有 WorldEdit／Axiom 整合，也沒有給其他插件的 API。
+
+## 11. 常見問題
+
+**玩家說看不到某個指令**：缺權限，見 §4。
+
+**主控台說「受版本控制，BuildGit 先不讓它卸載」**：那個世界或它的草稿世界裡還有玩家，或正在存檔。等玩家離開後再卸載。
+
+**併回時說「這些世界沒有載入」**：用多世界插件把列出的世界載入後再試一次。
+
+**刪除草稿時說「有還沒併回的存檔」**：草稿裡有存過、但還沒併回主世界的內容，刪掉就找不回來。確定不要了再加 `--force`。
+
+**init 之後不能開草稿**：起點世界還在背景複製，完成時會通知。
+
+**磁碟不夠**：先 `/bg disk` 看是哪部分，再用 `/bg branch list` 找出不用的草稿刪除。

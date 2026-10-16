@@ -3,6 +3,7 @@ package dev.twme.buildgit.paper;
 import dev.twme.buildgit.core.sync.Frame;
 import dev.twme.buildgit.paper.nms.RegionHook;
 import dev.twme.buildgit.paper.worldedit.WorldEditSelection;
+import dev.twme.buildgit.server.PermissionSets;
 import dev.twme.buildgit.server.Platform;
 import dev.twme.buildgit.server.Sender;
 import java.io.IOException;
@@ -249,7 +250,7 @@ final class PaperPlatform implements Platform, Listener {
 
       @Override
       public boolean hasPermission(String permission) {
-        return sender.hasPermission(permission);
+        return PermissionSets.check(sender::hasPermission, permission);
       }
 
       @Override
@@ -271,7 +272,7 @@ final class PaperPlatform implements Platform, Listener {
 
   @Override
   public boolean hasPermission(ServerPlayer player, String permission) {
-    return bukkit(player).hasPermission(permission);
+    return PermissionSets.check(bukkit(player)::hasPermission, permission);
   }
 
   @Override
