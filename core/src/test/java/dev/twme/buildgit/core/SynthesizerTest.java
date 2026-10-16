@@ -12,6 +12,7 @@ import dev.twme.buildgit.core.anvil.RegionWriter;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.model.BlockPos;
 import dev.twme.buildgit.core.model.Cell;
+import dev.twme.buildgit.core.model.Upgrader;
 import dev.twme.buildgit.core.model.SectionKey;
 import dev.twme.buildgit.core.nbt.Nbt;
 import dev.twme.buildgit.core.repo.Repository;
@@ -74,7 +75,7 @@ class SynthesizerTest {
     var id = repo.commit(new Repository.CommitRequest(Repository.MAIN, repo.head(Repository.MAIN), marks.drain(), world,
         genesis, alice, 2, "build", 0, new TreeMap<>())).orElseThrow();
 
-    var synth = new RegionSynthesizer(genesisDim, repo.reader(id), OVERWORLD, 4000);
+    var synth = new RegionSynthesizer(genesisDim, repo.reader(id), OVERWORLD, Upgrader.NONE);
     Path branch = dir.resolve("branch");
     assertTrue(synth.blocks(branch.resolve("region/r.0.0.mca"), 0, 0));
     assertTrue(synth.entities(branch.resolve("entities/r.0.0.mca"), 0, 0));

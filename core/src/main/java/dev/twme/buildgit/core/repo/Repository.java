@@ -6,6 +6,7 @@ import dev.twme.buildgit.core.model.Box;
 import dev.twme.buildgit.core.model.Cell;
 import dev.twme.buildgit.core.model.EntityState;
 import dev.twme.buildgit.core.model.SectionKey;
+import dev.twme.buildgit.core.model.Upgrader;
 import dev.twme.buildgit.core.overlay.*;
 import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.store.ObjectStore;
@@ -15,6 +16,7 @@ import dev.twme.buildgit.core.track.Marks;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -32,11 +34,46 @@ public final class Repository {
   private final RefStore refs;
   private final ReentrantLock lock = new ReentrantLock();
 
-  private Repository(Path dir) throws IOException {
+  private Repository(Path dir, Upgrader upgrader) throws IOException {
     this.dir = dir;
     objects = new ObjectStore(dir.resolve("objects"));
-    overlays = new OverlayStore(objects);
+    overlays = new OverlayStore(objects, upgrader, upgrader == Upgrader.NONE ? 0 : dataVersions(dir, upgrader.current()));
     refs = new RefStore(dir.resolve("refs").resolve("branches"));
+  }
+
+  /**
+   * 檔案 {@code data-version} 記錄兩個資料版本（設計 §4.6）：{@code legacy} 是沒有標記資料版本的舊物件所屬的版本
+   * （第一次記錄時的伺服器版本，之後不變），{@code newest} 是寫過這個版本庫的最新版本。
+   * Minecraft 不能降級，所以伺服器比 {@code newest} 舊時拒絕開啟。
+   *
+   * @return {@code legacy}
+   */
+  private static int dataVersions(Path dir, int current) throws IOException {
+    var file = dir.resolve("data-version");
+    var props = new Properties();
+    if (Files.exists(file))
+      try (var in = Files.newBufferedReader(file)) {
+        props.load(in);
+      }
+    int legacy, newest;
+    try {
+      legacy = Integer.parseInt(props.getProperty("legacy", String.valueOf(current)));
+      newest = Integer.parseInt(props.getProperty("newest", String.valueOf(current)));
+    } catch (NumberFormatException e) {
+      throw new IOException("data-version 格式錯誤", e);
+    }
+    if (newest > current)
+      throw new IOException("這個版本庫曾由較新的 Minecraft（資料版本 " + newest + "）寫入，目前伺服器是 " + current + "；Minecraft 不能降級，請用相同或更新的版本");
+    if (Files.exists(file) && newest == current) return legacy;
+    props.setProperty("legacy", String.valueOf(legacy));
+    props.setProperty("newest", String.valueOf(current));
+    Files.createDirectories(dir);
+    var tmp = dir.resolve("data-version.tmp");
+    try (var out = Files.newBufferedWriter(tmp)) {
+      props.store(out, "BuildGit: Minecraft data versions");
+    }
+    Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+    return legacy;
   }
 
   public static boolean exists(Path dir) {
@@ -45,8 +82,13 @@ public final class Repository {
 
   /** 建立儲存庫與 {@code main} 的第一個提交（覆寫表為空，也就是與起點世界相同）。 */
   public static Repository init(Path dir, Author author, long time) throws IOException {
+    return init(dir, author, time, Upgrader.NONE);
+  }
+
+  /** @param upgrader 伺服器的資料版本與升級方式（見 {@link Upgrader}） */
+  public static Repository init(Path dir, Author author, long time, Upgrader upgrader) throws IOException {
     if (exists(dir)) throw new IOException("儲存庫已存在：" + dir);
-    var repo = new Repository(dir);
+    var repo = new Repository(dir, upgrader);
     var tree = repo.overlays.putRoot(Tree.EMPTY);
     var changeset = repo.put(new Changeset(List.of(), List.of(), List.of()));
     var commit = repo.put(new Commit(tree, List.of(), changeset, author, time, "init", 0, new TreeMap<>()));
@@ -55,8 +97,12 @@ public final class Repository {
   }
 
   public static Repository open(Path dir) throws IOException {
+    return open(dir, Upgrader.NONE);
+  }
+
+  public static Repository open(Path dir, Upgrader upgrader) throws IOException {
     if (!exists(dir)) throw new IOException("找不到儲存庫：" + dir);
-    return new Repository(dir);
+    return new Repository(dir, upgrader);
   }
 
   public Path dir() {

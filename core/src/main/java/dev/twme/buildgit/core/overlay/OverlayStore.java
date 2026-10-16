@@ -1,5 +1,6 @@
 package dev.twme.buildgit.core.overlay;
 
+import dev.twme.buildgit.core.model.Upgrader;
 import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.store.ObjectStore;
 import dev.twme.buildgit.core.store.ObjectType;
@@ -16,11 +17,24 @@ public final class OverlayStore {
   /** 快取裡所有物件的項目（格子、實體、目錄項目）總數上限，約數十 MB。 */
   private static final long MAX_WEIGHT = 400_000;
   private final ObjectStore objects;
+  private final Upgrader upgrader;
+  private final int legacy;
   private final LinkedHashMap<ObjectId, Object> cache = new LinkedHashMap<>(256, 0.75f, true);
   private long weight;
 
   public OverlayStore(ObjectStore objects) {
+    this(objects, Upgrader.NONE, 0);
+  }
+
+  /**
+   * 讀到的覆寫表一律升級成目前的格式（快取的也是升級後的內容），新寫的標上目前的資料版本。
+   *
+   * @param legacy 沒有記錄資料版本的舊物件所屬的資料版本
+   */
+  public OverlayStore(ObjectStore objects, Upgrader upgrader, int legacy) {
     this.objects = objects;
+    this.upgrader = upgrader;
+    this.legacy = legacy;
   }
 
   public ObjectStore objects() {
@@ -42,7 +56,7 @@ public final class OverlayStore {
   public SectionOverlay section(Tree.Entry entry) throws IOException {
     if (entry == null) return SectionOverlay.EMPTY;
     if (cached(entry.id()) instanceof SectionOverlay s) return s;
-    var s = SectionOverlay.decode(objects.get(entry.id(), ObjectType.SECTION));
+    var s = SectionOverlay.decode(objects.get(entry.id(), ObjectType.SECTION), legacy, upgrader);
     remember(entry.id(), s);
     return s;
   }
@@ -50,7 +64,7 @@ public final class OverlayStore {
   public EntityOverlay entities(Tree.Entry entry) throws IOException {
     if (entry == null) return EntityOverlay.EMPTY;
     if (cached(entry.id()) instanceof EntityOverlay e) return e;
-    var e = EntityOverlay.decode(objects.get(entry.id(), ObjectType.ENTITIES));
+    var e = EntityOverlay.decode(objects.get(entry.id(), ObjectType.ENTITIES), legacy, upgrader);
     remember(entry.id(), e);
     return e;
   }
@@ -72,14 +86,14 @@ public final class OverlayStore {
 
   public Tree.Entry put(SectionOverlay section) throws IOException {
     if (section.isEmpty()) return null;
-    var id = objects.put(ObjectType.SECTION, section.encode());
+    var id = objects.put(ObjectType.SECTION, section.encode(upgrader.current()));
     remember(id, section);
     return new Tree.Entry(ObjectType.SECTION, id);
   }
 
   public Tree.Entry put(EntityOverlay entities) throws IOException {
     if (entities.isEmpty()) return null;
-    var id = objects.put(ObjectType.ENTITIES, entities.encode());
+    var id = objects.put(ObjectType.ENTITIES, entities.encode(upgrader.current()));
     remember(id, entities);
     return new Tree.Entry(ObjectType.ENTITIES, id);
   }

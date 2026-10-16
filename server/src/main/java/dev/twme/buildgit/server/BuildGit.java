@@ -26,6 +26,7 @@ public final class BuildGit {
   private Menu menu;
   private BgCommand command;
   private long ticks;
+  private String openError;
 
   public BuildGit(Platform platform) {
     this.platform = platform;
@@ -89,9 +90,15 @@ public final class BuildGit {
     try {
       workspace.open();
     } catch (IOException e) {
+      openError = e.getMessage();
       platform.log().log(Level.SEVERE, "無法開啟版本庫，記錄停用", e);
     }
-    if (!workspace.isOpen()) platform.log().info("尚未初始化版本控制；用 /bg init 開始");
+    if (!workspace.isOpen() && openError == null) platform.log().info("尚未初始化版本控制；用 /bg init 開始");
+  }
+
+  /** 版本庫存在但開不了（例如被較新的 Minecraft 寫過）的原因；沒有錯誤時為 null。 */
+  public String openError() {
+    return openError;
   }
 
   public void disable() {

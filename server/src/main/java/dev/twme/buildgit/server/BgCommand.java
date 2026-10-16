@@ -165,7 +165,8 @@ public final class BgCommand {
   private int dispatch(Sub sub, Sender sender, String[] args) {
     String name = sub.names().getFirst();
     if (!name.equals("init") && !name.equals("reload") && !name.equals("help") && !ws().isOpen()) {
-      msg().send(sender, "not-initialized");
+      if (bg.openError() != null) msg().send(sender, "open-failed", "error", bg.openError());
+      else msg().send(sender, "not-initialized");
       return 1;
     }
     try {

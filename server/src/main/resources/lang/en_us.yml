@@ -29,6 +29,7 @@ help: |-
 no-permission: "<red>You don't have permission.</red>"
 players-only: "<red>Only players can use this command.</red>"
 not-initialized: "<red>Version control has not started. An admin can run <aqua>/bg init</aqua>.</red>"
+open-failed: "<red>The repository could not be opened; recording is disabled: <error></red>"
 already-initialized: "<red>Version control has already started.</red>"
 init-start: "<gray>Saving and copying the genesis world; the server will pause briefly…</gray>"
 init-done: "<green>Version control started. Player changes are recorded from now on.</green> <gray>(genesis <size> MB)</gray>"

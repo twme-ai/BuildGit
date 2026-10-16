@@ -5,11 +5,13 @@ import static org.junit.jupiter.api.Assertions.*;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.model.BlockPos;
 import dev.twme.buildgit.core.model.Cell;
+import dev.twme.buildgit.core.model.Upgrader;
 import dev.twme.buildgit.core.nbt.Nbt;
 import dev.twme.buildgit.core.nbt.Normalizer;
 import dev.twme.buildgit.core.overlay.SectionOverlay;
 import dev.twme.buildgit.core.repo.Changeset;
 import dev.twme.buildgit.core.repo.Commit;
+import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.store.ObjectStore;
 import dev.twme.buildgit.core.store.ObjectType;
@@ -58,8 +60,51 @@ class CodecTest {
     b.put(5, Cell.of("minecraft:stone"));
     b.put(1, new Cell("minecraft:chest[facing=north]", be.clone()));
     var sa = new SectionOverlay(a);
-    assertArrayEquals(sa.encode(), new SectionOverlay(b).encode());
-    assertEquals(sa, SectionOverlay.decode(sa.encode()));
+    assertArrayEquals(sa.encode(1), new SectionOverlay(b).encode(1));
+    assertEquals(sa, SectionOverlay.decode(sa.encode(1), 0, Upgrader.NONE));
+  }
+
+  /** 舊版寫的覆寫表在讀取時升級；版本庫被較新的版本寫過後，較舊的伺服器不能開啟。 */
+  @Test
+  void olderDataIsUpgradedOnReadAndDowngradeIsRefused() throws Exception {
+    var old = new SectionOverlay(new TreeMap<>(Map.of(7, Cell.of("minecraft:grass")))).encode(1);
+    assertEquals(Cell.of("minecraft:short_grass"), SectionOverlay.decode(old, 0, renaming(2)).get(7));
+    assertEquals(Cell.of("minecraft:grass"), SectionOverlay.decode(old, 0, renaming(1)).get(7), "同版本的內容不動");
+
+    var repoDir = dir.resolve("repo");
+    Repository.init(repoDir, Author.SYSTEM, 0, renaming(2));
+    assertThrows(java.io.IOException.class, () -> Repository.open(repoDir, renaming(1)));
+    Repository.open(repoDir, renaming(3));
+  }
+
+  /** 資料版本為 {@code current}、把 grass 改名為 short_grass 的升級器。 */
+  private static Upgrader renaming(int current) {
+    return new Upgrader() {
+      @Override
+      public int current() {
+        return current;
+      }
+
+      @Override
+      public Cell cell(Cell cell, int from) {
+        return cell.state().equals("minecraft:grass") ? Cell.of("minecraft:short_grass") : cell;
+      }
+
+      @Override
+      public byte[] entity(byte[] nbt, int from) {
+        return nbt;
+      }
+
+      @Override
+      public Nbt.Compound chunk(Nbt.Compound chunk) {
+        return chunk;
+      }
+
+      @Override
+      public Nbt.Compound entityChunk(Nbt.Compound chunk) {
+        return chunk;
+      }
+    };
   }
 
   @Test

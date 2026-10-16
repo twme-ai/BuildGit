@@ -18,6 +18,7 @@ public final class AnvilSource implements StateSource, Closeable {
   private static final int OPEN_REGIONS = 32;
 
   private final Function<String, Path> dimensions;
+  private final Upgrader upgrader;
   /** 開著的 region 檔；超過上限時關掉最久沒用的，避免大世界占滿檔案代碼。 */
   private final Map<Path, RegionFile> regions =
       new LinkedHashMap<>(16, 0.75f, true) {
@@ -43,7 +44,13 @@ public final class AnvilSource implements StateSource, Closeable {
 
   /** @param dimensions 維度 id 對應的目錄；沒有這個維度時回傳 null */
   public AnvilSource(Function<String, Path> dimensions) {
+    this(dimensions, Upgrader.NONE);
+  }
+
+  /** @param upgrader 讀到的 chunk 先升級到目前的格式（起點世界可能是較舊的版本存的） */
+  public AnvilSource(Function<String, Path> dimensions, Upgrader upgrader) {
     this.dimensions = dimensions;
+    this.upgrader = upgrader;
   }
 
   /** 解碼後的 chunk：每個 section 的調色盤與索引，以及方塊實體。 */
@@ -99,7 +106,7 @@ public final class AnvilSource implements StateSource, Closeable {
     if (dir == null) return null;
     var region = region(dir.resolve("region"), chunkX, chunkZ);
     var nbt = region == null ? null : region.read(RegionFile.index(chunkX, chunkZ));
-    var data = nbt == null ? new ChunkData(Map.of(), Map.of()) : decode(nbt);
+    var data = nbt == null ? new ChunkData(Map.of(), Map.of()) : decode(upgrader.chunk(nbt));
     chunks.put(id, data);
     return data;
   }
@@ -181,6 +188,7 @@ public final class AnvilSource implements StateSource, Closeable {
       try (var region = new RegionFile(file)) {
         for (int i = 0; i < 1024; i++) {
           var chunk = region.read(i);
+          if (chunk != null) chunk = upgrader.entityChunk(chunk);
           if (chunk == null) continue;
           for (var o : chunk.list("Entities").values()) {
             if (!(o instanceof Nbt.Compound e) || !(e.get("UUID") instanceof int[] u) || u.length != 4) continue;

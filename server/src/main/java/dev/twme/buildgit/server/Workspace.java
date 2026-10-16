@@ -15,6 +15,7 @@ import dev.twme.buildgit.core.repo.Commit;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.store.RefStore;
+import dev.twme.buildgit.server.nms.DataUpgrader;
 import dev.twme.buildgit.server.nms.LiveReader;
 import dev.twme.buildgit.server.nms.LiveWriter;
 import dev.twme.buildgit.server.track.Tracker;
@@ -57,6 +58,8 @@ public final class Workspace {
 
   private final Platform platform;
   private final Tracker tracker;
+  /** 舊版 Minecraft 寫下的歷史與起點世界在讀取時升級（設計 §4.6）。 */
+  private final DataUpgrader upgrader = new DataUpgrader();
   private final Path dir;
   private Repository repo;
   private AnvilSource genesis;
@@ -203,11 +206,11 @@ public final class Workspace {
   /** 版本庫已存在時開啟並開始追蹤。 */
   public void open() throws IOException {
     if (!Repository.exists(dir)) return;
-    repo = Repository.open(dir);
+    repo = Repository.open(dir, upgrader);
     genesis = new AnvilSource(d -> {
       var p = genesisDir(d);
       return Files.isDirectory(p) ? p : null;
-    });
+    }, upgrader);
     genesisRecorder = new GenesisRecorder(this::genesisDir, genesis, log());
     var main = new Worktree(this, Repository.MAIN);
     worktrees.put(Repository.MAIN, main);
@@ -313,7 +316,7 @@ public final class Workspace {
       var target = genesisDir(Tracker.dimensionId(world));
       for (var sub : List.of("region", "entities")) size += copy(source.resolve(sub), target.resolve(sub));
     }
-    Repository.init(dir, author, System.currentTimeMillis());
+    Repository.init(dir, author, System.currentTimeMillis(), upgrader);
     open();
     return size;
   }
@@ -526,7 +529,7 @@ public final class Workspace {
       if (s != null) return s;
       var g = genesisDir(source.dimension());
       s = new RegionSynthesizer(Files.isDirectory(g) ? g : null, new OverlayReader(repo.overlays(), tree), source.dimension(),
-          LiveReader.dataVersion());
+          upgrader);
       synthesizers.put(key, s);
       return s;
     }

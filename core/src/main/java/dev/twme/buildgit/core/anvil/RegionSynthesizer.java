@@ -1,6 +1,7 @@
 package dev.twme.buildgit.core.anvil;
 
 import dev.twme.buildgit.core.model.EntityState;
+import dev.twme.buildgit.core.model.Upgrader;
 import dev.twme.buildgit.core.nbt.Nbt;
 import dev.twme.buildgit.core.overlay.OverlayReader;
 import java.io.IOException;
@@ -18,19 +19,19 @@ public final class RegionSynthesizer {
   private final Path genesis;
   private final OverlayReader overlay;
   private final String dimension;
-  private final int dataVersion;
+  private final Upgrader upgrader;
   private Map<Long, List<EntityState>> placed;
   private Set<UUID> overridden;
 
   /**
    * @param genesis 起點世界中這個維度的目錄（含 {@code region/}、{@code entities/}）；沒有時為 null
-   * @param dataVersion 新建實體 chunk 時使用的資料版本
+   * @param upgrader 要修改的起點 chunk 先升級到目前的格式；新建的實體 chunk 標上目前的資料版本
    */
-  public RegionSynthesizer(Path genesis, OverlayReader overlay, String dimension, int dataVersion) {
+  public RegionSynthesizer(Path genesis, OverlayReader overlay, String dimension, Upgrader upgrader) {
     this.genesis = genesis;
     this.overlay = overlay;
     this.dimension = dimension;
-    this.dataVersion = dataVersion;
+    this.upgrader = upgrader;
   }
 
   public OverlayReader overlay() {
@@ -53,7 +54,7 @@ public final class RegionSynthesizer {
         if (!in.has(i)) continue;
         int cx = regionX * 32 + (i & 31), cz = regionZ * 32 + (i >>> 5);
         if (patched.contains(i)) {
-          var chunk = ChunkPatcher.blocks(in.read(i), cx, cz, overlay.chunk(dimension, cx, cz));
+          var chunk = ChunkPatcher.blocks(upgrader.chunk(in.read(i)), cx, cz, overlay.chunk(dimension, cx, cz));
           out.write(i, Nbt.write(chunk));
         } else {
           out.write(i, in.readBytes(i));
@@ -83,7 +84,7 @@ public final class RegionSynthesizer {
           out.write(i, in.readBytes(i));
           continue;
         }
-        var chunk = ChunkPatcher.entities(inGenesis ? in.read(i) : null, cx, cz, dataVersion, overridden, here);
+        var chunk = ChunkPatcher.entities(inGenesis ? upgrader.entityChunk(in.read(i)) : null, cx, cz, upgrader.current(), overridden, here);
         if (chunk != null) out.write(i, Nbt.write(chunk));
       }
     }, hasSource ? source : null);
