@@ -217,7 +217,8 @@ public final class Worktree {
 
   /**
    * 現在讀不到的標記留在標記表，等下一次存檔：
-   * 世界沒有載入的 section 不能當成空氣；沒有載入的被追蹤實體不能當成被移除；起點世界還在複製的維度還不能比較。
+   * 世界沒有載入的 section 不能當成空氣；找不到的實體只有確定被移除過才算移除（否則只是沒載入，例如重啟後還沒有人走近）；
+   * 起點世界還在複製的維度還不能比較。
    */
   private Marks defer(Marks marks) {
     var tracker = ws.tracker();
@@ -238,13 +239,14 @@ public final class Worktree {
     marks.entities().forEach((dim, map) -> {
       var keep = new TreeMap<UUID, Integer>();
       map.forEach((uuid, author) -> {
-        boolean absent = worlds.get(dim) == null || ws.copying(dim) || tracker.isUnloaded(uuid) && ws.entity(uuid) == null;
-        if (absent) table.dimension(dim).markEntity(uuid, marks.authors().get(author));
-        else keep.put(uuid, author);
+        boolean absent = worlds.get(dim) == null || ws.copying(dim) || ws.entity(uuid) == null && !marks.isRemoved(dim, uuid);
+        if (!absent) keep.put(uuid, author);
+        else if (marks.isRemoved(dim, uuid)) table.dimension(dim).markEntityRemoved(uuid, marks.authors().get(author));
+        else table.dimension(dim).markEntity(uuid, marks.authors().get(author));
       });
       if (!keep.isEmpty()) entities.put(dim, keep);
     });
-    return new Marks(marks.authors(), sections, entities);
+    return new Marks(marks.authors(), sections, entities, marks.removed());
   }
 
   private record ChunkKey(String dimension, int x, int z) {}

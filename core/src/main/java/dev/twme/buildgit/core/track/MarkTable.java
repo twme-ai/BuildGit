@@ -128,6 +128,8 @@ public final class MarkTable {
     private final String id;
     private LongMap<SectionMarks> sections = new LongMap<>();
     private Map<UUID, Short> entities = new HashMap<>();
+    /** 被標記、而且確定已被移除的實體（不是只是卸載）。 */
+    private Set<UUID> removed = new HashSet<>();
     private final Set<UUID> dirtyEntities = new HashSet<>();
     /** 最近一次標記的時刻；不加鎖讀取，讓沒有人在蓋時熱路徑能直接返回。 */
     private volatile long lastTouch = Long.MIN_VALUE;
@@ -305,6 +307,21 @@ public final class MarkTable {
       }
     }
 
+    /** 實體確定被移除了（死亡、被拆、被指令或工具刪除、換到別的維度），記給 {@code author}。 */
+    public void markEntityRemoved(UUID uuid, Author author) {
+      synchronized (MarkTable.this) {
+        markEntity(uuid, author);
+        if (removed.add(uuid)) dirtyEntities.add(uuid);
+      }
+    }
+
+    /** 實體又出現在這個維度（載入、被放回）：之前的「已移除」不再成立。 */
+    public void entityPresent(UUID uuid) {
+      synchronized (MarkTable.this) {
+        if (removed.remove(uuid)) dirtyEntities.add(uuid);
+      }
+    }
+
     public boolean isMarked(int x, int y, int z) {
       synchronized (MarkTable.this) {
         var s = peek(x, y, z);
@@ -405,6 +422,7 @@ public final class MarkTable {
   public synchronized Marks drain() {
     var sectionSnapshot = new TreeMap<SectionKey, Marks.Section>();
     var entitySnapshot = new TreeMap<String, SortedMap<UUID, Integer>>();
+    var removedSnapshot = new HashMap<String, Set<UUID>>();
     for (var d : dimensions.values()) {
       d.sections.forEach((k, s) -> {
         if (!s.cells.isEmpty())
@@ -415,13 +433,16 @@ public final class MarkTable {
         d.entities.forEach((u, a) -> m.put(u, (int) a));
         entitySnapshot.put(d.id, m);
       }
+      d.removed.retainAll(d.entities.keySet());
+      if (!d.removed.isEmpty()) removedSnapshot.put(d.id, d.removed);
       d.sections = new LongMap<>();
       d.entities = new HashMap<>();
+      d.removed = new HashSet<>();
       d.dirtyEntities.clear();
       d.lastKey = Long.MIN_VALUE;
       d.lastSection = null;
     }
-    return new Marks(authors, sectionSnapshot, entitySnapshot);
+    return new Marks(authors, sectionSnapshot, entitySnapshot, removedSnapshot);
   }
 
   /** 把取走的標記放回。取走之後又被標記的格子，保留較新的作者。 */
@@ -447,7 +468,11 @@ public final class MarkTable {
     marks.entities().forEach((dim, m) -> {
       var d = dimension(dim);
       m.forEach((uuid, a) -> {
-        if (overwrite || !d.entities.containsKey(uuid)) d.entities.put(uuid, author(marks.authors().get(a)));
+        if (overwrite || !d.entities.containsKey(uuid)) {
+          d.entities.put(uuid, author(marks.authors().get(a)));
+          if (marks.isRemoved(dim, uuid)) d.removed.add(uuid);
+          else d.removed.remove(uuid);
+        }
         d.dirtyEntities.add(uuid);
       });
     });
@@ -457,6 +482,7 @@ public final class MarkTable {
   synchronized Marks takeDirty() {
     var sectionSnapshot = new TreeMap<SectionKey, Marks.Section>();
     var entitySnapshot = new TreeMap<String, SortedMap<UUID, Integer>>();
+    var removedSnapshot = new HashMap<String, Set<UUID>>();
     for (var d : dimensions.values()) {
       d.sections.forEach((k, s) -> {
         if (!s.dirty) return;
@@ -466,15 +492,19 @@ public final class MarkTable {
       });
       if (!d.dirtyEntities.isEmpty()) {
         var m = new TreeMap<UUID, Integer>();
+        var gone = new HashSet<UUID>();
         for (var u : d.dirtyEntities) {
           var a = d.entities.get(u);
-          if (a != null) m.put(u, (int) a);
+          if (a == null) continue;
+          m.put(u, (int) a);
+          if (d.removed.contains(u)) gone.add(u);
         }
         d.dirtyEntities.clear();
         if (!m.isEmpty()) entitySnapshot.put(d.id, m);
+        if (!gone.isEmpty()) removedSnapshot.put(d.id, gone);
       }
     }
-    return new Marks(authors, sectionSnapshot, entitySnapshot);
+    return new Marks(authors, sectionSnapshot, entitySnapshot, removedSnapshot);
   }
 
   /** 讓所有標記在下一次 {@link #takeDirty()} 重新寫出（日誌輪替後使用）。 */

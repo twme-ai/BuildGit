@@ -8,10 +8,21 @@ import java.util.*;
  * 取走的標記快照，交給提交使用。
  *
  * @param authors 作者表；{@link Section} 與 {@code entities} 的值是這張表的索引
+ * @param removed 已確定被移除的實體（維度 → UUID）。存檔時找不到、又不在這裡的實體只是沒載入，不能當成移除
  */
 public record Marks(
-    List<Author> authors, SortedMap<SectionKey, Section> sections, SortedMap<String, SortedMap<UUID, Integer>> entities) {
+    List<Author> authors, SortedMap<SectionKey, Section> sections, SortedMap<String, SortedMap<UUID, Integer>> entities,
+    Map<String, Set<UUID>> removed) {
   public static final Marks EMPTY = new Marks(List.of(), new TreeMap<>(), new TreeMap<>());
+
+  public Marks(List<Author> authors, SortedMap<SectionKey, Section> sections, SortedMap<String, SortedMap<UUID, Integer>> entities) {
+    this(authors, sections, entities, Map.of());
+  }
+
+  public boolean isRemoved(String dimension, UUID uuid) {
+    var set = removed.get(dimension);
+    return set != null && set.contains(uuid);
+  }
 
   /**
    * 一個 section 的標記：哪些格子、各是誰。

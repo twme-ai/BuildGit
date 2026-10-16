@@ -83,6 +83,30 @@ class MarkTableTest {
   }
 
   @Test
+  void removedEntitiesSurviveRestartAndClearWhenPresentAgain() throws Exception {
+    var t = new MarkTable();
+    var journal = new MarkJournal(dir);
+    var gone = UUID.randomUUID();
+    var back = UUID.randomUUID();
+    var unloaded = UUID.randomUUID();
+    t.dimension(OVERWORLD).markEntityRemoved(gone, ALICE);
+    t.dimension(OVERWORLD).markEntityRemoved(back, ALICE);
+    t.markEntity(OVERWORLD, unloaded, ALICE);
+    journal.flush(t);
+    t.dimension(OVERWORLD).entityPresent(back); // 被放回
+    journal.flush(t);
+    journal.close();
+
+    var restored = new MarkTable();
+    MarkJournal.replay(new MarkJournal(dir).files(), restored);
+    var marks = restored.drain();
+    assertTrue(marks.isRemoved(OVERWORLD, gone));
+    assertFalse(marks.isRemoved(OVERWORLD, back));
+    assertFalse(marks.isRemoved(OVERWORLD, unloaded));
+    assertEquals(3, marks.entityCount());
+  }
+
+  @Test
   void drainForCommitSeparatesCommittedMarks() throws Exception {
     var t = new MarkTable();
     var journal = new MarkJournal(dir);

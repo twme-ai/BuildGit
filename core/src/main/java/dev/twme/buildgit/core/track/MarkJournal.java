@@ -18,7 +18,8 @@ import java.util.stream.Stream;
  * 結尾不完整的記錄（當機時寫到一半）在重播時略過。
  */
 public final class MarkJournal implements Closeable {
-  private static final int AUTHOR = 1, DIMENSION = 2, ENTITY = 4, SECTION = 5;
+  /** {@code ENTITY_REMOVED} 與 {@code ENTITY} 內容相同，另外表示實體確定已被移除。 */
+  private static final int AUTHOR = 1, DIMENSION = 2, ENTITY = 4, SECTION = 5, ENTITY_REMOVED = 6;
 
   private final Path dir;
   private long sequence;
@@ -129,7 +130,7 @@ public final class MarkJournal implements Closeable {
       int d = dimensionRef(e.getKey());
       for (var m : e.getValue().entrySet()) {
         int a = authorRef(marks.authors().get(m.getValue()));
-        out.writeByte(ENTITY);
+        out.writeByte(marks.isRemoved(e.getKey(), m.getKey()) ? ENTITY_REMOVED : ENTITY);
         out.writeInt(d);
         out.writeLong(m.getKey().getMostSignificantBits());
         out.writeLong(m.getKey().getLeastSignificantBits());
@@ -173,6 +174,7 @@ public final class MarkJournal implements Closeable {
       var dims = new ArrayList<String>();
       var sections = new TreeMap<SectionKey, Marks.Section>();
       var entities = new TreeMap<String, SortedMap<UUID, Integer>>();
+      var removed = new HashMap<String, Set<UUID>>();
       try (var in = new DataInputStream(new BufferedInputStream(Files.newInputStream(file)))) {
         while (true) {
           int type = in.read();
@@ -199,10 +201,13 @@ public final class MarkJournal implements Closeable {
                 }
                 sections.put(key, merge(sections.get(key), section));
               }
-              case ENTITY -> {
+              case ENTITY, ENTITY_REMOVED -> {
                 String d = dims.get(in.readInt());
                 var uuid = new UUID(in.readLong(), in.readLong());
                 entities.computeIfAbsent(d, k -> new TreeMap<>()).put(uuid, (int) check(in.readInt(), authors));
+                var gone = removed.computeIfAbsent(d, k -> new HashSet<>());
+                if (type == ENTITY_REMOVED) gone.add(uuid);
+                else gone.remove(uuid);
               }
               default -> throw new IOException("標記日誌損毀：" + file);
             }
@@ -213,7 +218,7 @@ public final class MarkJournal implements Closeable {
           }
         }
       }
-      table.merge(new Marks(authors, sections, entities), true);
+      table.merge(new Marks(authors, sections, entities, removed), true);
     }
   }
 

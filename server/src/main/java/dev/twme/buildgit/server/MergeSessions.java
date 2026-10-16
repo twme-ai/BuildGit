@@ -315,9 +315,15 @@ public final class MergeSessions {
         futures.add(ws.platform().loadChunk(world, v.chunkX(), v.chunkZ()).thenCompose(c -> ws.entitiesLoaded(world, c)).thenAccept(chunk ->
             tracker.systemWrite(() -> {
               try {
-                if (v.state().isPresent()) LiveWriter.spawnEntity(world, v.state().get());
-                else LiveWriter.removeEntity(world, v.uuid());
-                scratch.table().dimension(v.dimension()).markEntity(v.uuid(), author);
+                var d = scratch.table().dimension(v.dimension());
+                if (v.state().isPresent()) {
+                  LiveWriter.spawnEntity(world, v.state().get());
+                  d.markEntity(v.uuid(), author);
+                  d.entityPresent(v.uuid());
+                } else {
+                  LiveWriter.removeEntity(world, v.uuid());
+                  d.markEntityRemoved(v.uuid(), author);
+                }
               } catch (IOException e) {
                 throw new UncheckedIOException(e);
               }

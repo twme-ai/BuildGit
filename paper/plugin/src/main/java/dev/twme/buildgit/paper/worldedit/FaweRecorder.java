@@ -47,7 +47,7 @@ final class FaweRecorder implements IBatchProcessor {
       dimension.markSection(cx, layer, cz, bits, author);
     }
     for (BlockVector3 v : set.tiles().keySet()) dimension.markCell(v.x(), v.y(), v.z(), author);
-    for (UUID removed : set.getEntityRemoves()) dimension.markEntity(removed, author);
+    for (UUID removed : set.getEntityRemoves()) dimension.markEntityRemoved(removed, author);
     if (hasEntities(set)) tracker.expectSpawns(world, cx, cz, author);
     return set;
   }

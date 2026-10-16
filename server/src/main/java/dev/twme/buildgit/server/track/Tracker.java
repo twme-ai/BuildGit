@@ -38,12 +38,6 @@ public final class Tracker {
   private Level suppressedLevel;
   private final Set<Level> precise = ConcurrentHashMap.newKeySet();
 
-  /**
-   * 不在目前世界、但被追蹤的實體（卸載、換維度）。提交時這些實體延後到再次載入，
-   * 不能誤當成被移除。值為最後所在維度。
-   */
-  private final Map<UUID, String> unloadedEntities = new ConcurrentHashMap<>();
-
   /** 批次寫入（FAWE）寫入了實體的 chunk：之後短時間內在這裡生成的實體歸給該作者。 */
   private final Map<Long, PendingSpawn> pendingSpawns = new ConcurrentHashMap<>();
 
@@ -289,7 +283,7 @@ public final class Tracker {
     var d = dimension(entity.level());
     if (d == null) return;
     d.markEntity(entity.getUUID(), author);
-    unloadedEntities.remove(entity.getUUID());
+    if (!entity.isRemoved()) d.entityPresent(entity.getUUID());
   }
 
   /** 這個實體類型的本身狀態是否值得記錄（設計 §3.4）。 */
@@ -327,7 +321,7 @@ public final class Tracker {
       if (d == here || d.table() != here.table()) continue;
       var a = d.entityAuthor(entity.getUUID());
       if (a == null) continue;
-      d.markEntity(entity.getUUID(), a);
+      d.markEntityRemoved(entity.getUUID(), a);
       markEntity(entity, a);
     }
   }
@@ -387,7 +381,8 @@ public final class Tracker {
 
   /** 實體加入世界（載入、生成、換維度抵達）。 */
   public void entityLoaded(Entity entity) {
-    unloadedEntities.remove(entity.getUUID());
+    var d = dimension(entity.level());
+    if (d != null) d.entityPresent(entity.getUUID());
     // 跨維度傳送：新維度的實體以同一個 UUID 加入（先於舊的移除），沿用原作者繼續追蹤。
     followMove(entity);
   }
@@ -399,26 +394,13 @@ public final class Tracker {
    */
   public void entityRemoved(Entity entity, boolean unloaded) {
     var d = dimension(entity.level());
-    if (d == null) return;
+    if (d == null || unloaded) return; // 卸載的實體存檔時找不到，但沒有「已移除」記號，會留到下次存檔
     var author = d.entityAuthor(entity.getUUID());
-    if (unloaded) {
-      if (author != null) unloadedEntities.put(entity.getUUID(), d.id());
-      return;
-    }
     // 被追蹤的實體在下次存檔記成移除。
     // 沒被追蹤（例如已提交、這次還沒碰過）但正由玩家造成（/kill 等指令）時也記。
     var by = cause();
-    if (author != null) d.markEntity(entity.getUUID(), by != null ? by : author);
-    else if (by != null && isBuildEntity(entity.getType())) d.markEntity(entity.getUUID(), by);
+    if (author != null) d.markEntityRemoved(entity.getUUID(), by != null ? by : author);
+    else if (by != null && isBuildEntity(entity.getType())) d.markEntityRemoved(entity.getUUID(), by);
     if (carriers.containsKey(entity.getUUID())) removedCarriers.add(entity.getUUID());
-  }
-
-  /** 被追蹤、但目前不在世界中（卸載）的實體。 */
-  public boolean isUnloaded(UUID uuid) {
-    return unloadedEntities.containsKey(uuid);
-  }
-
-  public void forgetUnloaded(UUID uuid) {
-    unloadedEntities.remove(uuid);
   }
 }

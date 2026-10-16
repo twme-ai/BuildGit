@@ -65,7 +65,7 @@ public final class MarkingExtent extends AbstractDelegateExtent {
 
   @Override
   public void removeEntity(int x, int y, int z, UUID uuid) {
-    dimension.markEntity(uuid, author);
+    dimension.markEntityRemoved(uuid, author);
     super.removeEntity(x, y, z, uuid);
   }
 }
