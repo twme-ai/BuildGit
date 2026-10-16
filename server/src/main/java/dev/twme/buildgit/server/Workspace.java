@@ -261,12 +261,41 @@ public final class Workspace {
     return repo != null && owners.get(world) == main();
   }
 
-  /** 主分支的世界被卸載了（無法擋下的平台）：不再追蹤，未存的標記留著，等它再次載入。 */
+  /**
+   * 別的插件要卸載世界時是否放行。主世界只在這個維度的主世界與各分支世界都沒有玩家、沒有在存檔或併回、
+   * 起點世界也不在複製時放行；BuildGit 自己的世界一律放行。
+   */
+  public boolean mayUnload(ServerLevel world) {
+    if (!isMainWorld(world)) return true;
+    String dim = Tracker.dimensionId(world);
+    if (copying(dim) || main().isCommitting()) return false;
+    for (var wt : worktrees()) {
+      var w = wt.world(dim);
+      if (w != null && !w.players().isEmpty()) return false;
+    }
+    return true;
+  }
+
+  /** 主分支的世界被卸載了：不再追蹤，未存的標記留著，等它再次載入。 */
   public void worldUnloaded(ServerLevel world) {
     if (!isMainWorld(world)) return;
     owners.remove(world);
     main().removeWorld(world);
-    log().warning("受版本控制的世界 " + platform.levelName(world) + " 被卸載；再次載入前，併回與還原不會寫進這個世界");
+    log().info("受版本控制的世界 " + platform.levelName(world) + " 已卸載；再次載入前，不能併回、撤銷或還原到主世界");
+  }
+
+  /** 已初始化（有起點世界）的維度。 */
+  List<String> trackedDimensions() throws IOException {
+    var result = new ArrayList<String>();
+    var root = dir.resolve("genesis");
+    if (!Files.isDirectory(root)) return result;
+    try (var namespaces = Files.list(root)) {
+      for (var ns : namespaces.filter(Files::isDirectory).toList())
+        try (var paths = Files.list(ns)) {
+          paths.filter(Files::isDirectory).forEach(p -> result.add(ns.getFileName() + ":" + p.getFileName()));
+        }
+    }
+    return result;
   }
 
   private ServerLevel mainWorld(String dimension) {
@@ -839,6 +868,17 @@ public final class Workspace {
    * 呼叫前應先存檔，讓世界與分支最新存檔一致。主執行緒呼叫，結果在主執行緒回呼。
    */
   void transact(Worktree wt, TreeOp op, Consumer<Optional<Applied>> done, Consumer<Throwable> failed) {
+    // 先提交才寫世界：有維度的世界沒載入時，那部分會只進版本、不進世界，所以整個擋下
+    try {
+      var missing = trackedDimensions().stream().filter(d -> wt.world(d) == null).toList();
+      if (!missing.isEmpty()) {
+        failed.accept(new Refused("這些世界沒有載入，載入後才能寫入 " + wt.branch() + "：" + String.join("、", missing)));
+        return;
+      }
+    } catch (IOException e) {
+      failed.accept(e);
+      return;
+    }
     if (!wt.lock()) {
       failed.accept(new IOException("分支正在存檔或併回，請稍後再試：" + wt.branch()));
       return;

@@ -158,12 +158,17 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     bg.levelLoaded(PaperPlatform.level(e.getWorld()));
   }
 
-  /** 受版本控制的世界不讓多世界插件卸載：卸載後併回與還原就寫不進去。 */
+  /** 受版本控制的世界：它或它的草稿世界還有玩家、或正在存檔時，不讓多世界插件卸載。 */
   @EventHandler(ignoreCancelled = true)
   public void onWorldUnload(WorldUnloadEvent e) {
     if (bg.levelUnloading(PaperPlatform.level(e.getWorld()))) return;
     e.setCancelled(true);
-    getLogger().warning("世界 " + e.getWorld().getName() + " 受版本控制，BuildGit 不讓它卸載（卸載後併回與還原寫不進去）");
+    getLogger().warning("世界 " + e.getWorld().getName() + " 受版本控制，它或它的草稿世界還有玩家、或正在存檔，BuildGit 先不讓它卸載");
+  }
+
+  @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+  public void onWorldUnloaded(WorldUnloadEvent e) {
+    bg.levelUnloaded(PaperPlatform.level(e.getWorld()));
   }
 
   @EventHandler

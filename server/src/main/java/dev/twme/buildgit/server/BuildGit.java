@@ -162,9 +162,9 @@ public final class BuildGit {
     platform.later(1, () -> workspace.worldLoaded(level));
   }
 
-  /** 世界將被卸載。回傳 false 表示應該擋下（受版本控制的世界）；擋不下的平台之後呼叫 {@link #levelUnloaded}。 */
+  /** 世界將被卸載。回傳 false 表示應該擋下（見 {@link Workspace#mayUnload}）；放行或擋不下時之後呼叫 {@link #levelUnloaded}。 */
   public boolean levelUnloading(ServerLevel level) {
-    return !workspace.isMainWorld(level);
+    return workspace.mayUnload(level);
   }
 
   public void levelUnloaded(ServerLevel level) {

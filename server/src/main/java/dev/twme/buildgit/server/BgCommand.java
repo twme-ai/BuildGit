@@ -16,7 +16,6 @@ import dev.twme.buildgit.core.repo.Commit;
 import dev.twme.buildgit.core.repo.Graph;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
-import dev.twme.buildgit.server.track.Tracker;
 import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
@@ -1065,7 +1064,7 @@ public final class BgCommand {
   /** 版本庫與 BuildGit 建立的世界各占多少磁碟（背景執行緒計算）。 */
   private void disk(Sender sender) throws IOException {
     var dir = ws().dir();
-    var dims = ws().mainWorlds().stream().map(Tracker::dimensionId).toList();
+    var dims = ws().trackedDimensions();
     var branches = new ArrayList<>(ws().branches().keySet());
     branches.remove(Repository.MAIN);
     var platform = bg.platform();
