@@ -1,6 +1,7 @@
 package dev.twme.buildgit.paper.axiom;
 
 import com.moulberry.axiom.event.AxiomAfterManipulateEntityEvent;
+import com.moulberry.axiom.event.AxiomHandshakeEvent;
 import com.moulberry.axiom.event.AxiomManipulateEntityEvent;
 import com.moulberry.axiom.event.AxiomRemoveEntityEvent;
 import com.moulberry.axiom.event.AxiomSpawnEntityEvent;
@@ -14,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.logging.Logger;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -39,7 +41,7 @@ import org.bukkit.plugin.Plugin;
  * 所以整串（最外層載具與它所有的乘客）都記下。
  *
  * <p>已知限制：擁有 {@code axiomadmin.bypass_region_checks} 權限的玩家，AxiomPaper 不會詢問整合，
- * 他們的方塊緩衝區編輯無法記錄（此權限預設不給任何人，包括 OP）。
+ * 他們的方塊緩衝區編輯無法記錄（此權限預設不給任何人，包括 OP）。這種玩家開啟 Axiom 時會收到提醒。
  */
 public final class AxiomHook implements Listener {
   private static final BitSet FULL = new BitSet(4096);
@@ -48,12 +50,16 @@ public final class AxiomHook implements Listener {
     FULL.set(0, 4096);
   }
 
+  private static final String BYPASS = "axiomadmin.bypass_region_checks";
+
   private final BukkitTracker tracker;
+  private final Consumer<Player> warnBypass;
   /** 修改前的整串實體，修改後一起記下（被趕下來的乘客修改後就不在串裡了）。 */
   private final Map<UUID, List<Entity>> beforeManipulate = new HashMap<>();
 
-  public AxiomHook(BukkitTracker tracker) {
+  public AxiomHook(BukkitTracker tracker, Consumer<Player> warnBypass) {
     this.tracker = tracker;
+    this.warnBypass = warnBypass;
   }
 
   public void register(Plugin plugin, Logger log) {
@@ -80,6 +86,11 @@ public final class AxiomHook implements Listener {
       tracker.markSection(world, x, y, z, FULL, tracker.author(player));
       return SectionPermissionChecker.ALL_ALLOWED;
     }
+  }
+
+  @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+  public void onHandshake(AxiomHandshakeEvent e) {
+    if (e.getPlayer().hasPermission(BYPASS)) warnBypass.accept(e.getPlayer());
   }
 
   @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

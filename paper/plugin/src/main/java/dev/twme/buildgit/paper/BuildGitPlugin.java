@@ -100,7 +100,8 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     }
     if (settings.axiom() && pm.getPlugin("AxiomPaper") != null) {
       try {
-        new AxiomHook(tracker).register(this, getLogger());
+        new AxiomHook(tracker, p -> bg.messages().send(platform.sender(((CraftPlayer) p).getHandle()), "axiom-bypass-warning"))
+            .register(this, getLogger());
       } catch (LinkageError e) {
         getLogger().log(Level.WARNING, "無法掛上 AxiomPaper（版本不相容？）", e);
       }
