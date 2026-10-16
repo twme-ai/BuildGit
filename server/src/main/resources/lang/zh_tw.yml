@@ -29,6 +29,7 @@ help: |-
   <aqua>/bg sel pos1|pos2|show|clear</aqua> <gray>— 選取範圍（有 WorldEdit 時用它的選取）</gray>
   <aqua>/bg who</aqua> <gray>— 誰在哪個草稿</gray>
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— 手動補記一個範圍</gray>
+  <aqua>/bg disk</aqua> <gray>— BuildGit 用掉的磁碟空間（管理）</gray>
   <aqua>/bg init</aqua> <gray>／</gray><aqua>/bg reload</aqua> <gray>— 管理</gray>
 no-permission: "<red>你沒有權限。</red>"
 players-only: "<red>只有玩家可以使用這個指令。</red>"
@@ -113,7 +114,13 @@ branch-created: "<green>已建立草稿</green> <light_purple><name></light_purp
 branch-deleted: "<green>已刪除草稿</green> <light_purple><name></light_purple> <gray>與它的世界。</gray>"
 branch-failed: "<red>失敗：<error></red>"
 branch-unknown: "<red>找不到草稿或分支：<name></red>"
-branch-entry: "<branch> <yellow><head></yellow> <gray><players> 位玩家</gray>"
+branch-entry: "<branch> <yellow><head></yellow> <gray>最後存檔 <time>・<players> 位玩家</gray>"
+disk-header: "<white>BuildGit 共用了 <yellow><size></yellow>：</white>"
+disk-entry: "  <name> <gray>—</gray> <yellow><size></yellow>"
+disk-objects: "版本紀錄（所有分支共用）"
+disk-genesis: "起點世界副本"
+disk-other: "標記日誌、整合與設定"
+disk-views: "<gray>檢視舊版本的暫時世界</gray>"
 go-done: "<gray>已到</gray> <branch>"
 not-in-draft: "<red>你不在草稿世界裡。</red>"
 view-opened: "<aqua>正在看存檔 <id></aqua><gray>（唯讀）。用</gray> <aqua>/bg back</aqua> <gray>回去。</gray>"

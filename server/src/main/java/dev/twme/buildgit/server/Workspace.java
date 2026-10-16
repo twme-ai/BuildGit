@@ -53,7 +53,7 @@ public final class Workspace {
   /** 衝突整合的暫時分支；玩家不能用這個開頭命名草稿。 */
   public static final String MERGE_PREFIX = "merge-";
   private static final String WORLD_PREFIX = "bg_";
-  private static final String VIEW_PREFIX = "bgview_";
+  static final String VIEW_PREFIX = "bgview_";
   private static final int MAX_SHAPE_FIX = 1 << 20;
 
   private final Platform platform;

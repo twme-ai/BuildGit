@@ -16,6 +16,7 @@ import dev.twme.buildgit.core.repo.Commit;
 import dev.twme.buildgit.core.repo.Graph;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
+import dev.twme.buildgit.server.track.Tracker;
 import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
@@ -87,6 +88,7 @@ public final class BgCommand {
     sub("mark", "buildgit.mark", this::mark, null);
     sub("sel", "buildgit.view", this::sel, (s, b) -> b.isEmpty() ? List.of("pos1", "pos2", "show", "clear") : List.of());
     sub("who", "buildgit.view", (s, a) -> who(s), null);
+    sub("disk", "buildgit.admin", (s, a) -> disk(s), null);
     sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames() : List.of());
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames() : List.of());
     sub("back", "buildgit.go", (s, a) -> back(s), null);
@@ -1060,6 +1062,64 @@ public final class BgCommand {
 
   // ---- 分支 ----
 
+  /** 版本庫與 BuildGit 建立的世界各占多少磁碟（背景執行緒計算）。 */
+  private void disk(Sender sender) throws IOException {
+    var dir = ws().dir();
+    var dims = ws().mainWorlds().stream().map(Tracker::dimensionId).toList();
+    var branches = new ArrayList<>(ws().branches().keySet());
+    branches.remove(Repository.MAIN);
+    var platform = bg.platform();
+    platform.async(() -> {
+      try {
+        long objects = folderSize(dir.resolve("objects"));
+        long genesis = folderSize(dir.resolve("genesis"));
+        long total = folderSize(dir);
+        var lines = new ArrayList<Component>();
+        lines.add(msg().get("disk-entry", "name", msg().get("disk-objects"), "size", megabytes(objects)));
+        lines.add(msg().get("disk-entry", "name", msg().get("disk-genesis"), "size", megabytes(genesis)));
+        lines.add(msg().get("disk-entry", "name", msg().get("disk-other"), "size", megabytes(total - objects - genesis)));
+        for (var branch : branches) {
+          long size = 0;
+          for (var dim : dims) size += folderSize(platform.levelFolder(Workspace.worldName(branch, dim)));
+          total += size;
+          lines.add(msg().get("disk-entry", "name", branchLabel(branch), "size", megabytes(size)));
+        }
+        long views = 0;
+        for (var name : platform.levelFolders())
+          if (name.startsWith(Workspace.VIEW_PREFIX)) views += folderSize(platform.levelFolder(name));
+        total += views;
+        if (views > 0) lines.add(msg().get("disk-entry", "name", msg().get("disk-views"), "size", megabytes(views)));
+        msg().send(sender, "disk-header", "size", megabytes(total));
+        lines.forEach(sender::send);
+      } catch (IOException | RuntimeException e) {
+        failed(sender, e);
+      }
+    });
+  }
+
+  /** 資料夾裡所有檔案的大小；計算途中消失的檔案略過。 */
+  private static long folderSize(java.nio.file.Path folder) throws IOException {
+    if (!java.nio.file.Files.isDirectory(folder)) return 0;
+    long[] sum = {0};
+    java.nio.file.Files.walkFileTree(folder, new java.nio.file.SimpleFileVisitor<>() {
+      @Override
+      public java.nio.file.FileVisitResult visitFile(java.nio.file.Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+        sum[0] += attrs.size();
+        return java.nio.file.FileVisitResult.CONTINUE;
+      }
+
+      @Override
+      public java.nio.file.FileVisitResult visitFileFailed(java.nio.file.Path file, IOException e) {
+        return java.nio.file.FileVisitResult.CONTINUE;
+      }
+    });
+    return sum[0];
+  }
+
+  private static String megabytes(long bytes) {
+    return String.format(Locale.ROOT, "%.1f MB", bytes / 1048576.0);
+  }
+
   private void branch(Sender sender, String[] args) throws IOException {
     var w = words(args);
     var what = w.isEmpty() ? "list" : w.getFirst().toLowerCase(Locale.ROOT);
@@ -1069,7 +1129,8 @@ public final class BgCommand {
           var wt = ws().worktree(e.getKey());
           int players = 0;
           if (wt != null) for (var world : wt.worlds().values()) players += world.players().size();
-          msg().send(sender, "branch-entry", "branch", branchLabel(e.getKey()), "head", e.getValue().abbrev(), "players", players);
+          msg().send(sender, "branch-entry", "branch", branchLabel(e.getKey()), "head", e.getValue().abbrev(),
+              "time", TIME.format(Instant.ofEpochMilli(ws().repo().commit(e.getValue()).time())), "players", players);
         }
         for (var s : ws().merges().all())
           msg().send(sender, "merge-entry", "id", s.id(), "source", s.source() == null ? s.base().abbrev() : s.source(), "target", s.target());

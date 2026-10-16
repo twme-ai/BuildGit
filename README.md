@@ -60,7 +60,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 5. **不要了？** `/bg back` 回到原本的世界，草稿留著，之後還能 `/bg go new-roof` 回來繼續。
 6. **刪除草稿**：`/bg branch delete new-roof`（主世界不能刪）。
    還有沒存的變更、或有存過但還沒併回的存檔時會被擋下，確定不要了再加 `--force`；如果別的草稿是從它開出來的，要先處理那個草稿。
-   `/bg branch list` 可以看所有草稿。
+   `/bg branch list` 可以看所有草稿與各自最後存檔的時間。
 
 只想併回一部分？先用 WorldEdit 選取範圍（或 `/bg sel pos1`、`/bg sel pos2`），再 `/bg publish --selection`。
 
@@ -136,6 +136,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg pull <名稱>          把選取範圍帶到單人世界（用戶端要裝 BuildGit）
 /bg load <名稱>          （單人世界）放進取出的範圍
 /bg push <名稱> [草稿]   把單人世界改過的範圍送回，存成草稿
+/bg disk                 BuildGit 用掉的磁碟空間（管理員）
 /bg log、show、diff、blame、inspect、who、sel
 ```
 

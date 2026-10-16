@@ -29,6 +29,7 @@ help: |-
   <aqua>/bg sel pos1|pos2|show|clear</aqua> <gray>— selection (uses WorldEdit's when installed)</gray>
   <aqua>/bg who</aqua> <gray>— who is in which draft</gray>
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— record a region manually</gray>
+  <aqua>/bg disk</aqua> <gray>— disk space used by BuildGit (admin)</gray>
   <aqua>/bg init</aqua> <gray>/</gray> <aqua>/bg reload</aqua> <gray>— admin</gray>
 no-permission: "<red>You don't have permission.</red>"
 players-only: "<red>Only players can use this command.</red>"
@@ -113,7 +114,13 @@ branch-created: "<green>Created draft</green> <light_purple><name></light_purple
 branch-deleted: "<green>Deleted draft</green> <light_purple><name></light_purple> <gray>and its worlds.</gray>"
 branch-failed: "<red>Failed: <error></red>"
 branch-unknown: "<red>No such draft or branch: <name></red>"
-branch-entry: "<branch> <yellow><head></yellow> <gray><players> players</gray>"
+branch-entry: "<branch> <yellow><head></yellow> <gray>last saved <time> · <players> players</gray>"
+disk-header: "<white>BuildGit uses <yellow><size></yellow> in total:</white>"
+disk-entry: "  <name> <gray>—</gray> <yellow><size></yellow>"
+disk-objects: "History (shared by all branches)"
+disk-genesis: "Genesis copy"
+disk-other: "Mark journals, resolutions and settings"
+disk-views: "<gray>Temporary worlds for viewing old versions</gray>"
 go-done: "<gray>Now in</gray> <branch>"
 not-in-draft: "<red>You are not in a draft world.</red>"
 view-opened: "<aqua>Viewing save <id></aqua> <gray>(read-only). Use</gray> <aqua>/bg back</aqua> <gray>to return.</gray>"
