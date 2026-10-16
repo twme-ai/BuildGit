@@ -47,4 +47,23 @@ class GraphTest {
     assertEquals("*─┴─┘", Graph.row(lanes, base, List.of()));
     assertEquals(List.of(), lanes);
   }
+
+  @Test
+  void visibleParentsKeepFirstParentFirst() throws java.io.IOException {
+    var main = id("main");
+    var base = id("base");
+    var draft = id("draft");
+    var merge = id("merge");
+    var commits = new java.util.HashMap<ObjectId, Commit>();
+    commits.put(merge, commit(0, main, draft));
+    commits.put(main, commit(0));
+    commits.put(draft, commit(Commit.AUTO, base));
+    commits.put(base, commit(0));
+    // 隱藏的草稿存檔被跳過，但第一個父存檔仍然在最前面（主線留在左邊）
+    assertEquals(List.of(main, base), Graph.visibleParents(null, commits, merge, c -> !c.auto()));
+  }
+
+  private static Commit commit(int flags, ObjectId... parents) {
+    return new Commit(id("tree"), List.of(parents), null, dev.twme.buildgit.core.model.Author.SYSTEM, 0, "", flags, new java.util.TreeMap<>());
+  }
 }

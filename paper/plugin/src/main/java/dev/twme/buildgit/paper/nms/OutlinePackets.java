@@ -11,10 +11,11 @@ import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
 import net.minecraft.util.Brightness;
 import net.minecraft.world.entity.Display;
-import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.phys.Vec3;
 import org.bukkit.Material;
 import org.bukkit.craftbukkit.block.data.CraftBlockData;
+import org.bukkit.craftbukkit.entity.CraftEntityType;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.Player;
 import org.joml.Vector3f;
@@ -35,11 +36,14 @@ public final class OutlinePackets {
     var level = handle.level();
     var packets = new ArrayList<Packet<? super ClientGamePacketListener>>(boxes.size() * 2);
     var ids = new int[boxes.size()];
+    // 26.x 把實體類型常數移到 EntityTypes；經由 Bukkit 取得，兩個版本共用
+    @SuppressWarnings("unchecked")
+    var type = (EntityType<Display.BlockDisplay>) CraftEntityType.bukkitToMinecraft(org.bukkit.entity.EntityType.BLOCK_DISPLAY);
     var glass = ((CraftBlockData) Material.WHITE_STAINED_GLASS.createBlockData()).getState();
     for (int i = 0; i < boxes.size(); i++) {
       var b = boxes.get(i);
       // 只拿來產生封包，不會加入世界；建構時就分配到不會和真實體重複的 id
-      var d = new Display.BlockDisplay(EntityTypes.BLOCK_DISPLAY, level);
+      var d = new Display.BlockDisplay(type, level);
       d.setPos(b.x(), b.y(), b.z());
       d.setBlockState(glass);
       // 四邊各多 0.01 格，避免和真的方塊表面重疊閃爍
@@ -49,7 +53,7 @@ public final class OutlinePackets {
       d.setBrightnessOverride(new Brightness(15, 15));
       d.setViewRange(4f);
       ids[i] = d.getId();
-      packets.add(new ClientboundAddEntityPacket(d.getId(), d.getUUID(), b.x(), b.y(), b.z(), 0f, 0f, EntityTypes.BLOCK_DISPLAY, 0, Vec3.ZERO, 0));
+      packets.add(new ClientboundAddEntityPacket(d.getId(), d.getUUID(), b.x(), b.y(), b.z(), 0f, 0f, type, 0, Vec3.ZERO, 0));
       packets.add(new ClientboundSetEntityDataPacket(d.getId(), d.getEntityData().packAll()));
     }
     if (!packets.isEmpty()) handle.connection.send(new ClientboundBundlePacket(packets));

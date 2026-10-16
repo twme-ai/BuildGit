@@ -53,10 +53,11 @@ public final class Graph {
   }
 
   /** 父存檔，略過隱藏的存檔直到可見的為止。 */
-  private static List<ObjectId> visibleParents(
+  static List<ObjectId> visibleParents(
       Repository repo, Map<ObjectId, Commit> commits, ObjectId id, Predicate<Commit> visible) throws IOException {
     var result = new LinkedHashSet<ObjectId>();
-    var stack = new ArrayDeque<ObjectId>(commits.get(id).parents().reversed());
+    // 第一個父存檔要最先處理（它留在同一條線上）；ArrayDeque 以集合建立時第一個元素就在頂端
+    var stack = new ArrayDeque<ObjectId>(commits.get(id).parents());
     var seen = new HashSet<ObjectId>();
     int steps = 0;
     while (!stack.isEmpty() && steps++ < 5_000) {

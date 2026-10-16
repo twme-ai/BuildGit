@@ -61,8 +61,25 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     return menu;
   }
 
+  /** 這個 jar 編譯時對應的 Minecraft 版本（打包時寫進 plugin.yml）。 */
+  private String builtFor() {
+    try (var in = getResource("plugin.yml")) {
+      var yaml = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+      return yaml.getString("buildgit-minecraft", "");
+    } catch (java.io.IOException e) {
+      return "";
+    }
+  }
+
   @Override
   public void onEnable() {
+    // 每個 Minecraft 版本各有一個 jar（內部程式碼不相容）；版本不符時直接停用，而不是之後在奇怪的地方出錯。
+    String built = builtFor();
+    if (!Bukkit.getMinecraftVersion().equals(built)) {
+      getLogger().severe("這個 BuildGit 是給 Minecraft " + built + " 的，伺服器是 " + Bukkit.getMinecraftVersion() + "；請下載對應版本的 jar。");
+      Bukkit.getPluginManager().disablePlugin(this);
+      return;
+    }
     saveDefaultConfig();
     settings = Settings.load(getConfig(), getLogger());
     messages = new Messages(this, settings.language());
@@ -128,6 +145,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
 
   @Override
   public void onDisable() {
+    if (settings == null) return; // 版本不符，沒有啟動過
     tasks.forEach(BukkitTask::cancel);
     tasks.clear();
     if (hud != null) hud.hideAll();

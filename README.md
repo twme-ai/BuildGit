@@ -2,12 +2,21 @@
 
 給 Minecraft 建築師用的版本控制。只記錄玩家造成的變更（含 WorldEdit／FAWE、Axiom 與連帶變化），以「起點世界＋覆寫表」保存每個版本；可以開草稿世界試做、存檔、併回、查歷史與責任歸屬。
 
-- 平台：Paper 26.2（Fabric 與 1.21.11 之後支援）
+- 平台：Paper 26.2、Paper 1.21.11（Fabric 之後支援）
 - 設計文件：[`docs/01-design.md`](docs/01-design.md)；需求：[`docs/00-requirements.md`](docs/00-requirements.md)
 
 ## 下載
 
 每次推送都會由 GitHub Actions 打包，jar 在該次執行的 Artifacts；推送 `v*` 標籤時會建立 Release。
+
+每個 Minecraft 版本各有一個 jar，請下載與伺服器相同版本的那個：
+
+| 伺服器 | 檔案 | Java |
+|---|---|---|
+| Paper 26.2 | `BuildGit-<版本>-paper-26.2.jar` | 25 |
+| Paper 1.21.11 | `BuildGit-<版本>-paper-1.21.11.jar` | 21 以上 |
+
+版本不符時插件會在啟動時提示並自行停用。
 
 ## 編譯
 
@@ -15,7 +24,8 @@
 
 ```sh
 ./gradlew build
-# 產物：paper/plugin/build/libs/BuildGit-<版本>.jar
+# 產物：paper/plugin/build/libs/BuildGit-<版本>-paper-26.2.jar
+#       paper/plugin-1_21_11/build/libs/BuildGit-<版本>-paper-1.21.11.jar
 ```
 
 ## 玩家使用說明

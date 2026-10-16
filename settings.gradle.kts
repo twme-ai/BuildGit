@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "buildgit"
-include("core", "api", "paper:axiom-api", "paper:plugin")
+include("core", "api", "paper:axiom-api", "paper:plugin", "paper:plugin-1_21_11")
