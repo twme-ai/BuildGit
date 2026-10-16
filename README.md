@@ -142,3 +142,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 ## 給其他插件的 API
 
 `api/` 模組；以 `ServicesManager` 取得 `BuildGitApi`，可直接記錄變更或以 `attribute(actor)` 指定作者。
+
+## 授權
+
+[MIT](LICENSE)
