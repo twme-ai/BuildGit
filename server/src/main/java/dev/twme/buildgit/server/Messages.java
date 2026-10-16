@@ -49,6 +49,11 @@ public final class Messages {
     return MINI.deserialize(template, resolvers);
   }
 
+  /** 未經 MiniMessage 解析的原文；沒有時是空字串。 */
+  public String raw(String key) {
+    return messages.getOrDefault(key, "");
+  }
+
   /** 加上前綴。 */
   public Component prefixed(Component body) {
     var prefix = messages.get("prefix");

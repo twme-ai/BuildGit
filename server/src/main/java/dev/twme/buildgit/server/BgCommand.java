@@ -16,6 +16,7 @@ import dev.twme.buildgit.core.repo.Commit;
 import dev.twme.buildgit.core.repo.Graph;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
+import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import java.io.IOException;
@@ -140,24 +141,50 @@ public final class BgCommand {
     });
     for (var sub : subs)
       for (var name : sub.names()) {
+        // 每個參數一個節點，玩家輸入時看得到要填什麼（名稱在語言檔 params-<子指令>）；最後一個吃下剩下的全部
+        var params = msg().raw("params-" + sub.names().getFirst()).trim();
+        var names = params.isEmpty() ? new String[0] : params.split(" +");
+        ArgumentBuilder<S, ?> next = null;
+        for (int i = names.length - 1; i >= 0; i--) {
+          var arg = RequiredArgumentBuilder.<S, String>argument(names[i], i == names.length - 1 ? StringArgumentType.greedyString() : StringArgumentType.word())
+              .suggests((ctx, builder) -> suggest(sub, argsStart(ctx, name), sender.apply(ctx.getSource()), builder))
+              .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), args(ctx, name)));
+          if (next != null) arg.then(next);
+          next = arg;
+        }
         var literal = LiteralArgumentBuilder.<S>literal(name)
             .requires(src -> sub.permission() == null || sender.apply(src).hasPermission(sub.permission()))
             .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), new String[0]));
-        literal.then(RequiredArgumentBuilder.<S, String>argument("args", StringArgumentType.greedyString())
-            .suggests((ctx, builder) -> suggest(sub, sender.apply(ctx.getSource()), builder))
-            .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), StringArgumentType.getString(ctx, "args").trim().split(" +"))));
+        if (next != null) literal.then(next);
         root.then(literal);
       }
     return root.build();
   }
 
-  private CompletableFuture<Suggestions> suggest(Sub sub, Sender sender, SuggestionsBuilder builder) {
+  /** 指令輸入中子指令之後的參數。 */
+  private static String[] args(CommandContext<?> ctx, String name) {
+    int at = argsStart(ctx, name);
+    var rest = at < 0 ? "" : ctx.getInput().substring(at).trim();
+    return rest.isEmpty() ? new String[0] : rest.split(" +");
+  }
+
+  /** 輸入中子指令名稱之後的位置；找不到時 -1。 */
+  private static int argsStart(CommandContext<?> ctx, String name) {
+    for (var n : ctx.getNodes())
+      if (n.getNode() instanceof LiteralCommandNode<?> l && l.getLiteral().equals(name)) return n.getRange().getEnd();
+    return -1;
+  }
+
+  private CompletableFuture<Suggestions> suggest(Sub sub, int start, Sender sender, SuggestionsBuilder builder) {
     if (sub.suggester() == null || !ws().isOpen() && !sub.names().contains("load")) return builder.buildFuture();
-    var remaining = builder.getRemaining();
-    int space = remaining.lastIndexOf(' ');
-    var before = space < 0 ? List.<String>of() : Arrays.asList(remaining.substring(0, space).trim().split(" +"));
-    var current = remaining.substring(space + 1).toLowerCase(Locale.ROOT);
-    var b = builder.createOffset(builder.getStart() + space + 1);
+    var input = builder.getInput();
+    if (start < 0 || start > input.length()) return builder.buildFuture();
+    var typed = input.substring(start);
+    int space = typed.lastIndexOf(' ');
+    var done = typed.substring(0, Math.max(0, space)).trim();
+    var before = done.isEmpty() ? List.<String>of() : Arrays.asList(done.split(" +"));
+    var current = typed.substring(space + 1).toLowerCase(Locale.ROOT);
+    var b = builder.createOffset(start + space + 1);
     try {
       for (var option : sub.suggester().suggest(sender, before))
         if (option.toLowerCase(Locale.ROOT).startsWith(current)) b.suggest(option);
