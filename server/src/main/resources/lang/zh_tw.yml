@@ -54,7 +54,10 @@ save-done: "<green>已存檔</green> <yellow><id></yellow> <gray>— <cells> 格
 save-failed: "<red>存檔失敗，變更都還在，可以再試一次：<error></red>"
 autosave-done: "<gray>自動存檔</gray> <yellow><id></yellow> <gray>— <cells> 格</gray>"
 
-log-entry: "<id> <gray><time></gray> <white><author></white> <message>"
+log-entry: "<id> <gray><time></gray> <white><author></white> <message><coauthors>"
+log-coauthors: " <gray>（協作：<names>）</gray>"
+log-coauthors-more: " <gray>（協作：<names> 等 <count> 人）</gray>"
+log-coauthors-separator: "、"
 log-auto: "<dark_gray>（自動）</dark_gray>"
 log-folded: "  <dark_gray>⋯ <count> 次自動存檔（/bg log --all 顯示）</dark_gray>"
 log-empty: "<gray>還沒有任何存檔。</gray>"

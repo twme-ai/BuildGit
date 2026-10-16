@@ -397,7 +397,7 @@ public final class BgCommand {
           if (folded > 0) lines.add(msg().get("log-folded", "count", folded));
           folded = 0;
           lines.add(msg().get("log-entry", "id", commitLink(id), "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
-              "message", c.auto() ? msg().get("log-auto") : Component.text(c.message())));
+              "message", c.auto() ? msg().get("log-auto") : Component.text(c.message()), "coauthors", coauthors(c)));
         }
         if (folded > 0 && lines.size() < want) lines.add(msg().get("log-folded", "count", folded));
       } catch (IOException | RuntimeException e) {
@@ -469,6 +469,19 @@ public final class BgCommand {
       }
       showPage(sender, lines, page, "/bg graph%s" + (all ? " --all" : ""));
     });
+  }
+
+  /** 存檔裡改過東西、但不是存檔者的玩家（最多列 3 位）；沒有時是空的。 */
+  private Component coauthors(Commit c) throws IOException {
+    var names = new LinkedHashSet<String>();
+    for (var a : ws().repo().changeset(c.changeset()).authors())
+      if (!a.uuid().equals(c.author().uuid()) && !a.equals(Author.MERGE) && !a.equals(Author.SYSTEM)) names.add(a.name());
+    if (names.isEmpty()) return Component.empty();
+    var shown = Component.join(net.kyori.adventure.text.JoinConfiguration.separator(msg().get("log-coauthors-separator")),
+        names.stream().limit(3).map(Component::text).toList());
+    return names.size() > 3
+        ? msg().get("log-coauthors-more", "names", shown, "count", names.size())
+        : msg().get("log-coauthors", "names", shown);
   }
 
   private boolean wrote(Commit c, String name) throws IOException {

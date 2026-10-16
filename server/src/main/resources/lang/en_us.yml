@@ -54,7 +54,10 @@ save-done: "<green>Saved</green> <yellow><id></yellow> <gray>— <cells> blocks,
 save-failed: "<red>Save failed; your changes are kept, try again: <error></red>"
 autosave-done: "<gray>Autosaved</gray> <yellow><id></yellow> <gray>— <cells> blocks</gray>"
 
-log-entry: "<id> <gray><time></gray> <white><author></white> <message>"
+log-entry: "<id> <gray><time></gray> <white><author></white> <message><coauthors>"
+log-coauthors: " <gray>(with <names>)</gray>"
+log-coauthors-more: " <gray>(with <names> and others, <count> in total)</gray>"
+log-coauthors-separator: ", "
 log-auto: "<dark_gray>(auto)</dark_gray>"
 log-folded: "  <dark_gray>⋯ <count> autosaves (/bg log --all to show)</dark_gray>"
 log-empty: "<gray>No saves yet.</gray>"
