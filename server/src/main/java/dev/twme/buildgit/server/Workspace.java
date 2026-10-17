@@ -58,6 +58,8 @@ public final class Workspace {
 
   private final Platform platform;
   private final Tracker tracker;
+  /** 大量系統寫入分刻進行。 */
+  final TickWrites ticked;
   /** 舊版 Minecraft 寫下的歷史與起點世界在讀取時升級（設計 §4.6）。 */
   private final DataUpgrader upgrader = new DataUpgrader();
   private final Path dir;
@@ -93,6 +95,7 @@ public final class Workspace {
   public Workspace(Platform platform, Tracker tracker) {
     this.platform = platform;
     this.tracker = tracker;
+    this.ticked = new TickWrites(platform, tracker);
     this.dir = platform.repoDir();
   }
 
@@ -234,7 +237,7 @@ public final class Workspace {
       var copy = new GenesisCopy(dim, platform.levelDirectory(world), genesisDir(dim), log());
       copies.put(dim, copy);
       log().warning("上次沒有複製完 " + platform.levelName(world) + " 的起點世界，在背景補完；之後改過又存回的 chunk 會以目前的樣子當作起點");
-      startCopy(world, copy);
+      startCopy(world, copy, () -> {});
     } catch (IOException e) {
       log().log(Level.SEVERE, "無法補完起點世界 " + platform.levelName(world), e);
     }
@@ -420,8 +423,9 @@ public final class Workspace {
     if (ownWorld(world)) throw new Refused("這是 BuildGit 建立的世界；請在要版本控制的世界裡執行");
     if (tracked(world)) throw new Refused("這個世界已經受版本控制");
     if (repo == null && Repository.exists(dir)) throw new Refused("版本庫存在但無法開啟");
-    // 只存這個世界；之後磁碟上的 chunk 在被伺服器再寫一次之前都是 init 當下的樣子，可以在背景複製
-    LiveReader.saveNow(world);
+    // 只存這個世界；之後磁碟上的 chunk 在被伺服器再寫一次之前都是 init 當下的樣子，可以在背景複製。
+    // 主執行緒只把 chunk 交給 IO 執行緒，等它寫完在複製執行緒上進行。
+    var flush = platform.save(world);
     String dim = Tracker.dimensionId(world);
     var copy = new GenesisCopy(dim, platform.levelDirectory(world), genesisDir(dim), log());
     copies.put(dim, copy);
@@ -431,7 +435,7 @@ public final class Workspace {
     } else {
       worldLoaded(world);
     }
-    startCopy(world, copy);
+    startCopy(world, copy, flush);
     return copy;
   }
 
@@ -440,9 +444,9 @@ public final class Workspace {
     return copies.containsKey(dimension);
   }
 
-  private void startCopy(ServerLevel world, GenesisCopy copy) {
+  private void startCopy(ServerLevel world, GenesisCopy copy, Runnable flush) {
     String dim = Tracker.dimensionId(world);
-    copy.start(platform.loadedChunks(world));
+    copy.start(platform.loadedChunks(world), flush);
     copy.whenDone(size -> sync(() -> {
       copies.remove(dim);
       if (repo == null) return;
@@ -914,10 +918,9 @@ public final class Workspace {
         done.accept(Optional.empty());
         return;
       }
-      apply(wt, plan.writes()).whenComplete((written, applyError) -> sync(() -> {
-        int shapes = 0;
+      apply(wt, plan.writes()).thenCompose(written -> fixShapes(wt, written)).whenComplete((fixed, applyError) -> sync(() -> {
         if (applyError != null) log().log(Level.SEVERE, "版本已提交，但寫入世界時失敗；未寫入的部分在下次讀取時會不一致", unwrap(applyError));
-        else shapes = fixShapes(wt, written);
+        int shapes = applyError != null ? 0 : fixed;
         wt.unlock();
         if (shapes > 0)
           wt.save(Author.MERGE, "形狀修補", Commit.AUTO, r -> {}, e -> log().log(Level.WARNING, "形狀修補存檔失敗，下次存檔時再收進去", e));
@@ -989,25 +992,28 @@ public final class Workspace {
     return (long) x << 32 | z & 0xFFFFFFFFL;
   }
 
-  /** 逐 chunk 載入並寫入（主執行緒）。實體等該 chunk 的實體載入後才處理。回傳寫入的格子。 */
+  /** 逐 chunk 載入並分刻寫入（主執行緒）。實體等該 chunk 的實體載入後才處理。回傳寫入的格子。 */
   private CompletableFuture<Map<String, List<BlockPos>>> apply(Worktree wt, Writes writes) {
     var written = new ConcurrentHashMap<String, List<BlockPos>>();
     var futures = new ArrayList<CompletableFuture<?>>();
+    var parsed = new HashMap<String, net.minecraft.world.level.block.state.BlockState>();
     writes.cells().forEach((dim, byChunk) -> {
       var world = wt.world(dim);
       if (world == null) return;
       var list = Collections.synchronizedList(new ArrayList<BlockPos>());
       written.put(dim, list);
-      byChunk.forEach((key, cells) -> futures.add(platform.loadChunk(world, (int) (key >> 32), (int) (long) key).thenAccept(chunk ->
-          tracker.systemWrite(() -> {
-            for (var w : cells)
-              try {
-                LiveWriter.setCell(world, w.pos().x(), w.pos().y(), w.pos().z(), w.cell());
-                list.add(w.pos());
-              } catch (IOException e) {
-                throw new UncheckedIOException(e);
-              }
-          }))));
+      byChunk.forEach((key, cells) -> {
+        int cx = (int) (key >> 32), cz = (int) (long) key;
+        futures.add(platform.loadChunk(world, cx, cz).thenCompose(chunk -> ticked.submit(world, cx, cz, cells.size(), i -> {
+          var w = cells.get(i);
+          try {
+            LiveWriter.setCell(world, w.pos().x(), w.pos().y(), w.pos().z(), w.cell(), parsed);
+            list.add(w.pos());
+          } catch (IOException e) {
+            throw new UncheckedIOException(e);
+          }
+        })));
+      });
     });
     writes.biomes().forEach((dim, byChunk) -> {
       var world = wt.world(dim);
@@ -1052,31 +1058,49 @@ public final class Workspace {
     return result;
   }
 
+  /** 在主執行緒開始 {@code start} 的工作。 */
+  private <T> CompletableFuture<T> onMain(java.util.function.Supplier<CompletableFuture<T>> start) {
+    var result = new CompletableFuture<T>();
+    sync(() -> start.get().whenComplete((v, e) -> {
+      if (e != null) result.completeExceptionally(e);
+      else result.complete(v);
+    }));
+    return result;
+  }
+
   private static final int[][] AROUND = {{0, 0, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 
   /**
-   * 形狀修補（設計 §5.2，主執行緒）：寫入的格子與它們的鄰居依目前鄰居重算形狀，
-   * 真的變了的以作者 {@code merge} 標記，之後存成一個自動存檔。
+   * 形狀修補（設計 §5.2，主執行緒、分刻進行）：寫入的格子與它們的鄰居依目前鄰居重算形狀，
+   * 真的變了的以作者 {@code merge} 標記，之後存成一個自動存檔。完成時的值是改到的格子數。
    */
-  private int fixShapes(Worktree wt, Map<String, List<BlockPos>> written) {
-    int[] fixed = {0};
-    tracker.systemWrite(() -> written.forEach((dim, list) -> {
+  private CompletableFuture<Integer> fixShapes(Worktree wt, Map<String, List<BlockPos>> written) {
+    var fixed = new int[1];
+    var futures = new ArrayList<CompletableFuture<Void>>();
+    written.forEach((dim, list) -> {
       var world = wt.world(dim);
       if (world == null || list.size() > MAX_SHAPE_FIX) return;
       var d = wt.table().dimension(dim);
-      var seen = new HashSet<BlockPos>();
-      for (var p : List.copyOf(list))
-        for (var o : AROUND) {
-          var q = new BlockPos(p.x() + o[0], p.y() + o[1], p.z() + o[2]);
-          if (q.y() < world.getMinY() || q.y() > world.getMaxY() || !seen.add(q)) continue;
-          if (!world.hasChunk(q.x() >> 4, q.z() >> 4)) continue;
-          if (LiveWriter.fixShape(world, q.x(), q.y(), q.z())) {
-            d.markCell(q, Author.MERGE);
-            fixed[0]++;
+      var copy = List.copyOf(list);
+      int minY = world.getMinY(), maxY = world.getMaxY();
+      // 要檢查的格子（寫入的格子與鄰居，去掉重複）在背景算，主執行緒只做修補
+      futures.add(CompletableFuture.supplyAsync(() -> {
+        var seen = new LinkedHashSet<BlockPos>();
+        for (var p : copy)
+          for (var o : AROUND) {
+            var q = new BlockPos(p.x() + o[0], p.y() + o[1], p.z() + o[2]);
+            if (q.y() >= minY && q.y() <= maxY) seen.add(q);
           }
+        return List.copyOf(seen);
+      }, this::async).thenCompose(cells -> onMain(() -> ticked.submit(null, 0, 0, cells.size(), i -> {
+        var q = cells.get(i);
+        if (world.hasChunk(q.x() >> 4, q.z() >> 4) && LiveWriter.fixShape(world, q.x(), q.y(), q.z())) {
+          d.markCell(q, Author.MERGE);
+          fixed[0]++;
         }
-    }));
-    return fixed[0];
+      }))));
+    });
+    return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).thenApply(x -> fixed[0]);
   }
 
   // ---- 合併（設計 §5.2、§6.2） ----

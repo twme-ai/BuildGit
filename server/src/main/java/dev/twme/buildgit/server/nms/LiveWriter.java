@@ -39,11 +39,20 @@ public final class LiveWriter {
   private LiveWriter() {}
 
   public static void setCell(ServerLevel level, int x, int y, int z, Cell cell) throws IOException {
-    net.minecraft.world.level.block.state.BlockState state;
-    try {
-      state = BlockStateParser.parseForBlock(level.registryAccess().lookupOrThrow(Registries.BLOCK), cell.state(), false).blockState();
-    } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) {
-      throw new IOException("無法解析方塊狀態：" + cell.state(), e);
+    setCell(level, x, y, z, cell, new java.util.HashMap<>());
+  }
+
+  /** 同上；{@code parsed} 記住解析過的方塊狀態，大量寫入時同一種狀態只解析一次。 */
+  public static void setCell(ServerLevel level, int x, int y, int z, Cell cell,
+      java.util.Map<String, net.minecraft.world.level.block.state.BlockState> parsed) throws IOException {
+    var state = parsed.get(cell.state());
+    if (state == null) {
+      try {
+        state = BlockStateParser.parseForBlock(level.registryAccess().lookupOrThrow(Registries.BLOCK), cell.state(), false).blockState();
+      } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) {
+        throw new IOException("無法解析方塊狀態：" + cell.state(), e);
+      }
+      parsed.put(cell.state(), state);
     }
     var pos = new BlockPos(x, y, z);
     level.setBlock(pos, state, FLAGS);

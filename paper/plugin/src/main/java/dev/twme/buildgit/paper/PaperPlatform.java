@@ -57,7 +57,7 @@ final class PaperPlatform implements Platform, Listener {
     }
   }
 
-  private record Pending(Synthesizer blocks, Synthesizer entities) {}
+  private record Pending(ServerLevel template, Synthesizer blocks, Synthesizer entities) {}
 
   private record Holder(Map<Integer, String> actions, Inventory[] inventory) implements InventoryHolder {
     @Override
@@ -146,7 +146,7 @@ final class PaperPlatform implements Platform, Listener {
   @Override
   public ServerLevel openLevel(String name, ServerLevel template, Synthesizer blocks, Synthesizer entities) throws IOException {
     World world;
-    creating.put(name, new Pending(blocks, entities));
+    creating.put(name, new Pending(template, blocks, entities));
     try {
       world = new WorldCreator(name).copy(template.getWorld()).createWorld();
     } finally {
@@ -162,16 +162,37 @@ final class PaperPlatform implements Platform, Listener {
     var pending = creating.get(e.getWorld().getName());
     if (pending == null) return;
     try {
-      RegionHook.install(level(e.getWorld()), e.getWorld().getName(), pending.blocks(), pending.entities(), log());
+      var level = level(e.getWorld());
+      RegionHook.install(level, e.getWorld().getName(), pending.blocks(), pending.entities(), log());
+      skipSpawnSearch(level, pending.template());
     } catch (ReflectiveOperationException | RuntimeException ex) {
       // 沒有合成讀取的世界會變成全新生成的世界：拒絕使用比給錯內容好。
       throw new IllegalStateException("無法在 " + e.getWorld().getName() + " 掛上合成讀取", ex);
     }
   }
 
+  /**
+   * 新世界的出生點直接沿用來源世界的，並標成已初始化：否則伺服器會在建立世界時搜尋出生點，
+   * 在主執行緒同步載入（合成）出生點附近的 chunk，可能卡住好幾秒。這個事件在檢查「是否已初始化」之前觸發。
+   */
+  private static void skipSpawnSearch(ServerLevel level, ServerLevel template) {
+    net.minecraft.world.level.storage.ServerLevelData data = level.serverLevelData;
+    if (data.isInitialized()) return;
+    var spawn = template.getLevelData().getRespawnData();
+    data.setSpawn(net.minecraft.world.level.storage.LevelData.RespawnData.of(level.dimension(), spawn.pos(), spawn.yaw(), spawn.pitch()));
+    data.setInitialized(true);
+  }
+
   @Override
   public boolean unloadLevel(ServerLevel level, boolean save) {
     return Bukkit.unloadWorld(level.getWorld(), save);
+  }
+
+  /** 主執行緒只把 chunk 交給 IO 執行緒（不等寫完）；Moonrise 的 flush 可以在其他執行緒等。 */
+  @Override
+  public Runnable save(ServerLevel level) {
+    level.save(null, false, false);
+    return () -> ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.flush(level);
   }
 
   @Override

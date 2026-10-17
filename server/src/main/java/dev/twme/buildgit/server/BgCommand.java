@@ -322,9 +322,17 @@ public final class BgCommand {
     return new Workspace.Scope(ws().logicalDimension(sel.get().level()), sel.get().box());
   }
 
+  /** 在玩家目前的世界標出外框；外框在背景算，主執行緒只送出。 */
   private void outline(Sender sender, Collection<Workspace.Changed> changed) {
-    if (sender.player() instanceof ServerPlayer p)
-      bg.outlines().show(p, p.level(), Outlines.shapes(changed, ws().logicalDimension(p.level())), OUTLINE_SECONDS);
+    if (!(sender.player() instanceof ServerPlayer p)) return;
+    var level = p.level();
+    String dimension = ws().logicalDimension(level);
+    ws().async(() -> {
+      var shapes = Outlines.shapes(changed, dimension);
+      ws().sync(() -> {
+        if (p.level() == level) bg.outlines().show(p, level, shapes, OUTLINE_SECONDS);
+      });
+    });
   }
 
   private Component button(String key, String command) {
@@ -536,10 +544,24 @@ public final class BgCommand {
       msg().send(sender, "unknown-commit", "id", w.getFirst());
       return;
     }
-    Commit c = repo.commit(id);
+    // 變更紀錄可能很大，在背景讀
+    record Shown(Commit commit, Changeset changeset) {}
+    CompletableFuture.supplyAsync(() -> {
+      try {
+        var c = repo.commit(id);
+        return new Shown(c, repo.changeset(c.changeset()));
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }, ws()::async).whenComplete((r, error) -> ws().sync(() -> {
+      if (error != null) failed(sender, Workspace.unwrap(error));
+      else show(sender, id, r.commit(), r.changeset(), listCells);
+    }));
+  }
+
+  private void show(Sender sender, ObjectId id, Commit c, Changeset cs, boolean listCells) {
     msg().send(sender, "show-header", "id", id.abbrev(), "author", c.author().name(), "time", TIME.format(Instant.ofEpochMilli(c.time())),
         "message", c.message());
-    var cs = repo.changeset(c.changeset());
     cs.cellsByAuthor().forEach((a, n) -> msg().send(sender, "show-line", "author", a.name(), "cells", n));
     if (!cs.entities().isEmpty()) msg().send(sender, "show-entities", "entities", cs.entities().size());
     if (!cs.biomes().isEmpty()) msg().send(sender, "biomes-changed", "count", cs.biomes().size());
@@ -561,13 +583,18 @@ public final class BgCommand {
     var w = words(args);
     var repo = ws().repo();
     if (w.isEmpty()) {
-      var changed = new ArrayList<Workspace.Changed>();
-      current(sender).table().markedSections().forEach((key, cells) -> {
-        for (int i = cells.nextSetBit(0); i >= 0; i = cells.nextSetBit(i + 1))
-          changed.add(new Workspace.Changed(key.dimension(), key.pos(i), Workspace.Kind.MODIFIED));
+      var table = current(sender).table();
+      ws().async(() -> {
+        var changed = new ArrayList<Workspace.Changed>();
+        table.markedSections().forEach((key, cells) -> {
+          for (int i = cells.nextSetBit(0); i >= 0; i = cells.nextSetBit(i + 1))
+            changed.add(new Workspace.Changed(key.dimension(), key.pos(i), Workspace.Kind.MODIFIED));
+        });
+        ws().sync(() -> {
+          msg().send(sender, "diff-unsaved", "cells", changed.size());
+          outline(sender, changed);
+        });
       });
-      msg().send(sender, "diff-unsaved", "cells", changed.size());
-      outline(sender, changed);
       return;
     }
     var a = resolve(w.getFirst());

@@ -38,11 +38,6 @@ public final class LiveReader {
     return net.minecraft.SharedConstants.getCurrentVersion().dataVersion().version();
   }
 
-  public static void saveNow(ServerLevel level) {
-    // flush=true：等 IO 執行緒把資料寫進 region 檔，複製起點世界前必須如此。
-    level.save(null, true, false);
-  }
-
   /**
    * chunk 目前內容的快照（主執行緒）；回傳的工作在任何執行緒執行，產生與存檔相同的未壓縮 NBT。
    */

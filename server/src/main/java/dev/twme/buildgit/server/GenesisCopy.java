@@ -53,10 +53,13 @@ final class GenesisCopy {
     return Files.exists(genesisDir.resolve(MARKER));
   }
 
-  /** 開始複製；{@code loaded} 是現在已載入的 chunk（{@code x << 32 | z}），先複製。 */
-  void start(long[] loaded) {
+  /**
+   * 開始複製；{@code loaded} 是現在已載入的 chunk（{@code x << 32 | z}），先複製。
+   * {@code flush} 在複製執行緒上先執行，等存檔寫進 region 檔。
+   */
+  void start(long[] loaded, Runnable flush) {
     for (long key : loaded) chunkLoaded((int) (key >> 32), (int) key);
-    var thread = new Thread(this::run, "BuildGit-init-" + dimension);
+    var thread = new Thread(() -> run(flush), "BuildGit-init-" + dimension);
     thread.setDaemon(true);
     thread.start();
   }
@@ -96,8 +99,9 @@ final class GenesisCopy {
     for (Runnable r; (r = poll()) != null; ) r.run();
   }
 
-  private void run() {
+  private void run(Runnable flush) {
     try {
+      flush.run();
       for (var sub : List.of("region", "entities")) {
         List<Path> files;
         try (Stream<Path> s = Files.list(from.resolve(sub))) {

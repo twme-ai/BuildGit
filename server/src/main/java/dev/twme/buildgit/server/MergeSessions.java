@@ -297,13 +297,22 @@ public final class MergeSessions {
       }
       var futures = new ArrayList<CompletableFuture<?>>();
       var tracker = ws.tracker();
-      for (var v : values.getKey()) {
-        var world = scratch.world(v.dimension());
+      // 逐 chunk 載入、分刻寫入
+      var byChunk = new LinkedHashMap<String, List<CellValue>>();
+      for (var v : values.getKey())
+        byChunk.computeIfAbsent(v.dimension() + " " + (v.pos().x() >> 4) + " " + (v.pos().z() >> 4), k -> new ArrayList<>()).add(v);
+      var parsed = new HashMap<String, net.minecraft.world.level.block.state.BlockState>();
+      for (var chunkCells : byChunk.values()) {
+        var first = chunkCells.getFirst();
+        var world = scratch.world(first.dimension());
         if (world == null) continue;
-        futures.add(ws.platform().loadChunk(world, v.pos().x() >> 4, v.pos().z() >> 4).thenAccept(chunk -> tracker.systemWrite(() -> {
+        var d = scratch.table().dimension(first.dimension());
+        int cx = first.pos().x() >> 4, cz = first.pos().z() >> 4;
+        futures.add(ws.platform().loadChunk(world, cx, cz).thenCompose(chunk -> ws.ticked.submit(world, cx, cz, chunkCells.size(), i -> {
+          var v = chunkCells.get(i);
           try {
-            LiveWriter.setCell(world, v.pos().x(), v.pos().y(), v.pos().z(), v.cell());
-            scratch.table().dimension(v.dimension()).markCell(v.pos(), author);
+            LiveWriter.setCell(world, v.pos().x(), v.pos().y(), v.pos().z(), v.cell(), parsed);
+            d.markCell(v.pos(), author);
           } catch (IOException e) {
             throw new UncheckedIOException(e);
           }

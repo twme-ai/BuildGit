@@ -72,6 +72,15 @@ public interface Platform {
   /** 卸載 BuildGit 的世界（主執行緒）。裡面不能有玩家。 */
   boolean unloadLevel(ServerLevel level, boolean save);
 
+  /**
+   * 存檔這個世界（主執行緒）；回傳的工作在背景執行緒執行，等存檔資料都寫進 region 檔後才返回。
+   * 預設在主執行緒就等寫完。
+   */
+  default Runnable save(ServerLevel level) {
+    level.save(null, true, false);
+    return () -> {};
+  }
+
   /** 世界在磁碟上的目錄（含 {@code region/}、{@code entities/}）。 */
   Path levelDirectory(ServerLevel level);
 
