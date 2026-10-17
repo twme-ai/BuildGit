@@ -579,7 +579,7 @@ public final class BgCommand {
       to = c.tree();
       from = c.parents().isEmpty() ? to : repo.commit(c.parents().getFirst()).tree();
     }
-    record Counted(List<Workspace.Changed> changed, int[] counts, int entities) {}
+    record Counted(List<Workspace.Changed> changed, int[] counts, int entities, int biomes) {}
     CompletableFuture.supplyAsync(() -> {
       try {
         var diff = TreeDiff.collect(repo.overlays(), from, to);
@@ -591,7 +591,8 @@ public final class BgCommand {
           counts[k.ordinal()]++;
           changed.add(new Workspace.Changed(c.dimension(), c.pos(), k));
         }
-        return new Counted(changed, counts, diff.entities().size());
+        for (var bc : diff.biomes()) changed.add(new Workspace.Changed(bc.key().dimension(), bc.corner(), Workspace.Kind.BIOME));
+        return new Counted(changed, counts, diff.entities().size(), diff.biomes().size());
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -601,6 +602,7 @@ public final class BgCommand {
         return;
       }
       msg().send(sender, "diff-summary", "added", r.counts()[0], "removed", r.counts()[1], "modified", r.counts()[2], "entities", r.entities());
+      if (r.biomes() > 0) msg().send(sender, "biomes-outlined", "count", r.biomes());
       outline(sender, r.changed());
     }));
   }
@@ -1009,7 +1011,7 @@ public final class BgCommand {
         msg().send(viewer, "publish-preview", "cells", preview.cells(), "entities", preview.entities(), "target", branchLabel(target.branch()));
         preview.authors().entrySet().stream().sorted(Map.Entry.<String, Integer>comparingByValue().reversed()).limit(10)
             .forEach(e -> msg().send(viewer, "publish-preview-author", "author", e.getKey(), "cells", e.getValue()));
-        if (preview.biomes() > 0) msg().send(viewer, "biomes-changed", "count", preview.biomes());
+        if (preview.biomes() > 0) msg().send(viewer, "biomes-outlined", "count", preview.biomes());
         if (conflicts > 0) msg().send(viewer, "publish-preview-conflicts", "count", conflicts);
         if (!preview.result().biomeConflicts().isEmpty())
           msg().send(viewer, "publish-preview-biome-conflicts", "count", preview.result().biomeConflicts().size(), "target", branchLabel(target.branch()));

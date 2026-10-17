@@ -16,6 +16,7 @@ public final class Outlines {
   static final int REMOVED = 0xFF5555;
   static final int MODIFIED = 0xFFFF55;
   static final int CONFLICT = 0xAA00FF;
+  static final int BIOME = 0x55FFFF;
   private static final int MAX = 400;
 
   record Shape(Box box, int color) {}
@@ -35,27 +36,39 @@ public final class Outlines {
       case ADDED -> ADDED;
       case REMOVED -> REMOVED;
       case MODIFIED -> MODIFIED;
-      case CONFLICT -> CONFLICT;
+      case CONFLICT, BIOME_CONFLICT -> CONFLICT;
+      case BIOME -> BIOME;
     };
+  }
+
+  /** 外框往正方向多涵蓋幾格：生態域是 4×4×4 的格子。 */
+  private static int extent(Workspace.Kind kind) {
+    return kind == Workspace.Kind.BIOME || kind == Workspace.Kind.BIOME_CONFLICT ? 3 : 0;
   }
 
   /** 把格子變成外框；超過上限時依 section 與顏色合併成包圍盒。 */
   static List<Shape> shapes(Collection<Workspace.Changed> changed, String dimension) {
     var cells = changed.stream().filter(c -> c.dimension().equals(dimension)).toList();
-    if (cells.size() <= MAX) return cells.stream().map(c -> new Shape(new Box(c.pos().x(), c.pos().y(), c.pos().z(), c.pos().x(), c.pos().y(), c.pos().z()), color(c.kind()))).toList();
+    if (cells.size() <= MAX)
+      return cells.stream().map(c -> {
+        var p = c.pos();
+        int e = extent(c.kind());
+        return new Shape(new Box(p.x(), p.y(), p.z(), p.x() + e, p.y() + e, p.z() + e), color(c.kind()));
+      }).toList();
     var groups = new LinkedHashMap<String, int[]>();
     var colors = new HashMap<String, Integer>();
     for (var c : cells) {
       var p = c.pos();
+      int e = extent(c.kind());
       String key = (p.x() >> 4) + "," + (p.y() >> 4) + "," + (p.z() >> 4) + "," + c.kind();
       colors.putIfAbsent(key, color(c.kind()));
       var b = groups.computeIfAbsent(key, k -> new int[] {p.x(), p.y(), p.z(), p.x(), p.y(), p.z()});
       b[0] = Math.min(b[0], p.x());
       b[1] = Math.min(b[1], p.y());
       b[2] = Math.min(b[2], p.z());
-      b[3] = Math.max(b[3], p.x());
-      b[4] = Math.max(b[4], p.y());
-      b[5] = Math.max(b[5], p.z());
+      b[3] = Math.max(b[3], p.x() + e);
+      b[4] = Math.max(b[4], p.y() + e);
+      b[5] = Math.max(b[5], p.z() + e);
     }
     var result = new ArrayList<Shape>();
     groups.forEach((k, b) -> result.add(new Shape(new Box(b[0], b[1], b[2], b[3], b[4], b[5]), colors.get(k))));

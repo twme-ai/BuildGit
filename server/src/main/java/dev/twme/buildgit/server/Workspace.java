@@ -1148,10 +1148,11 @@ public final class Workspace {
     }
   }
 
-  /** 一格的變化，給外框顯示用。 */
+  /** 一格的變化，給外框顯示用。生態域的 {@code pos} 是生態域格（4×4×4）的最小角。 */
   public record Changed(String dimension, BlockPos pos, Kind kind) {}
 
-  public enum Kind { ADDED, REMOVED, MODIFIED, CONFLICT }
+  /** {@code BIOME}：生態域改了；{@code BIOME_CONFLICT}：兩邊都改了生態域，保留目標的。 */
+  public enum Kind { ADDED, REMOVED, MODIFIED, CONFLICT, BIOME, BIOME_CONFLICT }
 
   /** 試算合併，不改變任何東西。背景執行。 */
   public CompletableFuture<Preview> preview(String target, String source, Scope scope) {
@@ -1172,6 +1173,9 @@ public final class Workspace {
           changed.add(new Changed(c.dimension(), c.pos(), kind(c.dimension(), c.pos(), c.before(), c.after(), cache)));
         }
         for (var c : result.cellConflicts()) changed.add(new Changed(c.dimension(), c.pos(), Kind.CONFLICT));
+        for (var b : diff.biomes()) changed.add(new Changed(b.key().dimension(), b.corner(), Kind.BIOME));
+        for (var b : result.biomeConflicts())
+          changed.add(new Changed(b.key().dimension(), b.key().pos(dev.twme.buildgit.core.overlay.SectionOverlay.biomeCorner(b.index())), Kind.BIOME_CONFLICT));
         return new Preview(diff.cells().size(), diff.entities().size(), diff.biomes().size(), authors, changed, result, ours, theirs);
       } catch (IOException e) {
         throw new UncheckedIOException(e);
