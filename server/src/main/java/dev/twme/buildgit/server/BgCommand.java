@@ -1066,7 +1066,6 @@ public final class BgCommand {
       msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
           branchLabel(target.branch()));
       if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
-      if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
       if (draft != null && sender.player() instanceof ServerPlayer p && !p.hasDisconnected() && ws().worktree(p.level()) == draft) {
         ws().teleport(p, target);
         if (scope == null && draft.branch().equals(source)) sendButton(s(p), "draft-delete-button", "/bg branch delete " + source);
@@ -1336,7 +1335,6 @@ public final class BgCommand {
             msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
                 branchLabel(s.target()));
             if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
-            if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
           }
         }, e -> {
           if (e instanceof Workspace.ConflictException c)
@@ -1437,7 +1435,6 @@ public final class BgCommand {
         var a = applied.get();
         msg().send(sender, "revert-done", "id", a.commit().abbrev(), "reverted", id.abbrev(), "cells", a.cells(), "entities", a.entities());
         if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
-        if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
       }
     }, e -> {
       if (e instanceof Workspace.ConflictException c) startSession(sender, MergeSessions.Kind.REVERT, wt.branch(), null, null, c);
@@ -1479,7 +1476,6 @@ public final class BgCommand {
         var a = applied.get();
         msg().send(sender, "restore-done", "id", a.commit().abbrev(), "target", id.abbrev(), "cells", a.cells(), "entities", a.entities());
         if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
-        if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
       }
     }, e -> failed(sender, e)));
   }

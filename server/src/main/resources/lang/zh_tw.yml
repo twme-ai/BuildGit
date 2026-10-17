@@ -137,7 +137,6 @@ publish-confirm-button: "<green><u>[確認併回]</u></green>"
 publish-start: "<gray>正在把</gray> <light_purple><name></light_purple> <gray>併回</gray> <target><gray>…</gray>"
 publish-nothing: "<gray>沒有新的變更需要併回。</gray>"
 publish-done: "<green>已併回</green> <target> <yellow><id></yellow> <gray>— <cells> 格、<entities> 個實體</gray>"
-shapes-fixed: "<gray>已修補 <cells> 格接縫處的方塊形狀（柵欄、牆、玻璃片等），另存為一次自動存檔。</gray>"
 biomes-changed: "<gray>生態域：<count> 處（每處 4×4×4 格）</gray>"
 biomes-outlined: "<gray>生態域：<count> 處，已用<aqua>青色</aqua>框標出（每處 4×4×4 格；兩邊都改過的用<light_purple>紫色</light_purple>）</gray>"
 

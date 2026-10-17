@@ -85,22 +85,6 @@ public final class LiveWriter {
   }
 
   /**
-   * 依目前的鄰居重算這一格的形狀（設計 §5.2 形狀修補），例如柵欄、牆、玻璃片的連接。
-   * 只接受同一種方塊、只有屬性不同的結果；會變成別種方塊（例如失去支撐而消失）的不改。含流體的格子不動，避免排程流動。
-   *
-   * @return 是否改變
-   */
-  public static boolean fixShape(ServerLevel level, int x, int y, int z) {
-    var pos = new BlockPos(x, y, z);
-    var state = level.getBlockState(pos);
-    if (state.isAir() || !state.getFluidState().isEmpty()) return false;
-    var updated = Block.updateFromNeighbourShapes(state, level, pos);
-    if (updated == state || !updated.is(state.getBlock())) return false;
-    level.setBlock(pos, updated, FLAGS);
-    return true;
-  }
-
-  /**
    * 把一個 section 的生態域格設成指定的值（索引見 {@code SectionOverlay.biomeIndex}），沒指定的不變。
    * 不認得的生態域（例如資料包已移除）略過。之後要以 {@link #resendBiomes} 通知玩家。
    *

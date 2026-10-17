@@ -9,7 +9,7 @@ import java.util.function.IntConsumer;
 import net.minecraft.server.level.ServerLevel;
 
 /**
- * 主執行緒上分刻進行的系統寫入（併回、撤銷、還原、衝突整合、形狀修補）：每刻最多花 {@link #BUDGET_NANOS}，
+ * 主執行緒上分刻進行的系統寫入（併回、撤銷、還原、衝突整合）：每刻最多花 {@link #BUDGET_NANOS}，
  * 做不完下一刻繼續，大量寫入不會讓伺服器卡住。寫入期間不標記（{@link Tracker#systemWrite}）。
  */
 final class TickWrites {

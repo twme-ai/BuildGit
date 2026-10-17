@@ -137,7 +137,6 @@ publish-confirm-button: "<green><u>[Confirm publish]</u></green>"
 publish-start: "<gray>Publishing</gray> <light_purple><name></light_purple> <gray>to</gray> <target><gray>…</gray>"
 publish-nothing: "<gray>Nothing new to publish.</gray>"
 publish-done: "<green>Published to</green> <target> <yellow><id></yellow> <gray>— <cells> blocks, <entities> entities</gray>"
-shapes-fixed: "<gray>Fixed the shapes of <cells> blocks along the seams (fences, walls, panes…), saved as an autosave.</gray>"
 biomes-changed: "<gray>Biomes: <count> areas (4×4×4 blocks each)</gray>"
 biomes-outlined: "<gray>Biomes: <count> areas, outlined in <aqua>aqua</aqua> (4×4×4 blocks each; changed on both sides in <light_purple>purple</light_purple>)</gray>"
 

@@ -54,7 +54,6 @@ public final class Workspace {
   public static final String MERGE_PREFIX = "merge-";
   private static final String WORLD_PREFIX = "bg_";
   static final String VIEW_PREFIX = "bgview_";
-  private static final int MAX_SHAPE_FIX = 1 << 20;
 
   private final Platform platform;
   private final Tracker tracker;
@@ -867,8 +866,8 @@ public final class Workspace {
 
   // ---- 寫入版本並套用到世界 ----
 
-  /** 一次寫入的結果。{@code shapes} 是形狀修補改到的格子數（另存成一個自動存檔）。 */
-  public record Applied(ObjectId commit, int cells, int entities, int biomes, int shapes) {}
+  /** 一次寫入的結果。 */
+  public record Applied(ObjectId commit, int cells, int entities, int biomes) {}
 
   /** 在背景執行緒、持有分支存檔鎖時計算新提交；回傳 empty 表示沒有變化。 */
   interface TreeOp {
@@ -876,7 +875,7 @@ public final class Workspace {
   }
 
   /**
-   * 在分支上提交 {@code op} 算出的新版本，並把差異寫進分支的世界，最後做形狀修補（設計 §5.2）。
+   * 在分支上提交 {@code op} 算出的新版本，並把差異原樣寫進分支的世界（設計 §5.2）。
    * 呼叫前應先存檔，讓世界與分支最新存檔一致。主執行緒呼叫，結果在主執行緒回呼。
    */
   void transact(Worktree wt, TreeOp op, Consumer<Optional<Applied>> done, Consumer<Throwable> failed) {
@@ -918,13 +917,10 @@ public final class Workspace {
         done.accept(Optional.empty());
         return;
       }
-      apply(wt, plan.writes()).thenCompose(written -> fixShapes(wt, written)).whenComplete((fixed, applyError) -> sync(() -> {
+      apply(wt, plan.writes()).whenComplete((ignored, applyError) -> sync(() -> {
         if (applyError != null) log().log(Level.SEVERE, "版本已提交，但寫入世界時失敗；未寫入的部分在下次讀取時會不一致", unwrap(applyError));
-        int shapes = applyError != null ? 0 : fixed;
         wt.unlock();
-        if (shapes > 0)
-          wt.save(Author.MERGE, "形狀修補", Commit.AUTO, r -> {}, e -> log().log(Level.WARNING, "形狀修補存檔失敗，下次存檔時再收進去", e));
-        done.accept(Optional.of(new Applied(plan.commit(), plan.cells(), plan.entities(), plan.biomes(), shapes)));
+        done.accept(Optional.of(new Applied(plan.commit(), plan.cells(), plan.entities(), plan.biomes())));
       }));
     }));
   }
@@ -992,23 +988,19 @@ public final class Workspace {
     return (long) x << 32 | z & 0xFFFFFFFFL;
   }
 
-  /** 逐 chunk 載入並分刻寫入（主執行緒）。實體等該 chunk 的實體載入後才處理。回傳寫入的格子。 */
-  private CompletableFuture<Map<String, List<BlockPos>>> apply(Worktree wt, Writes writes) {
-    var written = new ConcurrentHashMap<String, List<BlockPos>>();
+  /** 逐 chunk 載入並分刻寫入（主執行緒）。實體等該 chunk 的實體載入後才處理。 */
+  private CompletableFuture<Void> apply(Worktree wt, Writes writes) {
     var futures = new ArrayList<CompletableFuture<?>>();
     var parsed = new HashMap<String, net.minecraft.world.level.block.state.BlockState>();
     writes.cells().forEach((dim, byChunk) -> {
       var world = wt.world(dim);
       if (world == null) return;
-      var list = Collections.synchronizedList(new ArrayList<BlockPos>());
-      written.put(dim, list);
       byChunk.forEach((key, cells) -> {
         int cx = (int) (key >> 32), cz = (int) (long) key;
         futures.add(platform.loadChunk(world, cx, cz).thenCompose(chunk -> ticked.submit(world, cx, cz, cells.size(), i -> {
           var w = cells.get(i);
           try {
             LiveWriter.setCell(world, w.pos().x(), w.pos().y(), w.pos().z(), w.cell(), parsed);
-            list.add(w.pos());
           } catch (IOException e) {
             throw new UncheckedIOException(e);
           }
@@ -1041,7 +1033,7 @@ public final class Workspace {
             }));
       }
       return chain;
-    }).thenApply(ignored -> written);
+    });
   }
 
   /** 實體與方塊分開載入：等這個 chunk 的實體載入完成（最多約 5 秒）。 */
@@ -1056,51 +1048,6 @@ public final class Workspace {
     };
     sync(check[0]);
     return result;
-  }
-
-  /** 在主執行緒開始 {@code start} 的工作。 */
-  private <T> CompletableFuture<T> onMain(java.util.function.Supplier<CompletableFuture<T>> start) {
-    var result = new CompletableFuture<T>();
-    sync(() -> start.get().whenComplete((v, e) -> {
-      if (e != null) result.completeExceptionally(e);
-      else result.complete(v);
-    }));
-    return result;
-  }
-
-  private static final int[][] AROUND = {{0, 0, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
-
-  /**
-   * 形狀修補（設計 §5.2，主執行緒、分刻進行）：寫入的格子與它們的鄰居依目前鄰居重算形狀，
-   * 真的變了的以作者 {@code merge} 標記，之後存成一個自動存檔。完成時的值是改到的格子數。
-   */
-  private CompletableFuture<Integer> fixShapes(Worktree wt, Map<String, List<BlockPos>> written) {
-    var fixed = new int[1];
-    var futures = new ArrayList<CompletableFuture<Void>>();
-    written.forEach((dim, list) -> {
-      var world = wt.world(dim);
-      if (world == null || list.size() > MAX_SHAPE_FIX) return;
-      var d = wt.table().dimension(dim);
-      var copy = List.copyOf(list);
-      int minY = world.getMinY(), maxY = world.getMaxY();
-      // 要檢查的格子（寫入的格子與鄰居，去掉重複）在背景算，主執行緒只做修補
-      futures.add(CompletableFuture.supplyAsync(() -> {
-        var seen = new LinkedHashSet<BlockPos>();
-        for (var p : copy)
-          for (var o : AROUND) {
-            var q = new BlockPos(p.x() + o[0], p.y() + o[1], p.z() + o[2]);
-            if (q.y() >= minY && q.y() <= maxY) seen.add(q);
-          }
-        return List.copyOf(seen);
-      }, this::async).thenCompose(cells -> onMain(() -> ticked.submit(null, 0, 0, cells.size(), i -> {
-        var q = cells.get(i);
-        if (world.hasChunk(q.x() >> 4, q.z() >> 4) && LiveWriter.fixShape(world, q.x(), q.y(), q.z())) {
-          d.markCell(q, Author.MERGE);
-          fixed[0]++;
-        }
-      }))));
-    });
-    return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).thenApply(x -> fixed[0]);
   }
 
   // ---- 合併（設計 §5.2、§6.2） ----
