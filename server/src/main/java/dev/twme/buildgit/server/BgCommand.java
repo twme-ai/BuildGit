@@ -43,7 +43,7 @@ import net.minecraft.world.phys.HitResult;
  * <p>建築師日常用的三步流程（try／publish／back）與底層的分支、合併、還原都在這裡。
  */
 public final class BgCommand {
-  private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault());
+  static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault());
   private static final int MAX_MARK = 1 << 22;
   private static final int SHOW_CELLS = 200;
   private static final int OUTLINE_SECONDS = 60;

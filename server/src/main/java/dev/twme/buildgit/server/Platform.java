@@ -134,7 +134,12 @@ public interface Platform {
   int MENU_ROWS = 5;
 
   /** 箱子選單的一格：物品 id、名稱、說明（null 表示分隔用、不顯示提示框），以及點了以後執行的 {@code /bg} 子指令（null 表示不能點）。 */
-  record MenuItem(int slot, String item, Component name, Component lore, String action) {}
+  record MenuItem(int slot, String item, Component name, List<Component> lore, String action) {
+    /** 只有一行說明。 */
+    MenuItem(int slot, String item, Component name, Component lore, String action) {
+      this(slot, item, name, List.of(lore), action);
+    }
+  }
 
   /** 打開 54 格的箱子選單；點了有動作的格子就關閉並執行 {@code /bg <action>}。 */
   void openMenu(ServerPlayer player, Component title, List<MenuItem> items);

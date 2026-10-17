@@ -451,7 +451,7 @@ final class FabricPlatform implements Platform {
       var stack = new ItemStack(type == Items.AIR ? Items.PAPER : type);
       stack.set(DataComponents.CUSTOM_NAME, vanilla(item.name().decoration(TextDecoration.ITALIC, false)));
       if (item.lore() == null) stack.set(DataComponents.TOOLTIP_DISPLAY, new TooltipDisplay(true, new LinkedHashSet<>()));
-      else stack.set(DataComponents.LORE, new ItemLore(List.of(vanilla(item.lore().decoration(TextDecoration.ITALIC, false)))));
+      else stack.set(DataComponents.LORE, new ItemLore(item.lore().stream().map(line -> vanilla(line.decoration(TextDecoration.ITALIC, false))).toList()));
       container.setItem(item.slot(), stack);
       if (item.action() != null) actions.put(item.slot(), item.action());
     }

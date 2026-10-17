@@ -352,7 +352,7 @@ final class PaperPlatform implements Platform, Listener {
       stack.editMeta(m -> {
         m.displayName(item.name().decoration(TextDecoration.ITALIC, false));
         if (item.lore() == null) m.setHideTooltip(true);
-        else m.lore(List.of(item.lore().decoration(TextDecoration.ITALIC, false)));
+        else m.lore(item.lore().stream().map(line -> line.decoration(TextDecoration.ITALIC, false)).toList());
       });
       inv.setItem(item.slot(), stack);
       if (item.action() != null) holder.actions().put(item.slot(), item.action());

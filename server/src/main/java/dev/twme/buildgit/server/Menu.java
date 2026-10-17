@@ -1,7 +1,9 @@
 package dev.twme.buildgit.server;
 
+import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.repo.Repository;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.*;
 import net.kyori.adventure.text.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -21,6 +23,8 @@ final class Menu {
   /** 草稿清單的排數：最下排是動作，上一排是分隔線。 */
   private static final int LIST_ROWS = ROWS - 2;
   private static final String DIVIDER = "gray_stained_glass_pane";
+  /** 每個草稿顯示幾個里程碑，以及最多往回找幾個存檔。 */
+  private static final int MILESTONES = 3, MILESTONE_SEARCH = 200;
   private final BuildGit bg;
 
   Menu(BuildGit bg) {
@@ -65,13 +69,16 @@ final class Menu {
     var list = new ArrayList<Platform.MenuItem>();
     try {
       String dim = ws.logicalDimension(p.level());
-      for (var name : ws.drafts().keySet()) {
+      for (var e : ws.drafts().entrySet()) {
+        var name = e.getKey();
         if (!ws.covers(name, dim)) continue; // 只列這個世界的草稿
         var here = wt != null && wt.branch().equals(name);
         var label = name.equals(Repository.MAIN) ? msg.get("branch-main") : msg.get("menu-draft", "name", name);
         var item = here ? "lime_stained_glass" : name.equals(Repository.MAIN) ? "grass_block" : "paper";
         var action = !here && platform.hasPermission(p, "buildgit.go") ? "go " + name : null;
-        list.add(new Platform.MenuItem(0, item, label, msg.get(here ? "menu-draft-here" : "menu-draft-go"), action));
+        var lore = draftLore(e.getValue());
+        lore.add(msg.get(here ? "menu-draft-here" : "menu-draft-go"));
+        list.add(new Platform.MenuItem(0, item, label, lore, action));
       }
     } catch (IOException e) {
       // 清單讀不到時只顯示動作
@@ -93,6 +100,22 @@ final class Menu {
     platform.openMenu(p, msg.get("menu-title"), items);
   }
 
+  /** 最後編輯時間與最近的里程碑，由新到舊、顏色漸暗。 */
+  private List<Component> draftLore(ObjectId head) throws IOException {
+    var msg = bg.messages();
+    var repo = bg.workspace().repo();
+    var lore = new ArrayList<Component>();
+    lore.add(msg.get("menu-draft-time", "time", BgCommand.TIME.format(Instant.ofEpochMilli(repo.commit(head).time()))));
+    int n = 0;
+    for (var id : repo.history(head, MILESTONE_SEARCH)) {
+      var c = repo.commit(id);
+      if (c.auto() || c.parents().isEmpty()) continue;
+      lore.add(msg.get("menu-milestone-" + n, "message", Component.text(c.message()), "time", BgCommand.TIME.format(Instant.ofEpochMilli(c.time()))));
+      if (++n == MILESTONES) break;
+    }
+    return lore;
+  }
+
   private void put(List<Platform.MenuItem> items, int slot, String item, String key, String command, ServerPlayer p, String permission) {
     if (permission != null && !bg.platform().hasPermission(p, permission)) return; // 格子空著，其他動作不移位
     var msg = bg.messages();
@@ -100,6 +123,6 @@ final class Menu {
   }
 
   private static Platform.MenuItem divider(int slot) {
-    return new Platform.MenuItem(slot, DIVIDER, Component.empty(), null, null);
+    return new Platform.MenuItem(slot, DIVIDER, Component.empty(), (List<Component>) null, null);
   }
 }
