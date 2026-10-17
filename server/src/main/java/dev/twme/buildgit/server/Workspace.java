@@ -500,14 +500,22 @@ public final class Workspace {
       try {
         var overlay = new OverlayReader(repo.overlays(), source.tree().tree()).chunk(source.dimension(), cx, cz);
         if (overlay.isEmpty()) return;
-        sync(() -> tracker.systemWrite(() -> overlay.forEach((sy, section) -> section.cells().forEach((index, cell) -> {
-          int x = cx << 4 | index & 15, y = sy << 4 | index >> 8, z = cz << 4 | index >> 4 & 15;
-          try {
-            LiveWriter.setCell(world, x, y, z, cell);
-          } catch (IOException e) {
-            log().log(Level.WARNING, "無法套用覆寫 " + x + " " + y + " " + z, e);
+        sync(() -> tracker.systemWrite(() -> {
+          boolean biomes = false;
+          for (var e : overlay.entrySet()) {
+            int sy = e.getKey();
+            e.getValue().cells().forEach((index, cell) -> {
+              int x = cx << 4 | index & 15, y = sy << 4 | index >> 8, z = cz << 4 | index >> 4 & 15;
+              try {
+                LiveWriter.setCell(world, x, y, z, cell);
+              } catch (IOException ex) {
+                log().log(Level.WARNING, "無法套用覆寫 " + x + " " + y + " " + z, ex);
+              }
+            });
+            if (!e.getValue().biomes().isEmpty()) biomes |= LiveWriter.setBiomes(world, chunk, sy, e.getValue().biomes());
           }
-        }))));
+          if (biomes) LiveWriter.resendBiomes(world, List.of(chunk));
+        }));
       } catch (IOException e) {
         log().log(Level.WARNING, "無法讀取 chunk " + cx + "," + cz + " 的覆寫", e);
       }
@@ -856,7 +864,7 @@ public final class Workspace {
   // ---- 寫入版本並套用到世界 ----
 
   /** 一次寫入的結果。{@code shapes} 是形狀修補改到的格子數（另存成一個自動存檔）。 */
-  public record Applied(ObjectId commit, int cells, int entities, int shapes) {}
+  public record Applied(ObjectId commit, int cells, int entities, int biomes, int shapes) {}
 
   /** 在背景執行緒、持有分支存檔鎖時計算新提交；回傳 empty 表示沒有變化。 */
   interface TreeOp {
@@ -891,7 +899,7 @@ public final class Workspace {
         var id = op.run(head);
         if (id.isEmpty()) return null;
         var diff = TreeDiff.collect(repo.overlays(), before, repo.commit(id.get()).tree());
-        return new Plan(id.get(), diff.cells().size(), diff.entities().size(), resolve(diff));
+        return new Plan(id.get(), diff.cells().size(), diff.entities().size(), diff.biomes().size(), resolve(diff));
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -913,15 +921,20 @@ public final class Workspace {
         wt.unlock();
         if (shapes > 0)
           wt.save(Author.MERGE, "形狀修補", Commit.AUTO, r -> {}, e -> log().log(Level.WARNING, "形狀修補存檔失敗，下次存檔時再收進去", e));
-        done.accept(Optional.of(new Applied(plan.commit(), plan.cells(), plan.entities(), shapes)));
+        done.accept(Optional.of(new Applied(plan.commit(), plan.cells(), plan.entities(), plan.biomes(), shapes)));
       }));
     }));
   }
 
-  private record Plan(ObjectId commit, int cells, int entities, Writes writes) {}
+  private record Plan(ObjectId commit, int cells, int entities, int biomes, Writes writes) {}
 
-  /** 要寫進世界的最終內容（已把「回到起點」換成起點世界的實際內容）。 */
-  private record Writes(Map<String, Map<Long, List<CellWrite>>> cells, List<EntityWrite> entities) {}
+  /**
+   * 要寫進世界的最終內容（已把「回到起點」換成起點世界的實際內容）。
+   *
+   * @param biomes 維度 → chunk → section Y → 生態域格 → 生態域
+   */
+  private record Writes(Map<String, Map<Long, List<CellWrite>>> cells, List<EntityWrite> entities,
+      Map<String, Map<Long, Map<Integer, Map<Integer, String>>>> biomes) {}
 
   private record CellWrite(BlockPos pos, Cell cell) {}
 
@@ -943,6 +956,18 @@ public final class Workspace {
       long key = chunkKey(c.pos().x() >> 4, c.pos().z() >> 4);
       cells.computeIfAbsent(c.dimension(), k -> new HashMap<>()).computeIfAbsent(key, k -> new ArrayList<>()).add(new CellWrite(c.pos(), cell));
     }
+    var biomes = new HashMap<String, Map<Long, Map<Integer, Map<Integer, String>>>>();
+    for (var b : diff.biomes()) {
+      var key = b.key();
+      var biome = b.after();
+      if (biome == null) {
+        var origin = genesis.readBiomes(key);
+        if (origin == null) continue; // 起點世界沒有這個 section：不知道原本是什麼，保留世界現狀
+        biome = origin[b.index()];
+      }
+      biomes.computeIfAbsent(key.dimension(), k -> new HashMap<>()).computeIfAbsent(chunkKey(key.chunkX(), key.chunkZ()), k -> new HashMap<>())
+          .computeIfAbsent(key.sectionY(), k -> new HashMap<>()).put(b.index(), biome);
+    }
     var entities = new ArrayList<EntityWrite>();
     for (var e : diff.entities()) {
       var after = e.after() != null ? e.after() : genesis.readEntity(e.dimension(), e.uuid());
@@ -957,7 +982,7 @@ public final class Workspace {
         entities.add(new EntityWrite(e.dimension(), e.uuid(), after, (int) Math.floor(p[0]) >> 4, (int) Math.floor(p[2]) >> 4));
       }
     }
-    return new Writes(cells, entities);
+    return new Writes(cells, entities, biomes);
   }
 
   private static long chunkKey(int x, int z) {
@@ -983,6 +1008,15 @@ public final class Workspace {
                 throw new UncheckedIOException(e);
               }
           }))));
+    });
+    writes.biomes().forEach((dim, byChunk) -> {
+      var world = wt.world(dim);
+      if (world == null) return;
+      byChunk.forEach((key, sections) -> futures.add(platform.loadChunk(world, (int) (key >> 32), (int) (long) key).thenAccept(chunk -> {
+        boolean changed = false;
+        for (var e : sections.entrySet()) changed |= LiveWriter.setBiomes(world, chunk, e.getKey(), e.getValue());
+        if (changed) LiveWriter.resendBiomes(world, List.of(chunk));
+      })));
     });
     CompletableFuture<Void> blocks = CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
     return blocks.thenCompose(ignored -> {
@@ -1107,10 +1141,10 @@ public final class Workspace {
   }
 
   /** 併回前的預覽：會變動的格子、實體與作者。 */
-  public record Preview(int cells, int entities, Map<String, Integer> authors, List<Changed> changed, ThreeWayMerge.Result result,
+  public record Preview(int cells, int entities, int biomes, Map<String, Integer> authors, List<Changed> changed, ThreeWayMerge.Result result,
       ObjectId ours, ObjectId theirs) {
     public boolean upToDate() {
-      return cells == 0 && entities == 0 && result.clean();
+      return cells == 0 && entities == 0 && biomes == 0 && result.clean();
     }
   }
 
@@ -1138,7 +1172,7 @@ public final class Workspace {
           changed.add(new Changed(c.dimension(), c.pos(), kind(c.dimension(), c.pos(), c.before(), c.after(), cache)));
         }
         for (var c : result.cellConflicts()) changed.add(new Changed(c.dimension(), c.pos(), Kind.CONFLICT));
-        return new Preview(diff.cells().size(), diff.entities().size(), authors, changed, result, ours, theirs);
+        return new Preview(diff.cells().size(), diff.entities().size(), diff.biomes().size(), authors, changed, result, ours, theirs);
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }

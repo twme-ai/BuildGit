@@ -85,6 +85,16 @@ public final class LiveReader {
     return cells;
   }
 
+  /** 已載入 chunk 一個 section 的 64 個生態域格；section 不存在時為 null。 */
+  public static String[] readBiomes(ServerLevel level, LevelChunk chunk, int sectionY) {
+    int index = level.getSectionIndexFromSectionY(sectionY);
+    if (index < 0 || index >= chunk.getSections().length) return null;
+    var section = chunk.getSections()[index];
+    var result = new String[64];
+    for (int i = 0; i < 64; i++) result[i] = section.getNoiseBiome(i & 3, i >> 4, i >> 2 & 3).getRegisteredName();
+    return result;
+  }
+
   /** 實體目前的內容，與實體存檔（entities/*.mca）相同的輸出。 */
   public static EntityState readEntity(Entity entity) throws IOException {
     var out = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, entity.registryAccess());

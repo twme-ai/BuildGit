@@ -126,7 +126,7 @@ public final class Worktree {
 
   // ---- 存檔 ----
 
-  public record SaveResult(Optional<ObjectId> commit, int cells, int entities) {}
+  public record SaveResult(Optional<ObjectId> commit, int cells, int entities, int biomes) {}
 
   /**
    * 存檔（設計 §5.1）。主執行緒上取走標記並讀取被標記的格子（未載入的 chunk 以非同步方式載入），
@@ -181,10 +181,10 @@ public final class Worktree {
             var id = repo.commit(new Repository.CommitRequest(branch, head, marks, snapshot, ws.genesis(), committer,
                 System.currentTimeMillis(), message, flags, new TreeMap<>()));
             journal.delete(drained.previousFiles());
-            if (id.isEmpty()) return new SaveResult(id, 0, 0);
+            if (id.isEmpty()) return new SaveResult(id, 0, 0, 0);
             // 標記可能比實際變化多（多記無害）；回報實際寫進版本的數量。
             var changes = repo.changeset(repo.commit(id.get()).changeset());
-            return new SaveResult(id, changes.cells().size(), changes.entities().size());
+            return new SaveResult(id, changes.cells().size(), changes.entities().size(), changes.biomes().size());
           } catch (IOException e) {
             throw new UncheckedIOException(e);
           }
@@ -280,6 +280,8 @@ public final class Worktree {
     for (var key : keys) {
       try {
         snapshot.cells.put(key, reader.readSection(world, chunk, key.sectionY(), marks.sections().get(key).cells()));
+        var biomes = LiveReader.readBiomes(world, chunk, key.sectionY());
+        if (biomes != null) snapshot.biomes.put(key, biomes);
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -307,6 +309,7 @@ public final class Worktree {
   /** 存檔當下讀好的工作世界內容，交給背景執行緒的提交使用。 */
   private static final class Snapshot implements StateSource {
     final Map<SectionKey, Cell[]> cells = new java.util.concurrent.ConcurrentHashMap<>();
+    final Map<SectionKey, String[]> biomes = new java.util.concurrent.ConcurrentHashMap<>();
     final Map<String, Optional<EntityState>> entities = new HashMap<>();
 
     @Override
@@ -314,6 +317,11 @@ public final class Worktree {
       var c = cells.get(key);
       if (c == null) throw new IllegalStateException("存檔時沒有讀到 " + key);
       return c;
+    }
+
+    @Override
+    public String[] readBiomes(SectionKey key) {
+      return biomes.get(key);
     }
 
     @Override

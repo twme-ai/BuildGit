@@ -132,11 +132,13 @@ publish-preview: "<gray>Publishing to</gray> <target> <gray>changes</gray> <whit
 publish-preview-shared: "<white><player></white> <gray>is previewing publishing draft</gray> <light_purple><name></light_purple><gray>:</gray>"
 publish-preview-author: "  <gray>-</gray> <white><author></white> <gray><cells> blocks</gray>"
 publish-preview-conflicts: "<yellow><count> places were changed on both sides; confirming opens conflict resolution.</yellow>"
+publish-preview-biome-conflicts: "<yellow><count> biome areas were changed on both sides; <target> keeps its own. Fix them with /fillbiome afterwards if needed.</yellow>"
 publish-confirm-button: "<green><u>[Confirm publish]</u></green>"
 publish-start: "<gray>Publishing</gray> <light_purple><name></light_purple> <gray>to</gray> <target><gray>…</gray>"
 publish-nothing: "<gray>Nothing new to publish.</gray>"
 publish-done: "<green>Published to</green> <target> <yellow><id></yellow> <gray>— <cells> blocks, <entities> entities</gray>"
 shapes-fixed: "<gray>Fixed the shapes of <cells> blocks along the seams (fences, walls, panes…), saved as an autosave.</gray>"
+biomes-changed: "<gray>Biomes: <count> areas (4×4×4 blocks each)</gray>"
 
 merge-started: "<yellow>Conflicts:</yellow> <white><cells></white> <gray>blocks and</gray> <white><entities></white> <gray>entities changed on both sides. Opened a resolution world; conflicting blocks start with the target's content.</gray>"
 merge-help: |-

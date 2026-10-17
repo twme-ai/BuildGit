@@ -4,6 +4,7 @@ import dev.twme.buildgit.core.model.BlockPos;
 import dev.twme.buildgit.core.model.Box;
 import dev.twme.buildgit.core.model.Cell;
 import dev.twme.buildgit.core.model.EntityState;
+import dev.twme.buildgit.core.model.SectionKey;
 import dev.twme.buildgit.core.store.ObjectId;
 import java.io.IOException;
 import java.util.*;
@@ -15,7 +16,10 @@ import java.util.*;
  * ours == theirs → ours；ours == base → theirs；theirs == base → ours；否則衝突（結果先放 ours）
  * </pre>
  *
- * 有選取範圍時，只接受範圍內來自 theirs 的變更；範圍外一律保留 ours。
+ * 有選取範圍時，只接受範圍內來自 theirs 的變更；範圍外一律保留 ours。生態域格（4×4×4）只要和範圍重疊就算在範圍內。
+ *
+ * <p>生態域兩邊都改成不同的值時保留 ours，列在 {@link Result#biomeConflicts} 但不算衝突，不必整合：
+ * 只能用指令或工具改、很少兩邊同時改同一處，事後在目標世界用 {@code /fillbiome} 修正即可。
  */
 public final class ThreeWayMerge {
   /** 一個 region 的高度範圍涵蓋所有可能的世界高度。 */
@@ -26,7 +30,11 @@ public final class ThreeWayMerge {
   public record EntityConflict(
       String dimension, UUID uuid, Optional<EntityState> base, Optional<EntityState> ours, Optional<EntityState> theirs) {}
 
-  public record Result(ObjectId tree, List<CellConflict> cellConflicts, List<EntityConflict> entityConflicts) {
+  /** 兩邊都改了、結果保留 ours 的生態域格。 */
+  public record BiomeConflict(SectionKey key, int index, String base, String ours, String theirs) {}
+
+  public record Result(ObjectId tree, List<CellConflict> cellConflicts, List<EntityConflict> entityConflicts,
+      List<BiomeConflict> biomeConflicts) {
     public boolean clean() {
       return cellConflicts.isEmpty() && entityConflicts.isEmpty();
     }
@@ -38,6 +46,7 @@ public final class ThreeWayMerge {
   private final String filterDimension;
   private final List<CellConflict> cellConflicts = new ArrayList<>();
   private final List<EntityConflict> entityConflicts = new ArrayList<>();
+  private final List<BiomeConflict> biomeConflicts = new ArrayList<>();
 
   private ThreeWayMerge(OverlayStore store, String filterDimension, Box filter) {
     this.store = store;
@@ -75,7 +84,7 @@ public final class ThreeWayMerge {
       edits.put(dim, quick != null ? quick.entry : m.dimension(dim, eb, eo, et));
     }
     var tree = store.putRoot(OverlayEditor.apply(Tree.EMPTY, edits));
-    return new Result(tree, List.copyOf(m.cellConflicts), List.copyOf(m.entityConflicts));
+    return new Result(tree, List.copyOf(m.cellConflicts), List.copyOf(m.entityConflicts), List.copyOf(m.biomeConflicts));
   }
 
   /** 不必展開時的結果；需要展開時回傳 null。 */
@@ -158,7 +167,27 @@ public final class ThreeWayMerge {
       }
       if (chosen != null) result.put(i, chosen);
     }
-    return store.put(new SectionOverlay(result));
+    var biomes = new TreeMap<Integer, String>();
+    if (!b.biomes().isEmpty() || !o.biomes().isEmpty() || !t.biomes().isEmpty()) {
+      var key = new SectionKey(dim, cx, sy, cz);
+      var all = new TreeSet<>(b.biomes().keySet());
+      all.addAll(o.biomes().keySet());
+      all.addAll(t.biomes().keySet());
+      for (int i : all) {
+        String vb = b.biome(i), vo = o.biome(i), vt = t.biome(i);
+        String chosen = vo;
+        if (Objects.equals(vo, vt) || Objects.equals(vt, vb) || filter != null && !filter.intersects(biomeBounds(key, i))) chosen = vo;
+        else if (Objects.equals(vo, vb)) chosen = vt;
+        else biomeConflicts.add(new BiomeConflict(key, i, vb, vo, vt));
+        if (chosen != null) biomes.put(i, chosen);
+      }
+    }
+    return store.put(new SectionOverlay(result, biomes));
+  }
+
+  static Box biomeBounds(SectionKey key, int index) {
+    var c = key.pos(SectionOverlay.biomeCorner(index));
+    return new Box(c.x(), c.y(), c.z(), c.x() + 3, c.y() + 3, c.z() + 3);
   }
 
   private Tree.Entry entities(String dim, Tree.Entry eb, Tree.Entry eo, Tree.Entry et) throws IOException {

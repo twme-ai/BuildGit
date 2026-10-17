@@ -117,7 +117,7 @@ public final class OverlayStore {
     return 1
         + switch (o) {
           case Tree t -> t.entries().size();
-          case SectionOverlay s -> s.cells().size();
+          case SectionOverlay s -> s.cells().size() + s.biomes().size();
           case EntityOverlay e -> e.entities().size();
           default -> 0;
         };

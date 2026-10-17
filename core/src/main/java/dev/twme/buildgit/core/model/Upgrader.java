@@ -44,6 +44,11 @@ public interface Upgrader {
   /** {@code from} 版寫下的一格。 */
   Cell cell(Cell cell, int from);
 
+  /** {@code from} 版寫下的生態域 ID。 */
+  default String biome(String id, int from) {
+    return id;
+  }
+
   /** {@code from} 版寫下的實體 NBT（正規化後）。 */
   byte[] entity(byte[] nbt, int from);
 

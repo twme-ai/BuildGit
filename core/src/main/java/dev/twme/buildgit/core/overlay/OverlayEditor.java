@@ -11,7 +11,7 @@ import java.util.*;
 /**
  * 批次修改覆寫表，最後一次寫出新的根節點。沒被改到的子樹沿用原本的雜湊。
  *
- * <p>格子值 null 表示「回到與起點相同」，也就是刪除覆寫；實體值 null 同理，{@code Optional.empty()} 是墓碑。
+ * <p>格子值 null 表示「回到與起點相同」，也就是刪除覆寫；生態域與實體值 null 同理，實體的 {@code Optional.empty()} 是墓碑。
  */
 public final class OverlayEditor {
   /** 用來表示「刪除這一項」的哨兵值，因為 TreeMap 的值不能用 null 區分「沒改」與「刪除」。 */
@@ -20,6 +20,7 @@ public final class OverlayEditor {
   private final OverlayStore store;
   private final ObjectId base;
   private final SortedMap<SectionKey, SortedMap<Integer, Object>> cells = new TreeMap<>();
+  private final SortedMap<SectionKey, SortedMap<Integer, Object>> biomes = new TreeMap<>();
   private final SortedMap<String, SortedMap<UUID, Object>> entities = new TreeMap<>();
 
   public OverlayEditor(OverlayStore store, ObjectId base) {
@@ -33,31 +34,43 @@ public final class OverlayEditor {
     return this;
   }
 
+  /** @param index section 內的生態域格（{@link SectionOverlay#biomeIndex}） */
+  public OverlayEditor setBiome(SectionKey key, int index, String biome) {
+    biomes.computeIfAbsent(key, k -> new TreeMap<>()).put(index, biome == null ? REMOVE : biome);
+    return this;
+  }
+
   public OverlayEditor setEntity(String dimension, UUID uuid, Optional<EntityState> state) {
     entities.computeIfAbsent(dimension, k -> new TreeMap<>()).put(uuid, state == null ? REMOVE : state);
     return this;
   }
 
   public boolean isEmpty() {
-    return cells.isEmpty() && entities.isEmpty();
+    return cells.isEmpty() && biomes.isEmpty() && entities.isEmpty();
   }
 
   public ObjectId build() throws IOException {
     // 維度 → region → chunk → section 名稱 → 新的項目（null 表示刪除）
     var plan = new TreeMap<String, Map<String, Map<String, Map<String, Tree.Entry>>>>();
     var root = store.tree(base);
-    for (var e : cells.entrySet()) {
-      var key = e.getKey();
+    var keys = new TreeSet<>(cells.keySet());
+    keys.addAll(biomes.keySet());
+    for (var key : keys) {
       var dim = root.get(key.dimension());
       var region = store.tree(dim).get(Tree.region(key.chunkX(), key.chunkZ()));
       var chunk = store.tree(region).get(Tree.chunk(key.chunkX(), key.chunkZ()));
       var old = store.section(store.tree(chunk).get(Tree.section(key.sectionY())));
       var updated = new TreeMap<>(old.cells());
-      e.getValue().forEach((index, value) -> {
+      cells.getOrDefault(key, Collections.emptySortedMap()).forEach((index, value) -> {
         if (value == REMOVE) updated.remove(index);
         else updated.put(index, (Cell) value);
       });
-      var entry = store.put(new SectionOverlay(updated));
+      var updatedBiomes = new TreeMap<>(old.biomes());
+      biomes.getOrDefault(key, Collections.emptySortedMap()).forEach((index, value) -> {
+        if (value == REMOVE) updatedBiomes.remove(index);
+        else updatedBiomes.put(index, (String) value);
+      });
+      var entry = store.put(new SectionOverlay(updated, updatedBiomes));
       plan.computeIfAbsent(key.dimension(), k -> new TreeMap<>())
           .computeIfAbsent(Tree.region(key.chunkX(), key.chunkZ()), k -> new TreeMap<>())
           .computeIfAbsent(Tree.chunk(key.chunkX(), key.chunkZ()), k -> new TreeMap<>())

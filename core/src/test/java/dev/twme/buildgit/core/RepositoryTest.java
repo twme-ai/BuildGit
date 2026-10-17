@@ -7,6 +7,9 @@ import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.model.BlockPos;
 import dev.twme.buildgit.core.model.Box;
 import dev.twme.buildgit.core.model.Cell;
+import dev.twme.buildgit.core.model.SectionKey;
+import dev.twme.buildgit.core.overlay.OverlayReader;
+import dev.twme.buildgit.core.overlay.SectionOverlay;
 import dev.twme.buildgit.core.overlay.Tree;
 import dev.twme.buildgit.core.repo.Changeset;
 import dev.twme.buildgit.core.repo.Commit;
@@ -179,6 +182,35 @@ class RepositoryTest {
     var blame = repo.blame(merged, OVERWORLD, new BlockPos(600, 70, 600)).orElseThrow();
     assertEquals(BOB, blame.author(), "合併帶進來的格子追到原作者");
     assertEquals(ALICE, repo.blame(merged, OVERWORLD, new BlockPos(0, 70, 0)).orElseThrow().author());
+  }
+
+  /** 生態域：有標記的 section 比較生態域；合併逐格（4×4×4）合併，兩邊都改時保留 ours，改回起點時拿掉覆寫。 */
+  @Test
+  void biomesAreCapturedMergedAndRemovedWhenBackToGenesis() throws Exception {
+    var main = main();
+    var draft = branch("d", main);
+    main.world.biome(0, 64, 0, "minecraft:desert").biome(8, 64, 0, "minecraft:forest");
+    main.set(ALICE, 0, 64, 0, "minecraft:sand");
+    var first = main.commit("a").orElseThrow();
+    assertEquals(2, repo.changeset(repo.commit(first).changeset()).biomes().size(), "同一個 section 的兩處都記下");
+    draft.world.biome(4, 64, 0, "minecraft:jungle").biome(8, 64, 0, "minecraft:taiga");
+    draft.set(BOB, 4, 64, 0, "minecraft:stone");
+    draft.commit("b").orElseThrow();
+
+    var o = repo.head("main");
+    var t = repo.head("d");
+    var result = repo.mergeTrees(repo.mergeBase(o, t), o, t, null);
+    assertTrue(result.clean(), "生態域不算衝突");
+    assertEquals(1, result.biomeConflicts().size());
+    var section = new OverlayReader(repo.overlays(), result.tree()).section(SectionKey.of(OVERWORLD, new BlockPos(0, 64, 0)));
+    assertEquals("minecraft:desert", section.biome(SectionOverlay.biomeIndex(new BlockPos(0, 64, 0).sectionIndex())));
+    assertEquals("minecraft:jungle", section.biome(SectionOverlay.biomeIndex(new BlockPos(4, 64, 0).sectionIndex())));
+    assertEquals("minecraft:forest", section.biome(SectionOverlay.biomeIndex(new BlockPos(8, 64, 0).sectionIndex())), "兩邊都改時保留 ours");
+
+    main.world.biome(0, 64, 0, "minecraft:plains").biome(8, 64, 0, "minecraft:plains");
+    main.marks.markCell(OVERWORLD, new BlockPos(0, 64, 0), ALICE);
+    var back = main.commit("c").orElseThrow();
+    assertTrue(repo.reader(back).section(SectionKey.of(OVERWORLD, new BlockPos(0, 64, 0))).biomes().isEmpty());
   }
 
   @Test

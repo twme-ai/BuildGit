@@ -7,6 +7,7 @@ import com.sk89q.worldedit.extent.AbstractDelegateExtent;
 import com.sk89q.worldedit.extent.Extent;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.Location;
+import com.sk89q.worldedit.world.biome.BiomeType;
 import com.sk89q.worldedit.world.block.BlockStateHolder;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.track.MarkTable;
@@ -45,6 +46,20 @@ public final class MarkingExtent extends AbstractDelegateExtent {
   public <B extends BlockStateHolder<B>> boolean setBlock(int x, int y, int z, B block) throws WorldEditException {
     dimension.markCell(x, y, z, author);
     return super.setBlock(x, y, z, block);
+  }
+
+  /** 生態域：記下那一格，存檔時會比較它所在 section 的生態域。 */
+  @Override
+  public boolean setBiome(BlockVector3 position, BiomeType biome) {
+    dimension.markCell(position.x(), position.y(), position.z(), author);
+    return super.setBiome(position, biome);
+  }
+
+  /** FAWE 的整數座標版本。 */
+  @Override
+  public boolean setBiome(int x, int y, int z, BiomeType biome) {
+    dimension.markCell(x, y, z, author);
+    return super.setBiome(x, y, z, biome);
   }
 
   @Override

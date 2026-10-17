@@ -12,7 +12,8 @@ import java.util.*;
 /**
  * 把覆寫表套到存檔格式的 chunk NBT 上（設計 §4.2 合成讀取）。輸入不會被修改。
  *
- * <p>改過的 chunk 拿掉高度圖與光照完成標記，伺服器載入時重新計算；其他欄位（生物群系、結構、排程刻）原樣保留。
+ * <p>改過方塊的 chunk 拿掉高度圖與光照完成標記，伺服器載入時重新計算；其他欄位（結構、排程刻）原樣保留。
+ * 生態域只改覆寫表裡有的生態域格。
  */
 public final class ChunkPatcher {
   private ChunkPatcher() {}
@@ -28,6 +29,7 @@ public final class ChunkPatcher {
 
     var changed = new HashSet<Integer>(); // 被覆寫的格子的方塊實體鍵
     var placed = new ArrayList<Object>();
+    boolean biomes = false;
     for (var entry : overlay.entrySet()) {
       int sy = entry.getKey();
       if (entry.getValue().isEmpty()) continue;
@@ -38,6 +40,11 @@ public final class ChunkPatcher {
         if (neighbour != null && neighbour.get("biomes") instanceof Nbt.Compound b) section.with("biomes", Nbt.copy(b));
         sections.put(sy, section);
       }
+      if (!entry.getValue().biomes().isEmpty()) {
+        patchBiomes(section, entry.getValue().biomes());
+        biomes = true;
+      }
+      if (entry.getValue().cells().isEmpty()) continue;
       patchSection(section, entry.getValue(), upgrader);
       section.remove("BlockLight");
       section.remove("SkyLight");
@@ -50,6 +57,7 @@ public final class ChunkPatcher {
         placed.add(Nbt.read(be).with("x", pos.x()).with("y", pos.y()).with("z", pos.z()));
       }
     }
+    if (!changed.isEmpty() || biomes) result.with("sections", new Nbt.ListTag(10, new ArrayList<>(sections.values())));
     if (changed.isEmpty()) return result;
 
     var blockEntities = new ArrayList<Object>();
@@ -65,7 +73,6 @@ public final class ChunkPatcher {
     }
     blockEntities.addAll(placed);
     result.with("block_entities", new Nbt.ListTag(blockEntities.isEmpty() ? 0 : 10, blockEntities));
-    result.with("sections", new Nbt.ListTag(10, new ArrayList<>(sections.values())));
     // 讓伺服器重算：Paper 只在 isLightOn 存在且光照版本相符時沿用存檔的光照。
     result.remove("isLightOn");
     result.remove("Heightmaps");
@@ -122,6 +129,27 @@ public final class ChunkPatcher {
     var out = new Nbt.Compound().with("palette", Nbt.list(entries));
     if (used.size() > 1) out.with("data", pack(indices, used.size()));
     section.with("block_states", out);
+  }
+
+  private static void patchBiomes(Nbt.Compound section, SortedMap<Integer, String> overlay) throws IOException {
+    var biomes = AnvilSource.biomes(section);
+    if (biomes == null) {
+      biomes = new String[64];
+      Arrays.fill(biomes, overlay.get(overlay.firstKey()));
+    }
+    for (var e : overlay.entrySet()) biomes[e.getKey()] = e.getValue();
+    var palette = new ArrayList<String>();
+    var ids = new HashMap<String, Integer>();
+    var values = new int[64];
+    for (int i = 0; i < 64; i++) values[i] = ids.computeIfAbsent(biomes[i], b -> { palette.add(b); return palette.size() - 1; });
+    var out = new Nbt.Compound().with("palette", new Nbt.ListTag(8, new ArrayList<Object>(palette)));
+    if (palette.size() > 1) {
+      int bits = AnvilSource.biomeBits(palette.size()), perLong = 64 / bits;
+      var data = new long[(64 + perLong - 1) / perLong];
+      for (int i = 0; i < 64; i++) data[i / perLong] |= (long) values[i] << (i % perLong) * bits;
+      out.with("data", data);
+    }
+    section.with("biomes", out);
   }
 
   /** {@link AnvilSource#unpack} 的反向。 */

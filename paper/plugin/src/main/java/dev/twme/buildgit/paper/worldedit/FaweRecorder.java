@@ -46,6 +46,10 @@ final class FaweRecorder implements IBatchProcessor {
       for (int i = 0; i < blocks.length; i++) if (blocks[i] != 0) bits.set(i);
       dimension.markSection(cx, layer, cz, bits, author);
     }
+    // 生態域：每個有寫入的 section 記一格，存檔時會比較整個 section 的生態域。
+    if (set.hasBiomes())
+      for (int layer = set.getMinSectionPosition(); layer <= set.getMaxSectionPosition(); layer++)
+        if (set.hasBiomes(layer)) dimension.markCell(cx << 4, layer << 4, cz << 4, author);
     for (BlockVector3 v : set.tiles().keySet()) dimension.markCell(v.x(), v.y(), v.z(), author);
     for (UUID removed : set.getEntityRemoves()) dimension.markEntityRemoved(removed, author);
     if (hasEntities(set)) tracker.expectSpawns(world, cx, cz, author);

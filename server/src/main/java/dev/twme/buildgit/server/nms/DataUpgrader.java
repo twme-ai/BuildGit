@@ -17,6 +17,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.util.datafix.DataFixers;
@@ -44,6 +45,13 @@ public final class DataUpgrader implements Upgrader {
     var be = cell.blockEntity();
     if (be != null) be = Nbt.write(Normalizer.blockEntity(convert(fix(References.BLOCK_ENTITY, read(be), from))));
     return new Cell(state, be);
+  }
+
+  @Override
+  public String biome(String id, int from) {
+    if (from >= current) return id;
+    var fixed = DataFixers.getDataFixer().update(References.BIOME, new Dynamic<>(NbtOps.INSTANCE, (Tag) StringTag.valueOf(id)), from, current);
+    return fixed.getValue().asString().orElse(id);
   }
 
   @Override

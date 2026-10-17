@@ -5,21 +5,24 @@ import dev.twme.buildgit.core.model.Cell;
 import dev.twme.buildgit.core.model.EntityState;
 import dev.twme.buildgit.core.model.SectionKey;
 import dev.twme.buildgit.core.nbt.Nbt;
+import dev.twme.buildgit.core.overlay.SectionOverlay;
 import dev.twme.buildgit.core.repo.StateSource;
 import java.util.*;
 
-/** 測試用的世界：沒設定的格子是空氣。 */
+/** 測試用的世界：沒設定的格子是空氣，生態域是平原。 */
 public final class FakeWorld implements StateSource {
   public static final String OVERWORLD = "minecraft:overworld";
 
   private final Map<String, Map<BlockPos, Cell>> cells = new HashMap<>();
   private final Map<String, Map<UUID, EntityState>> entities = new HashMap<>();
+  private final Map<SectionKey, String[]> biomes = new HashMap<>();
   public int sectionReads;
 
   public FakeWorld copy() {
     var w = new FakeWorld();
     cells.forEach((d, m) -> w.cells.put(d, new HashMap<>(m)));
     entities.forEach((d, m) -> w.entities.put(d, new HashMap<>(m)));
+    biomes.forEach((k, v) -> w.biomes.put(k, v.clone()));
     return w;
   }
 
@@ -30,6 +33,23 @@ public final class FakeWorld implements StateSource {
   public FakeWorld set(String dim, BlockPos pos, Cell cell) {
     cells.computeIfAbsent(dim, k -> new HashMap<>()).put(pos, cell);
     return this;
+  }
+
+  /** 設定 (x, y, z) 所在的生態域格。 */
+  public FakeWorld biome(int x, int y, int z, String biome) {
+    var pos = new BlockPos(x, y, z);
+    readBiomes(SectionKey.of(OVERWORLD, pos));
+    biomes.get(SectionKey.of(OVERWORLD, pos))[SectionOverlay.biomeIndex(pos.sectionIndex())] = biome;
+    return this;
+  }
+
+  @Override
+  public String[] readBiomes(SectionKey key) {
+    return biomes.computeIfAbsent(key, k -> {
+      var b = new String[64];
+      Arrays.fill(b, "minecraft:plains");
+      return b;
+    }).clone();
   }
 
   public Cell get(int x, int y, int z) {

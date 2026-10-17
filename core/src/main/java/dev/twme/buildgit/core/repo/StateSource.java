@@ -19,6 +19,14 @@ public interface StateSource {
    */
   Cell[] readSection(SectionKey key, BitSet wanted) throws IOException;
 
+  /**
+   * @return 長度 64 的生態域 ID（索引見 {@link dev.twme.buildgit.core.overlay.SectionOverlay#biomeIndex}）；
+   *     不提供生態域的來源回傳 null，比較時略過這個 section 的生態域
+   */
+  default String[] readBiomes(SectionKey key) throws IOException {
+    return null;
+  }
+
   /** @return 實體目前的內容；不存在時回傳 {@code Optional.empty()} */
   Optional<EntityState> readEntity(String dimension, UUID uuid) throws IOException;
 }

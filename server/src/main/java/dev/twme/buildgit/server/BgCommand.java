@@ -378,7 +378,10 @@ public final class BgCommand {
     boolean started = current(sender).save(author(sender), message.isBlank() ? "save" : message, 0,
         r -> {
           if (r.commit().isEmpty()) msg().send(sender, "save-nothing");
-          else msg().send(sender, "save-done", "id", r.commit().get().abbrev(), "cells", r.cells(), "entities", r.entities());
+          else {
+            msg().send(sender, "save-done", "id", r.commit().get().abbrev(), "cells", r.cells(), "entities", r.entities());
+            if (r.biomes() > 0) msg().send(sender, "biomes-changed", "count", r.biomes());
+          }
         },
         e -> {
           bg.platform().log().log(Level.WARNING, "存檔失敗", e);
@@ -533,6 +536,7 @@ public final class BgCommand {
     var cs = repo.changeset(c.changeset());
     cs.cellsByAuthor().forEach((a, n) -> msg().send(sender, "show-line", "author", a.name(), "cells", n));
     if (!cs.entities().isEmpty()) msg().send(sender, "show-entities", "entities", cs.entities().size());
+    if (!cs.biomes().isEmpty()) msg().send(sender, "biomes-changed", "count", cs.biomes().size());
     if (listCells) {
       int shown = 0;
       for (var cell : cs.cells()) {
@@ -1005,7 +1009,10 @@ public final class BgCommand {
         msg().send(viewer, "publish-preview", "cells", preview.cells(), "entities", preview.entities(), "target", branchLabel(target.branch()));
         preview.authors().entrySet().stream().sorted(Map.Entry.<String, Integer>comparingByValue().reversed()).limit(10)
             .forEach(e -> msg().send(viewer, "publish-preview-author", "author", e.getKey(), "cells", e.getValue()));
+        if (preview.biomes() > 0) msg().send(viewer, "biomes-changed", "count", preview.biomes());
         if (conflicts > 0) msg().send(viewer, "publish-preview-conflicts", "count", conflicts);
+        if (!preview.result().biomeConflicts().isEmpty())
+          msg().send(viewer, "publish-preview-biome-conflicts", "count", preview.result().biomeConflicts().size(), "target", branchLabel(target.branch()));
         outline(viewer, preview.changed());
       }
       String command = "/bg publish " + (sender.isPlayer() ? "" : source + " ") + (selection ? "--selection " : "") + "confirm";
@@ -1023,6 +1030,7 @@ public final class BgCommand {
       var a = applied.get();
       msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
           branchLabel(target.branch()));
+      if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
       if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
       if (draft != null && sender.player() instanceof ServerPlayer p && !p.hasDisconnected() && ws().worktree(p.level()) == draft) {
         ws().teleport(p, target);
@@ -1288,6 +1296,7 @@ public final class BgCommand {
             var a = applied.get();
             msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
                 branchLabel(s.target()));
+            if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
             if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
           }
         }, e -> {
@@ -1388,6 +1397,7 @@ public final class BgCommand {
       else {
         var a = applied.get();
         msg().send(sender, "revert-done", "id", a.commit().abbrev(), "reverted", id.abbrev(), "cells", a.cells(), "entities", a.entities());
+        if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
         if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
       }
     }, e -> {
@@ -1429,6 +1439,7 @@ public final class BgCommand {
       else {
         var a = applied.get();
         msg().send(sender, "restore-done", "id", a.commit().abbrev(), "target", id.abbrev(), "cells", a.cells(), "entities", a.entities());
+        if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
         if (a.shapes() > 0) msg().send(sender, "shapes-fixed", "cells", a.shapes());
       }
     }, e -> failed(sender, e)));

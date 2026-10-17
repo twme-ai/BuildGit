@@ -5,7 +5,11 @@ import dev.twme.buildgit.core.model.EntityState;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import net.minecraft.core.Holder;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
@@ -16,7 +20,10 @@ import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.entity.EntityProcessor;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.storage.TagValueInput;
 
 /**
@@ -82,6 +89,38 @@ public final class LiveWriter {
     if (updated == state || !updated.is(state.getBlock())) return false;
     level.setBlock(pos, updated, FLAGS);
     return true;
+  }
+
+  /**
+   * 把一個 section 的生態域格設成指定的值（索引見 {@code SectionOverlay.biomeIndex}），沒指定的不變。
+   * 不認得的生態域（例如資料包已移除）略過。之後要以 {@link #resendBiomes} 通知玩家。
+   *
+   * @return 是否有寫入
+   */
+  public static boolean setBiomes(ServerLevel level, LevelChunk chunk, int sectionY, Map<Integer, String> biomes) {
+    int index = level.getSectionIndexFromSectionY(sectionY);
+    if (index < 0 || index >= chunk.getSections().length) return false;
+    var registry = level.registryAccess().lookupOrThrow(Registries.BIOME);
+    var holders = new HashMap<String, Holder<Biome>>();
+    registry.listElements().forEach(h -> holders.put(h.getRegisteredName(), h));
+    // 生態域容器的實際型別是可寫的 PalettedContainer（Axiom 也這樣寫）；各版本的 fillBiomesFromNoise 參數不同。
+    @SuppressWarnings("unchecked")
+    var container = (PalettedContainer<Holder<Biome>>) chunk.getSections()[index].getBiomes();
+    boolean changed = false;
+    for (var e : biomes.entrySet()) {
+      int i = e.getKey(), x = i & 3, y = i >> 4, z = i >> 2 & 3;
+      var holder = holders.get(e.getValue());
+      if (holder == null || holder.equals(container.get(x, y, z))) continue;
+      container.set(x, y, z, holder);
+      changed = true;
+    }
+    if (changed) chunk.markUnsaved();
+    return changed;
+  }
+
+  /** 讓看得到這些 chunk 的玩家重新載入生態域。 */
+  public static void resendBiomes(ServerLevel level, List<LevelChunk> chunks) {
+    if (!chunks.isEmpty()) level.getChunkSource().chunkMap.resendBiomesForChunks(List.copyOf(chunks));
   }
 
   public static void removeEntity(ServerLevel level, UUID uuid) {

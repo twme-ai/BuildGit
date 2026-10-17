@@ -221,6 +221,7 @@ public final class Repository {
         editor.setCell(key.dimension(), pos, now.equals(start) ? null : now);
         changes.cell(key.dimension(), pos, before, now, e.getValue().author(marks, i));
       }
+      captureBiomes(key, e.getValue(), marks, world, genesis, parent, editor, changes);
     }
     for (var d : marks.entities().entrySet()) {
       for (var m : d.getValue().entrySet()) {
@@ -234,6 +235,30 @@ public final class Repository {
       }
     }
     return new Capture(editor, changes);
+  }
+
+  /**
+   * 有標記的 section 一律比較全部 64 個生態域格：生態域只能以指令或工具改，這些來源都會標記到所在的 section。
+   * 作者取這個 section 第一個被標記的格子的作者。
+   */
+  private static void captureBiomes(SectionKey key, Marks.Section section, Marks marks, StateSource world, StateSource genesis,
+      SectionOverlay parent, OverlayEditor editor, ChangesetBuilder changes) throws IOException {
+    var now = world.readBiomes(key);
+    if (now == null) return;
+    String[] origin = null;
+    for (int i = 0; i < 64; i++) {
+      if (now[i] == null) continue;
+      var overlay = parent.biome(i);
+      if (now[i].equals(overlay)) continue;
+      if (origin == null) {
+        origin = genesis.readBiomes(key);
+        if (origin == null) origin = new String[64];
+      }
+      var before = overlay != null ? overlay : origin[i];
+      if (now[i].equals(before)) continue;
+      editor.setBiome(key, i, now[i].equals(origin[i]) ? null : now[i]);
+      changes.biome(key.dimension(), key.pos(SectionOverlay.biomeCorner(i)), section.author(marks, section.cells().nextSetBit(0)));
+    }
   }
 
   private static Cell orAir(Cell c) {
@@ -365,6 +390,10 @@ public final class Repository {
         var author = resolvedBy.getOrDefault(new CellKey(c.dimension(), c.pos()), defaultAuthor);
         changes.cell(c.dimension(), c.pos(), before, after, author);
       }
+      for (var b : diff.biomes()) {
+        var corner = b.corner();
+        changes.biome(b.key().dimension(), corner, resolvedBy.getOrDefault(new CellKey(b.key().dimension(), corner), defaultAuthor));
+      }
       for (var e : diff.entities()) {
         var start = (e.before() == null || e.after() == null) ? genesis.readEntity(e.dimension(), e.uuid()) : null;
         changes.entity(e.dimension(), e.uuid(), e.before() != null ? e.before() : start,
@@ -406,6 +435,7 @@ public final class Repository {
       var commit = commit(id);
       var cs = changeset(commit.changeset());
       for (var c : cs.cells()) result.putIfAbsent(new CellKey(c.dimension(), c.pos()), cs.author(c.author()));
+      for (var b : cs.biomes()) result.putIfAbsent(new CellKey(b.dimension(), b.corner()), cs.author(b.author()));
       id = commit.parents().isEmpty() ? null : commit.parents().getFirst();
     }
     return result;
@@ -439,6 +469,10 @@ public final class Repository {
     for (var c : diff.cells()) {
       if (filter != null && (filterDimension != null && !filterDimension.equals(c.dimension()) || !filter.contains(c.pos()))) continue;
       editor.setCell(c.dimension(), c.pos(), c.after());
+    }
+    for (var b : diff.biomes()) {
+      if (filter != null && (filterDimension != null && !filterDimension.equals(b.key().dimension()) || !filter.intersects(b.bounds()))) continue;
+      editor.setBiome(b.key(), b.index(), b.after());
     }
     for (var e : diff.entities()) {
       if (filter != null && filterDimension != null && !filterDimension.equals(e.dimension())) continue;
@@ -491,6 +525,7 @@ public final class Repository {
     private final Map<Author, Integer> index = new HashMap<>();
     private final List<Changeset.CellChange> cells = new ArrayList<>();
     private final List<Changeset.EntityChange> entities = new ArrayList<>();
+    private final List<Changeset.BiomeChange> biomes = new ArrayList<>();
     private final Map<CellKey, Author> cellAuthors = new HashMap<>();
 
     private int author(Author a) {
@@ -506,13 +541,17 @@ public final class Repository {
       cellAuthors.put(new CellKey(dim, pos), author);
     }
 
+    void biome(String dim, BlockPos corner, Author author) {
+      biomes.add(new Changeset.BiomeChange(dim, corner, author(author)));
+    }
+
     void entity(String dim, UUID uuid, Optional<EntityState> before, Optional<EntityState> after, Author author) {
       var kind = before.isEmpty() ? Changeset.Kind.ADDED : after.isEmpty() ? Changeset.Kind.REMOVED : Changeset.Kind.MODIFIED;
       entities.add(new Changeset.EntityChange(dim, uuid, kind, author(author)));
     }
 
     boolean isEmpty() {
-      return cells.isEmpty() && entities.isEmpty();
+      return cells.isEmpty() && entities.isEmpty() && biomes.isEmpty();
     }
 
     Map<CellKey, Author> cellAuthors() {
@@ -520,7 +559,7 @@ public final class Repository {
     }
 
     Changeset build() {
-      return new Changeset(authors, cells, entities);
+      return new Changeset(authors, cells, entities, biomes);
     }
   }
 }

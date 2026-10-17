@@ -53,8 +53,8 @@ public final class AnvilSource implements StateSource, Closeable {
     this.upgrader = upgrader;
   }
 
-  /** 解碼後的 chunk：每個 section 的調色盤與索引，以及方塊實體。 */
-  private record ChunkData(Map<Integer, Section> sections, Map<Integer, byte[]> blockEntities) {}
+  /** 解碼後的 chunk：每個 section 的調色盤與索引、生態域，以及方塊實體。 */
+  private record ChunkData(Map<Integer, Section> sections, Map<Integer, String[]> biomes, Map<Integer, byte[]> blockEntities) {}
 
   /** 方塊索引保持存檔裡的打包格式（每格 4 位元起），快取的 chunk 只占展開成 int[] 的幾分之一。 */
   private record Section(String[] palette, long[] data, int bits) {
@@ -83,6 +83,13 @@ public final class AnvilSource implements StateSource, Closeable {
     return cells;
   }
 
+  @Override
+  public synchronized String[] readBiomes(SectionKey key) throws IOException {
+    var chunk = chunk(key.dimension(), key.chunkX(), key.chunkZ());
+    var biomes = chunk == null ? null : chunk.biomes.get(key.sectionY());
+    return biomes == null ? null : biomes.clone();
+  }
+
   private static int blockEntityKey(int sectionY, int cell) {
     return sectionY << 12 | cell;
   }
@@ -106,15 +113,18 @@ public final class AnvilSource implements StateSource, Closeable {
     if (dir == null) return null;
     var region = region(dir.resolve("region"), chunkX, chunkZ);
     var nbt = region == null ? null : region.read(RegionFile.index(chunkX, chunkZ));
-    var data = nbt == null ? new ChunkData(Map.of(), Map.of()) : decode(upgrader.chunk(nbt), upgrader);
+    var data = nbt == null ? new ChunkData(Map.of(), Map.of(), Map.of()) : decode(upgrader.chunk(nbt), upgrader);
     chunks.put(id, data);
     return data;
   }
 
   static ChunkData decode(Nbt.Compound chunk, Upgrader upgrader) throws IOException {
     var sections = new HashMap<Integer, Section>();
+    var biomes = new HashMap<Integer, String[]>();
     for (var o : chunk.list("sections").values()) {
       if (!(o instanceof Nbt.Compound s) || !(s.get("Y") instanceof Byte y)) continue;
+      var b = biomes(s);
+      if (b != null) biomes.put((int) y, b);
       var states = s.compound("block_states");
       var palette = states.list("palette").values();
       if (palette.isEmpty()) continue;
@@ -138,7 +148,35 @@ public final class AnvilSource implements StateSource, Closeable {
       var pos = new BlockPos(x, y, z);
       blockEntities.put(blockEntityKey(pos.sectionY(), pos.sectionIndex()), Nbt.write(Normalizer.blockEntity(be)));
     }
-    return new ChunkData(sections, blockEntities);
+    return new ChunkData(sections, biomes, blockEntities);
+  }
+
+  /** section 的 64 個生態域格；沒有生態域資料時為 null。 */
+  static String[] biomes(Nbt.Compound section) throws IOException {
+    var container = section.compound("biomes");
+    var palette = container.list("palette").values();
+    if (palette.isEmpty()) return null;
+    var names = new String[palette.size()];
+    for (int i = 0; i < names.length; i++) names[i] = String.valueOf(Nbt.unwrap(palette.get(i)));
+    var result = new String[64];
+    if (names.length == 1) {
+      Arrays.fill(result, names[0]);
+      return result;
+    }
+    if (!(container.get("data") instanceof long[] data)) throw new IOException("section 缺少生態域資料");
+    int bits = biomeBits(names.length), perLong = 64 / bits;
+    if (data.length < (64 + perLong - 1) / perLong) throw new IOException("section 生態域資料長度不足");
+    for (int i = 0; i < 64; i++) {
+      int v = (int) (data[i / perLong] >>> (i % perLong) * bits & (1L << bits) - 1);
+      if (v >= names.length) throw new IOException("生態域調色盤索引超出範圍");
+      result[i] = names[v];
+    }
+    return result;
+  }
+
+  /** 生態域的打包格式：沒有最少 4 位元的限制。 */
+  static int biomeBits(int paletteSize) {
+    return 32 - Integer.numberOfLeadingZeros(paletteSize - 1);
   }
 
   /** 1.16 之後的打包格式：每個 long 放 64/bits 個值，不跨 long。 */

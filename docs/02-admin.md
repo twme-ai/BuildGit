@@ -4,7 +4,7 @@
 
 ## 1. BuildGit 做什麼
 
-BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE、Axiom，以及它們引起的連帶變化，例如水流、紅石、方塊掉落），像 git 一樣存成一個個版本。玩家可以：
+BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE、Axiom，以及它們引起的連帶變化，例如水流、紅石、方塊掉落；也包括 `/fillbiome`、`//setbiome` 等改的生態域），像 git 一樣存成一個個版本。玩家可以：
 
 - 開「草稿」（主世界的副本）試做，滿意了再併回主世界；
 - 查歷史、看某一格是誰在哪次存檔改的；
@@ -130,6 +130,7 @@ LuckPerms 範例：
 - 有 Axiom bypass 權限（`axiomadmin.bypass_region_checks`）的玩家用 Axiom 改的方塊記錄不到；這種玩家開啟 Axiom 時會收到提醒。需要記錄的話請不要給這個權限。
 - DebugStickPro 凍結中的方塊（伺服器上暫時是屏障）先不存檔，解凍後才存進版本；凍結期間 `/bg status` 會一直顯示它未存。
 - 非玩家造成的實體移除（例如盔甲座被苦力怕炸掉）不記錄，和方塊的自然變化一樣。
+- 生態域：草稿和主世界改了同一處（4×4×4 格）的生態域時，併回保留主世界的，併回預覽會列出數量，需要的話再用 `/fillbiome` 修正。帶到單人世界改（`pull`／`push`）不帶生態域。其他插件以 API 改的生態域記錄不到，可以用 `/bg mark` 補記。
 - `/place feature` 這類世界產生器放的大型結構可能記錄不完整，可以用 `/bg mark` 補記範圍。
 - 伺服器當機時，最後約 1 秒內的變更可能沒記到（`tracking.journal-flush-ticks`）。
 - Fabric 版目前沒有 WorldEdit／Axiom 整合，也沒有給其他插件的 API。
