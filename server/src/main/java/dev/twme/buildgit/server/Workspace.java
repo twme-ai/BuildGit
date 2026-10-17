@@ -247,7 +247,7 @@ public final class Workspace {
     String dim = Tracker.dimensionId(world);
     try {
       for (var wt : worktrees())
-        if (wt != main() && wt.world(dim) == null) {
+        if (wt != main() && wt.world(dim) == null && covers(wt.branch(), dim)) {
           var branch = wt.branch();
           var w = createWorld(worldName(branch, dim), world, new Pending(dim, () -> repo.commit(repo.head(branch)).tree()));
           wt.addWorld(dim, w);
@@ -536,6 +536,21 @@ public final class Workspace {
     return Yaml.load(branchesPath());
   }
 
+  /**
+   * 草稿所屬的世界（維度 id，設計 §4.4）：草稿只開這個世界，撤銷、還原也只動它。
+   * null 表示主世界，或是這項設定之前建立的草稿（涵蓋所有世界）。
+   */
+  public String dimension(String branch) {
+    if (branch.equals(Repository.MAIN)) return null;
+    return branchesFile().getString(branch + ".dimension", null);
+  }
+
+  /** 分支是否包含這個世界。 */
+  public boolean covers(String branch, String dimension) {
+    var own = dimension(branch);
+    return own == null || own.equals(dimension);
+  }
+
   /** 草稿的來源分支（併回的目標）；不知道時為 main。 */
   public String source(String branch) {
     return branchesFile().getString(branch + ".source", Repository.MAIN);
@@ -557,18 +572,20 @@ public final class Workspace {
     return branch.startsWith(MERGE_PREFIX);
   }
 
-  /** 建立分支，指向來源分支的最新存檔。 */
-  public void createBranch(String name, String from) throws IOException {
-    createBranch(name, from, repo.head(from), false);
+  /** 建立分支，指向來源分支的最新存檔。{@code dimension} 是草稿所屬的世界，null 表示所有世界。 */
+  public void createBranch(String name, String from, String dimension) throws IOException {
+    createBranch(name, from, repo.head(from), false, dimension);
   }
 
-  void createBranch(String name, String from, ObjectId at, boolean scratch) throws IOException {
+  void createBranch(String name, String from, ObjectId at, boolean scratch, String dimension) throws IOException {
     if (!BRANCH_NAME.matcher(name).matches() || !RefStore.validName(name)) throw new IOException("名稱只能用小寫英數、底線、連字號：" + name);
     if (isScratch(name) != scratch) throw new IOException("草稿名稱不能以 " + MERGE_PREFIX + " 開頭");
+    if (dimension != null && !covers(from, dimension)) throw new Refused("來源 " + from + " 不包含這個世界");
     repo.createBranch(name, at);
     var yaml = branchesFile();
     yaml.set(name + ".source", from);
     yaml.set(name + ".created", System.currentTimeMillis());
+    if (dimension != null) yaml.set(name + ".dimension", dimension);
     if (scratch) yaml.set(name + ".kind", "merge");
     yaml.save(branchesPath());
   }
@@ -661,6 +678,7 @@ public final class Workspace {
     try {
       for (var mainWorld : mainWorlds()) {
         String dim = Tracker.dimensionId(mainWorld);
+        if (!covers(branch, dim)) continue;
         if (copying(dim)) continue; // 複製完成後由 openBranchWorlds 補上
         var world = createWorld(worldName(branch, dim), mainWorld, new Pending(dim, () -> repo.commit(repo.head(branch)).tree()));
         wt.addWorld(dim, world);
@@ -881,7 +899,7 @@ public final class Workspace {
   void transact(Worktree wt, TreeOp op, Consumer<Optional<Applied>> done, Consumer<Throwable> failed) {
     // 先提交才寫世界：有維度的世界沒載入時，那部分會只進版本、不進世界，所以整個擋下
     try {
-      var missing = trackedDimensions().stream().filter(d -> wt.world(d) == null).toList();
+      var missing = trackedDimensions().stream().filter(d -> wt.world(d) == null && covers(wt.branch(), d)).toList();
       if (!missing.isEmpty()) {
         failed.accept(new Refused("這些世界沒有載入，載入後才能寫入 " + wt.branch() + "：" + String.join("、", missing)));
         return;
@@ -1077,6 +1095,11 @@ public final class Workspace {
    */
   public void merge(Worktree target, String source, Scope scope, Author committer, Consumer<Optional<Applied>> done,
       Consumer<Throwable> failed) {
+    var refused = crossWorld(target.branch(), source);
+    if (refused != null) {
+      failed.accept(refused);
+      return;
+    }
     transact(target, head -> {
       var theirs = repo.head(source);
       if (repo.isAncestor(theirs, head)) return Optional.empty();
@@ -1086,6 +1109,20 @@ public final class Workspace {
       if (!result.clean()) throw new ConflictException(result, base, head, theirs);
       return commitMerge(target.branch(), source, scope, head, theirs, base, result.tree(), null, committer);
     }, done, failed);
+  }
+
+  /** 不同世界的草稿不能互相合併（主世界包含所有世界）；可以時回傳 null。 */
+  Refused crossWorld(String target, String source) {
+    var a = dimension(target);
+    var b = dimension(source);
+    if (a == null || b == null || a.equals(b)) return null;
+    return new Refused(source + " 和 " + target + " 屬於不同的世界，不能合併");
+  }
+
+  /** 只屬於一個世界的草稿：撤銷、還原只動那個世界。 */
+  private Scope ownWorld(Worktree wt, Scope scope) {
+    var dim = dimension(wt.branch());
+    return scope != null || dim == null ? scope : new Scope(dim, Box.ALL);
   }
 
   /** 以合併結果提交。{@code resolvedBy} 是衝突整合時誰改了哪一格。背景執行緒。 */
@@ -1127,6 +1164,8 @@ public final class Workspace {
 
   /** 試算合併，不改變任何東西。背景執行。 */
   public CompletableFuture<Preview> preview(String target, String source, Scope scope) {
+    var refused = crossWorld(target, source);
+    if (refused != null) return CompletableFuture.failedFuture(refused);
     return CompletableFuture.supplyAsync(() -> {
       try {
         var ours = repo.head(target);
@@ -1178,12 +1217,13 @@ public final class Workspace {
 
   /** 撤銷某一次存檔：以三方合併套用它的反向變更。有衝突時以 {@link ConflictException} 失敗。 */
   public void revert(Worktree wt, ObjectId bad, Author author, Consumer<Optional<Applied>> done, Consumer<Throwable> failed) {
+    var scope = ownWorld(wt, null);
     transact(wt, head -> {
       var commit = repo.commit(bad);
       if (commit.parents().isEmpty()) throw new IOException("不能撤銷初始化的存檔");
       if (!repo.isAncestor(bad, head)) throw new IOException("這個存檔不在 " + wt.branch() + " 的歷史裡");
       var parent = commit.parents().getFirst();
-      var result = repo.mergeTrees(bad, head, parent, null);
+      var result = scope == null ? repo.mergeTrees(bad, head, parent, null) : repo.mergeTrees(bad, head, parent, scope.dimension(), scope.box());
       if (!result.clean()) throw new ConflictException(result, bad, head, parent);
       return repo.commitTree(wt.branch(), List.of(head), result.tree(), null, genesis, author, author, System.currentTimeMillis(),
           "撤銷 " + bad.abbrev(), 0, new TreeMap<>(Map.of("Reverts", bad.hex())));
@@ -1191,12 +1231,13 @@ public final class Workspace {
   }
 
   /** 讓分支（或範圍內）回到某個版本的內容，產生新存檔。 */
-  public void restore(Worktree wt, ObjectId target, Scope scope, Author author, Consumer<Optional<Applied>> done,
+  public void restore(Worktree wt, ObjectId target, Scope requested, Author author, Consumer<Optional<Applied>> done,
       Consumer<Throwable> failed) {
+    var scope = ownWorld(wt, requested);
     transact(wt, head -> {
       var tree = scope == null ? repo.restoreTree(head, target, null) : repo.restoreTree(head, target, scope.dimension(), scope.box());
       return repo.commitTree(wt.branch(), List.of(head), tree, null, genesis, author, author, System.currentTimeMillis(),
-          "還原到 " + target.abbrev() + (scope == null ? "" : "（範圍）"), 0, new TreeMap<>(Map.of("Restored-From", target.hex())));
+          "還原到 " + target.abbrev() + (requested == null ? "" : "（範圍）"), 0, new TreeMap<>(Map.of("Restored-From", target.hex())));
     }, done, failed);
   }
 

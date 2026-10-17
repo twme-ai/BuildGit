@@ -44,8 +44,10 @@ final class Menu {
 
     int slot = 18;
     try {
+      String dim = ws.logicalDimension(p.level());
       for (var name : ws.drafts().keySet()) {
         if (slot >= SIZE) break;
+        if (!ws.covers(name, dim)) continue; // 只列這個世界的草稿
         var here = wt != null && wt.branch().equals(name);
         var label = name.equals(Repository.MAIN) ? msg.get("branch-main") : msg.get("menu-draft", "name", name);
         var item = here ? "lime_stained_glass" : name.equals(Repository.MAIN) ? "grass_block" : "paper";

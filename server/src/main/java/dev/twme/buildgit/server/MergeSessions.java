@@ -216,7 +216,9 @@ public final class MergeSessions {
     String id = HexFormat.of().formatHex(RANDOM.generateSeed(3));
     String branch = Workspace.MERGE_PREFIX + id;
     try {
-      ws.createBranch(branch, target, c.ours, true);
+      // 整合世界只開草稿所屬的世界
+      var dimension = source != null && ws.dimension(source) != null ? ws.dimension(source) : ws.dimension(target);
+      ws.createBranch(branch, target, c.ours, true, dimension);
     } catch (IOException e) {
       failed.accept(e);
       return;

@@ -78,7 +78,7 @@ public final class BgCommand {
     sub("status", "buildgit.status", (s, a) -> status(s), null);
     sub("save", "buildgit.save", (s, a) -> save(s, String.join(" ", a)), null);
     sub("commit", "buildgit.commit", (s, a) -> save(s, String.join(" ", a)), null);
-    sub("log", "buildgit.log", this::log, (s, b) -> concat(List.of("--all", "--author"), draftNames()));
+    sub("log", "buildgit.log", this::log, (s, b) -> concat(List.of("--all", "--author"), draftNames(s)));
     sub("graph", "buildgit.graph", this::graph, (s, b) -> List.of("--all"));
     sub("show", "buildgit.show", this::show, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--cells"));
     sub("diff", "buildgit.diff", this::diff, (s, b) -> b.size() < 2 ? recentCommits(s) : List.of());
@@ -88,19 +88,20 @@ public final class BgCommand {
     sub("sel", "buildgit.sel", this::sel, (s, b) -> b.isEmpty() ? List.of("pos1", "pos2", "show", "clear") : List.of());
     sub("who", "buildgit.who", (s, a) -> who(s), null);
     sub("disk", "buildgit.disk", (s, a) -> disk(s), null);
-    sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames() : List.of());
-    sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames() : List.of());
+    sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
+    sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("back", "buildgit.back", (s, a) -> back(s), null);
     sub("pull", "buildgit.pull", this::pull, null);
     sub("push", "buildgit.push", this::push, (s, b) -> b.isEmpty() && s.player() instanceof ServerPlayer p ? bg.sync().names(p) : List.of());
     sub("load", null, this::load, (s, b) -> b.isEmpty() && bg.platform().syncFolder() != null ? LocalSync.names(bg.platform().syncFolder()) : List.of());
     sub("view", "buildgit.view", this::view, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
-    sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm"), s.isPlayer() ? List.of() : draftNames()));
+    sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm"), s.isPlayer() ? List.of() : draftNames(s)));
     sub("branch", "buildgit.branch.list|buildgit.branch.create|buildgit.branch.delete", this::branch, (s, b) -> b.isEmpty() ? List.of("list", "create", "delete")
-        : b.size() == 1 && b.getFirst().equals("delete") ? draftNames()
-        : b.size() == 2 && b.getFirst().equals("create") ? draftNames()
+        : b.size() == 1 && b.getFirst().equals("delete") ? draftNames(s)
+        : b.size() == 2 && b.getFirst().equals("create") ? draftNames(s)
+        : b.size() == 1 && b.getFirst().equals("list") ? List.of("--all")
         : b.size() == 2 && b.getFirst().equals("delete") ? List.of("--force") : List.of());
-    sub("merge", "buildgit.merge|buildgit.merge.resolve|buildgit.publish|buildgit.revert", this::merge, (s, b) -> b.isEmpty() ? concat(List.of("view", "conflicts", "goto", "take", "continue", "abort", "list"), draftNames())
+    sub("merge", "buildgit.merge|buildgit.merge.resolve|buildgit.publish|buildgit.revert", this::merge, (s, b) -> b.isEmpty() ? concat(List.of("view", "conflicts", "goto", "take", "continue", "abort", "list"), draftNames(s))
         : b.size() == 1 && b.getFirst().equals("view") ? List.of("ours", "theirs", "result")
         : b.size() == 1 && b.getFirst().equals("take") ? List.of("ours", "theirs")
         : b.size() == 2 && b.getFirst().equals("take") ? List.of("here", "selection", "all") : List.of());
@@ -221,12 +222,19 @@ public final class BgCommand {
     msg().send(sender, "branch-failed", "error", String.valueOf(e.getMessage()));
   }
 
-  private List<String> draftNames() {
+  /** 玩家所在世界的草稿與主世界（主控台：全部）。 */
+  private List<String> draftNames(Sender sender) {
     try {
-      return List.copyOf(ws().drafts().keySet());
+      var dim = here(sender);
+      return ws().drafts().keySet().stream().filter(name -> dim == null || ws().covers(name, dim)).toList();
     } catch (IOException e) {
       return List.of();
     }
+  }
+
+  /** 玩家所在的世界（版本中的維度 id）；主控台為 null。 */
+  private String here(Sender sender) {
+    return sender.player() instanceof ServerPlayer p ? ws().logicalDimension(p.level()) : null;
   }
 
   private List<String> recentCommits(Sender sender) {
@@ -810,7 +818,7 @@ public final class BgCommand {
   // ---- 草稿（設計 §6.2） ----
 
   /** 主控台也可以用：從主世界開草稿並載入世界，不傳送。 */
-  private void tryDraft(Sender sender, String[] args) {
+  private void tryDraft(Sender sender, String[] args) throws IOException {
     var w = words(args);
     if (w.size() != 1) {
       msg().send(sender, "usage-try");
@@ -825,10 +833,12 @@ public final class BgCommand {
       return;
     }
     var source = from;
+    String dimension = draftWorld(sender, source.branch());
+    if (dimension == null) return;
     autosaveThen(sender, source, () -> {
       try {
         boolean exists = ws().branches().containsKey(name);
-        if (!exists) ws().createBranch(name, source.branch());
+        if (!exists) ws().createBranch(name, source.branch(), dimension);
         msg().send(sender, exists ? "try-existing" : "try-created", "name", name);
         var draft = ws().openBranch(name);
         if (sender.player() instanceof ServerPlayer p) ws().teleport(p, draft);
@@ -837,6 +847,21 @@ public final class BgCommand {
         failed(sender, e);
       }
     });
+  }
+
+  /**
+   * 新草稿所屬的世界：玩家所在的世界；主控台沿用來源草稿的世界（來源是主世界時為預設世界）。
+   * 不受版本控制的世界回傳 null 並告知。
+   */
+  private String draftWorld(Sender sender, String from) throws IOException {
+    var dim = here(sender);
+    if (dim == null) dim = ws().dimension(from);
+    if (dim == null) dim = dev.twme.buildgit.server.track.Tracker.dimensionId(ws().mainWorlds().getFirst());
+    if (!ws().trackedDimensions().contains(dim)) {
+      msg().send(sender, "inspect-untracked");
+      return null;
+    }
+    return dim;
   }
 
   // ---- 與單人世界同步（設計 §6.7） ----
@@ -1170,7 +1195,9 @@ public final class BgCommand {
           msg().send(sender, "no-permission");
           return;
         }
+        var dim = flags(args).contains("--all") ? null : here(sender);
         for (var e : ws().drafts().entrySet()) {
+          if (dim != null && !ws().covers(e.getKey(), dim)) continue;
           var wt = ws().worktree(e.getKey());
           int players = 0;
           if (wt != null) for (var world : wt.worlds().values()) players += world.players().size();
@@ -1195,7 +1222,9 @@ public final class BgCommand {
           msg().send(sender, "branch-bad-name");
           return;
         }
-        ws().createBranch(name, from);
+        String dimension = draftWorld(sender, from);
+        if (dimension == null) return;
+        ws().createBranch(name, from, dimension);
         msg().send(sender, "branch-created", "name", name, "from", branchLabel(from));
       }
       case "delete" -> {

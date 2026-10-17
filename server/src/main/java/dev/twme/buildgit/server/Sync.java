@@ -265,7 +265,7 @@ final class Sync {
   private void commit(UUID uuid, Upload up, String from, ObjectId base, Bundle edited, dev.twme.buildgit.core.track.Marks marks,
       Author author, int dropped) {
     try {
-      ws().createBranch(up.draft(), from, base, false);
+      ws().createBranch(up.draft(), from, base, false, edited.dimension());
     } catch (IOException e) {
       failed(uuid, e);
       return;

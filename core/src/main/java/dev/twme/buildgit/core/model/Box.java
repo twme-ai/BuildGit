@@ -2,6 +2,9 @@ package dev.twme.buildgit.core.model;
 
 /** 含端點的方塊範圍，例如玩家的選取範圍。 */
 public record Box(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+  /** 整個世界（範圍只用來限定維度時）。 */
+  public static final Box ALL = new Box(-(1 << 30), -(1 << 30), -(1 << 30), 1 << 30, 1 << 30, 1 << 30);
+
   public Box {
     if (minX > maxX || minY > maxY || minZ > maxZ) throw new IllegalArgumentException("範圍的最小值大於最大值");
   }
