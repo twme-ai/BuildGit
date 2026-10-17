@@ -254,3 +254,4 @@ params-merge: "分支|list|view|conflicts|goto|take|continue|abort 選項 範圍
 params-revert: "存檔"
 params-restore: "存檔 --selection|confirm"
 axiom-bypass-warning: "<yellow>你有 axiomadmin.bypass_region_checks 權限，Axiom 改方塊時不會通知 BuildGit，這些變更可能不會被記錄。實體的生成、修改、刪除仍會記錄。</yellow>"
+axiom-bypass-recorded: "<yellow>你有 axiomadmin.bypass_region_checks 權限：方塊與實體的編輯照常記錄，但 Axiom 生態域筆刷的變更不會被記錄。</yellow>"

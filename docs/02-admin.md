@@ -144,7 +144,7 @@ LuckPerms 範例：
 
 ## 10. 已知限制
 
-- 有 Axiom bypass 權限（`axiomadmin.bypass_region_checks`）的玩家用 Axiom 改的方塊記錄不到；這種玩家開啟 Axiom 時會收到提醒。需要記錄的話請不要給這個權限。
+- 有 Axiom bypass 權限（`axiomadmin.bypass_region_checks`）的玩家：方塊與實體照常記錄，但 Axiom 生態域筆刷的變更記錄不到。BuildGit 是讀 AxiomPaper 的內部來記錄這些玩家，AxiomPaper 改版後可能對不上，這時會自動停用並在主控台警告，這些玩家的方塊編輯就記錄不到。這種玩家開啟 Axiom 時會收到提醒。
 - DebugStickPro 凍結中的方塊（伺服器上暫時是屏障）先不存檔，解凍後才存進版本；凍結期間 `/bg status` 會一直顯示它未存。
 - 非玩家造成的實體移除（例如盔甲座被苦力怕炸掉）不記錄，和方塊的自然變化一樣。
 - 生態域：草稿和主世界改了同一處（4×4×4 格）的生態域時，併回保留主世界的，併回預覽會列出數量，需要的話再用 `/fillbiome` 修正。帶到單人世界改（`pull`／`push`）不帶生態域。其他插件以 API 改的生態域記錄不到，可以用 `/bg mark` 補記。

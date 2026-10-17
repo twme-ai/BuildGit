@@ -51,6 +51,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
   private PaperPlatform platform;
   private BuildGit bg;
   private WorldEditHook worldEdit;
+  private AxiomHook axiom;
 
   /** 共用的本體（測試用）。 */
   public BuildGit buildGit() {
@@ -101,8 +102,9 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     }
     if (settings.axiom() && pm.getPlugin("AxiomPaper") != null) {
       try {
-        new AxiomHook(tracker, p -> bg.messages().send(platform.sender(((CraftPlayer) p).getHandle()), "axiom-bypass-warning"))
-            .register(this, getLogger());
+        axiom = new AxiomHook(tracker, (p, recorded) ->
+            bg.messages().send(platform.sender(((CraftPlayer) p).getHandle()), recorded ? "axiom-bypass-recorded" : "axiom-bypass-warning"));
+        axiom.register(this, getLogger());
       } catch (LinkageError e) {
         getLogger().log(Level.WARNING, "無法掛上 AxiomPaper（版本不相容？）", e);
       }
@@ -131,6 +133,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     if (bg == null) return; // 版本不符，沒有啟動過
     Bukkit.getScheduler().cancelTasks(this);
     if (worldEdit != null) worldEdit.unregister();
+    if (axiom != null) axiom.unregister();
     bg.disable();
     getServer().getServicesManager().unregisterAll(this);
   }
