@@ -3,20 +3,23 @@ package dev.twme.buildgit.server;
 import dev.twme.buildgit.core.repo.Repository;
 import java.io.IOException;
 import java.util.*;
+import net.kyori.adventure.text.Component;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
  * {@code /bg} 不帶參數時的箱子選單（設計 §6.6）：常用動作與草稿清單，點一下就執行對應的子指令，
  * 所以權限與行為和打指令完全相同。畫面由平台負責（Paper 的物品欄、Fabric 的箱子選單）。
  *
- * <p>排列靠近游標：開啟容器時游標在視窗正中央，6 排箱子的畫面正中央落在箱子最下排的中間（第 49 格）。
- * 所以最常用的動作放在最下排、從中間往兩側排，情境動作在上一排，草稿清單接在動作上方，每排都置中。
- * 固定 6 排，游標的位置才不會跟著內容變。
+ * <p>排列：開啟容器時游標在視窗正中央，6 排箱子的正中央落在最下排的中間（第 49 格）。
+ * 動作在最下兩排，依功能分成三組，以玻璃片隔開：左邊是歷史（歷史、檢查），中間是這個世界的工作
+ * （標出變更、狀態、存檔，上一排是併回／回去或整合的動作，狀態在游標上），右邊是玩家與範圍（誰在哪裡、選取範圍）。
+ * 每個動作的位置固定，沒有權限時那格空著，不讓其他動作移位。上面隔一排是草稿清單，貼著分隔線往上排、每排置中。
  */
 final class Menu {
   private static final int ROWS = 6;
-  /** 草稿清單可用的排數（動作佔最下兩排）。 */
-  private static final int LIST_ROWS = ROWS - 2;
+  /** 草稿清單的排數：動作佔最下兩排，再隔一排分隔線。 */
+  private static final int LIST_ROWS = ROWS - 3;
+  private static final String DIVIDER = "gray_stained_glass_pane";
   private final BuildGit bg;
 
   Menu(BuildGit bg) {
@@ -32,24 +35,28 @@ final class Menu {
     boolean inMerge = wt != null && Workspace.isScratch(wt.branch());
     boolean inView = ws.view(p.level()) != null;
 
-    // 最下排（游標所在）：最常用的五個，狀態在正中間
-    var bottom = new ArrayList<Platform.MenuItem>();
-    put(bottom, "spyglass", "menu-diff", "diff", p, "buildgit.diff");
-    put(bottom, "writable_book", "menu-save", "save", p, "buildgit.save");
-    put(bottom, "book", "menu-status", "status", p, "buildgit.status");
-    put(bottom, "clock", "menu-log", "log", p, "buildgit.log");
-    put(bottom, "compass", "menu-inspect", "inspect", p, "buildgit.inspect");
-    // 上一排：草稿／整合／舊版本裡的動作在中間，其他放兩側
-    var second = new ArrayList<Platform.MenuItem>();
-    put(second, "player_head", "menu-who", "who", p, "buildgit.who");
+    var items = new ArrayList<Platform.MenuItem>();
+    int bottom = (ROWS - 1) * 9, second = (ROWS - 2) * 9;
+    // 左：歷史
+    put(items, bottom + 0, "compass", "menu-inspect", "inspect", p, "buildgit.inspect");
+    put(items, bottom + 1, "clock", "menu-log", "log", p, "buildgit.log");
+    // 中：這個世界的工作，狀態在游標上
+    put(items, bottom + 3, "spyglass", "menu-diff", "diff", p, "buildgit.diff");
+    put(items, bottom + 4, "book", "menu-status", "status", p, "buildgit.status");
+    put(items, bottom + 5, "writable_book", "menu-save", "save", p, "buildgit.save");
     if (inDraft) {
-      put(second, "oak_door", "menu-back", "back", p, "buildgit.back");
-      put(second, "emerald", "menu-publish", "publish", p, "buildgit.publish"); // 狀態正上方
+      put(items, second + 3, "oak_door", "menu-back", "back", p, "buildgit.back");
+      put(items, second + 4, "emerald", "menu-publish", "publish", p, "buildgit.publish");
     } else if (inMerge) {
-      put(second, "barrier", "menu-merge-conflicts", "merge conflicts", null, null);
-      put(second, "emerald", "menu-merge-continue", "merge continue", null, null);
-    } else if (inView) put(second, "oak_door", "menu-back", "back", p, "buildgit.back");
-    put(second, "wooden_axe", "menu-sel", "sel show", p, "buildgit.sel");
+      put(items, second + 3, "barrier", "menu-merge-conflicts", "merge conflicts", p, null);
+      put(items, second + 4, "emerald", "menu-merge-continue", "merge continue", p, null);
+    } else if (inView) put(items, second + 3, "oak_door", "menu-back", "back", p, "buildgit.back");
+    // 右：玩家與範圍
+    put(items, bottom + 7, "player_head", "menu-who", "who", p, "buildgit.who");
+    put(items, bottom + 8, "wooden_axe", "menu-sel", "sel show", p, "buildgit.sel");
+    // 分隔線：三組之間的直線，與草稿清單之間的橫線
+    for (int slot : new int[] {second + 2, second + 6, bottom + 2, bottom + 6}) items.add(divider(slot));
+    for (int c = 0; c < 9; c++) items.add(divider(LIST_ROWS * 9 + c));
 
     var list = new ArrayList<Platform.MenuItem>();
     try {
@@ -69,11 +76,12 @@ final class Menu {
       list.add(new Platform.MenuItem(0, "red_stained_glass", msg.get("menu-merge", "id", s.id(), "target", s.target()),
           msg.get("menu-draft-go"), "merge view result " + s.id()));
 
-    var items = new ArrayList<Platform.MenuItem>();
-    row(items, ROWS - 1, bottom);
-    row(items, ROWS - 2, second);
-    // 草稿清單貼著動作往上長：一排九個，最後不滿的一排也置中
-    var shown = list.subList(0, Math.min(list.size(), LIST_ROWS * 9));
+    // 草稿清單貼著分隔線往上長：一排九個，最後不滿的一排也置中；放不下時最後一格提示還有幾個
+    int capacity = LIST_ROWS * 9;
+    var shown = new ArrayList<>(list.subList(0, Math.min(list.size(), capacity)));
+    if (list.size() > capacity)
+      shown.set(capacity - 1, new Platform.MenuItem(0, "book", msg.get("menu-more", "count", String.valueOf(list.size() - capacity + 1)),
+          msg.get("menu-more-lore"), platform.hasPermission(p, "buildgit.branch.list") ? "branch list" : null));
     int rows = (shown.size() + 8) / 9;
     for (int r = 0; r < rows; r++)
       row(items, LIST_ROWS - rows + r, shown.subList(r * 9, Math.min(shown.size(), r * 9 + 9)));
@@ -89,9 +97,13 @@ final class Menu {
     }
   }
 
-  private void put(List<Platform.MenuItem> items, String item, String key, String command, ServerPlayer p, String permission) {
-    if (permission != null && !bg.platform().hasPermission(p, permission)) return;
+  private void put(List<Platform.MenuItem> items, int slot, String item, String key, String command, ServerPlayer p, String permission) {
+    if (permission != null && !bg.platform().hasPermission(p, permission)) return; // 格子空著，其他動作不移位
     var msg = bg.messages();
-    items.add(new Platform.MenuItem(0, item, msg.get(key), msg.get(key + "-lore"), command));
+    items.add(new Platform.MenuItem(slot, item, msg.get(key), msg.get(key + "-lore"), command));
+  }
+
+  private static Platform.MenuItem divider(int slot) {
+    return new Platform.MenuItem(slot, DIVIDER, Component.empty(), null, null);
   }
 }

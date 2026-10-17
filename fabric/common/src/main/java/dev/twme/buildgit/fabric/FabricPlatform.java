@@ -40,6 +40,7 @@ import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
+import net.minecraft.world.item.component.TooltipDisplay;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.redstone.CollectingNeighborUpdater;
@@ -449,7 +450,8 @@ final class FabricPlatform implements Platform {
       var type = id == null ? Items.PAPER : BuiltInRegistries.ITEM.getValue(id);
       var stack = new ItemStack(type == Items.AIR ? Items.PAPER : type);
       stack.set(DataComponents.CUSTOM_NAME, vanilla(item.name().decoration(TextDecoration.ITALIC, false)));
-      stack.set(DataComponents.LORE, new ItemLore(List.of(vanilla(item.lore().decoration(TextDecoration.ITALIC, false)))));
+      if (item.lore() == null) stack.set(DataComponents.TOOLTIP_DISPLAY, new TooltipDisplay(true, new LinkedHashSet<>()));
+      else stack.set(DataComponents.LORE, new ItemLore(List.of(vanilla(item.lore().decoration(TextDecoration.ITALIC, false)))));
       container.setItem(item.slot(), stack);
       if (item.action() != null) actions.put(item.slot(), item.action());
     }

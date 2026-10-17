@@ -130,7 +130,7 @@ public interface Platform {
   /** 隱藏所有 bossbar（停用時）。 */
   void clearBars();
 
-  /** 箱子選單的一格：物品 id、名稱、說明，以及點了以後執行的 {@code /bg} 子指令（null 表示不能點）。 */
+  /** 箱子選單的一格：物品 id、名稱、說明（null 表示分隔用、不顯示提示框），以及點了以後執行的 {@code /bg} 子指令（null 表示不能點）。 */
   record MenuItem(int slot, String item, Component name, Component lore, String action) {}
 
   /** 打開 54 格的箱子選單；點了有動作的格子就關閉並執行 {@code /bg <action>}。 */

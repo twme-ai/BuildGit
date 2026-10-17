@@ -351,7 +351,8 @@ final class PaperPlatform implements Platform, Listener {
       var stack = new ItemStack(material == null ? Material.PAPER : material);
       stack.editMeta(m -> {
         m.displayName(item.name().decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(item.lore().decoration(TextDecoration.ITALIC, false)));
+        if (item.lore() == null) m.setHideTooltip(true);
+        else m.lore(List.of(item.lore().decoration(TextDecoration.ITALIC, false)));
       });
       inv.setItem(item.slot(), stack);
       if (item.action() != null) holder.actions().put(item.slot(), item.action());
