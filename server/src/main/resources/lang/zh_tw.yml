@@ -77,6 +77,8 @@ show-more: "  <gray>…還有 <count> 格</gray>"
 unknown-commit: "<red>找不到存檔或分支：<id></red>"
 diff-unsaved: "<gray>未存的變更</gray> <white><cells></white> <gray>格，已在世界裡標出。</gray>"
 diff-summary: "<green>+<added></green> <red>-<removed></red> <yellow>~<modified></yellow> <gray>格、<entities> 個實體；已在世界裡標出（<green>綠</green>新增、<red>紅</red>拆除、<yellow>黃</yellow>修改）。</gray>"
+diff-off-button: "<gray><u>[關閉]</u></gray>"
+diff-off: "<gray>已關閉外框。</gray>"
 
 inspect-on: "<green>檢查模式開啟。</green><gray>點方塊查看是誰改的，再執行一次關閉。</gray>"
 inspect-off: "<gray>檢查模式關閉。</gray>"

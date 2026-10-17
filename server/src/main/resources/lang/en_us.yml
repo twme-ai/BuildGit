@@ -77,6 +77,8 @@ show-more: "  <gray>…and <count> more</gray>"
 unknown-commit: "<red>No such save or branch: <id></red>"
 diff-unsaved: "<white><cells></white> <gray>unsaved blocks, outlined in the world.</gray>"
 diff-summary: "<green>+<added></green> <red>-<removed></red> <yellow>~<modified></yellow> <gray>blocks, <entities> entities; outlined in the world (<green>green</green> added, <red>red</red> removed, <yellow>yellow</yellow> modified).</gray>"
+diff-off-button: "<gray><u>[Close]</u></gray>"
+diff-off: "<gray>Outlines cleared.</gray>"
 
 inspect-on: "<green>Inspect mode on.</green> <gray>Click blocks to see who changed them; run again to turn off.</gray>"
 inspect-off: "<gray>Inspect mode off.</gray>"

@@ -81,7 +81,7 @@ public final class BgCommand {
     sub("log", "buildgit.log", this::log, (s, b) -> concat(List.of("--all", "--author"), draftNames(s)));
     sub("graph", "buildgit.graph", this::graph, (s, b) -> List.of("--all"));
     sub("show", "buildgit.show", this::show, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--cells"));
-    sub("diff", "buildgit.diff", this::diff, (s, b) -> b.size() < 2 ? recentCommits(s) : List.of());
+    sub("diff", "buildgit.diff", this::diff, (s, b) -> b.isEmpty() ? concat(List.of("off"), recentCommits(s)) : b.size() < 2 ? recentCommits(s) : List.of());
     sub(List.of("inspect", "i"), "buildgit.inspect", (s, a) -> toggleInspect(s), null);
     sub("blame", "buildgit.blame", (s, a) -> blame(s), null);
     sub("mark", "buildgit.mark", this::mark, null);
@@ -343,6 +343,11 @@ public final class BgCommand {
     });
   }
 
+  /** diff 的結果；玩家的後面接著關閉外框的按鈕。 */
+  private void sendDiff(Sender sender, Component text) {
+    sender.send(msg().prefixed(sender.isPlayer() ? text.append(Component.text(" ")).append(button("diff-off-button", "/bg diff off")) : text));
+  }
+
   private Component button(String key, String command) {
     return msg().get(key).clickEvent(ClickEvent.runCommand(command));
   }
@@ -586,10 +591,18 @@ public final class BgCommand {
     }
   }
 
-  /** {@code diff}：未存的變更；{@code diff <存檔>}：那次存檔；{@code diff <a> <b>}：兩個版本之間。在世界裡顯示外框。 */
+  /**
+   * {@code diff}：未存的變更；{@code diff <存檔>}：那次存檔；{@code diff <a> <b>}：兩個版本之間。在世界裡顯示外框。
+   * {@code diff off}：清掉外框。
+   */
   private void diff(Sender sender, String[] args) throws IOException {
     var w = words(args);
     var repo = ws().repo();
+    if (w.size() == 1 && w.getFirst().equals("off")) {
+      if (sender.player() instanceof ServerPlayer p) bg.outlines().clear(p);
+      msg().send(sender, "diff-off");
+      return;
+    }
     if (w.isEmpty()) {
       var table = current(sender).table();
       ws().async(() -> {
@@ -599,7 +612,7 @@ public final class BgCommand {
             changed.add(new Workspace.Changed(key.dimension(), key.pos(i), Workspace.Kind.MODIFIED));
         });
         ws().sync(() -> {
-          msg().send(sender, "diff-unsaved", "cells", changed.size());
+          sendDiff(sender, msg().get("diff-unsaved", "cells", changed.size()));
           outline(sender, changed);
         });
       });
@@ -642,7 +655,7 @@ public final class BgCommand {
         failed(sender, Workspace.unwrap(error));
         return;
       }
-      msg().send(sender, "diff-summary", "added", r.counts()[0], "removed", r.counts()[1], "modified", r.counts()[2], "entities", r.entities());
+      sendDiff(sender, msg().get("diff-summary", "added", r.counts()[0], "removed", r.counts()[1], "modified", r.counts()[2], "entities", r.entities()));
       if (r.biomes() > 0) msg().send(sender, "biomes-outlined", "count", r.biomes());
       outline(sender, r.changed());
     }));
