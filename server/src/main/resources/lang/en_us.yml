@@ -134,6 +134,8 @@ publish-preview-author: "  <gray>-</gray> <white><author></white> <gray><cells> 
 publish-preview-conflicts: "<yellow><count> places were changed on both sides; confirming opens conflict resolution.</yellow>"
 publish-preview-biome-conflicts: "<yellow><count> biome areas were changed on both sides; <target> keeps its own. Fix them with /fillbiome afterwards if needed.</yellow>"
 publish-confirm-button: "<green><u>[Confirm publish]</u></green>"
+publish-cancel-button: "<gray><u>[Cancel]</u></gray>"
+publish-cancelled: "<gray>Publish cancelled; outlines cleared.</gray>"
 publish-start: "<gray>Publishing</gray> <light_purple><name></light_purple> <gray>to</gray> <target><gray>…</gray>"
 publish-nothing: "<gray>Nothing new to publish.</gray>"
 publish-done: "<green>Published to</green> <target> <yellow><id></yellow> <gray>— <cells> blocks, <entities> entities</gray>"

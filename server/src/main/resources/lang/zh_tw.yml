@@ -134,6 +134,8 @@ publish-preview-author: "  <gray>-</gray> <white><author></white> <gray><cells> 
 publish-preview-conflicts: "<yellow><count> 處兩邊都改了，確認後會進入衝突整合。</yellow>"
 publish-preview-biome-conflicts: "<yellow><count> 處生態域兩邊都改過，會保留 <target> 的；需要的話併回後再用 /fillbiome 修正。</yellow>"
 publish-confirm-button: "<green><u>[確認併回]</u></green>"
+publish-cancel-button: "<gray><u>[取消]</u></gray>"
+publish-cancelled: "<gray>已取消併回，外框已清除。</gray>"
 publish-start: "<gray>正在把</gray> <light_purple><name></light_purple> <gray>併回</gray> <target><gray>…</gray>"
 publish-nothing: "<gray>沒有新的變更需要併回。</gray>"
 publish-done: "<green>已併回</green> <target> <yellow><id></yellow> <gray>— <cells> 格、<entities> 個實體</gray>"

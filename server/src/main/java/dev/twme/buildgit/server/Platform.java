@@ -130,6 +130,9 @@ public interface Platform {
   /** 隱藏所有 bossbar（停用時）。 */
   void clearBars();
 
+  /** 箱子選單的排數（每排 9 格）。 */
+  int MENU_ROWS = 5;
+
   /** 箱子選單的一格：物品 id、名稱、說明（null 表示分隔用、不顯示提示框），以及點了以後執行的 {@code /bg} 子指令（null 表示不能點）。 */
   record MenuItem(int slot, String item, Component name, Component lore, String action) {}
 

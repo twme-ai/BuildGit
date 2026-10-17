@@ -95,7 +95,7 @@ public final class BgCommand {
     sub("push", "buildgit.push", this::push, (s, b) -> b.isEmpty() && s.player() instanceof ServerPlayer p ? bg.sync().names(p) : List.of());
     sub("load", null, this::load, (s, b) -> b.isEmpty() && bg.platform().syncFolder() != null ? LocalSync.names(bg.platform().syncFolder()) : List.of());
     sub("view", "buildgit.view", this::view, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
-    sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm"), s.isPlayer() ? List.of() : draftNames(s)));
+    sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm", "cancel"), s.isPlayer() ? List.of() : draftNames(s)));
     sub("branch", "buildgit.branch.list|buildgit.branch.create|buildgit.branch.delete", this::branch, (s, b) -> b.isEmpty() ? List.of("list", "create", "delete")
         : b.size() == 1 && b.getFirst().equals("delete") ? draftNames(s)
         : b.size() == 2 && b.getFirst().equals("create") ? draftNames(s)
@@ -1003,12 +1003,14 @@ public final class BgCommand {
   // ---- 併回（設計 §6.2） ----
 
   /**
-   * 玩家：{@code publish [--selection] [confirm]}；主控台：{@code publish <草稿> [confirm]}。
-   * 不帶 confirm 時只預覽：數量、作者，並在世界裡顯示會變動的位置。
+   * 玩家：{@code publish [--selection] [confirm|cancel]}；主控台：{@code publish <草稿> [confirm|cancel]}。
+   * 不帶 confirm 時只預覽：數量、作者，並在世界裡顯示會變動的位置；cancel 不併回，清掉預覽的外框。
    */
   private void publish(Sender sender, String[] args) throws IOException {
     var flags = flags(args);
     var w = words(args);
+    boolean cancel = w.size() > (sender.isPlayer() ? 0 : 1) && w.getLast().equals("cancel");
+    if (cancel) w.removeLast();
     Worktree draft;
     if (sender.player() instanceof ServerPlayer p) {
       draft = ws().worktree(p.level());
@@ -1019,6 +1021,13 @@ public final class BgCommand {
     } else draft = w.size() == 1 && ws().drafts().containsKey(w.getFirst()) ? ws().openBranch(w.getFirst()) : null;
     if (draft == null || draft.branch().equals(Repository.MAIN)) {
       msg().send(sender, "not-in-draft");
+      return;
+    }
+    if (cancel) {
+      // 預覽的外框：執行的人，以及草稿裡一起看預覽的玩家
+      if (sender.player() instanceof ServerPlayer p) bg.outlines().clear(p);
+      for (var world : draft.worlds().values()) for (var p : world.players()) bg.outlines().clear(p);
+      msg().send(sender, "publish-cancelled");
       return;
     }
     Workspace.Scope scope = null;
@@ -1076,7 +1085,9 @@ public final class BgCommand {
         outline(viewer, preview.changed());
       }
       String command = "/bg publish " + (sender.isPlayer() ? "" : source + " ") + (selection ? "--selection " : "") + "confirm";
-      sendButton(sender, "publish-confirm-button", command);
+      if (sender.isPlayer())
+        sender.send(button("publish-confirm-button", command).append(Component.text(" ")).append(button("publish-cancel-button", "/bg publish cancel")));
+      else sendButton(sender, "publish-confirm-button", command);
     }));
   }
 

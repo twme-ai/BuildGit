@@ -53,7 +53,7 @@ public final class Versions {
 
   /** 6 排的箱子畫面；點了上面的格子呼叫 {@code onClick}，物品不會被拿走。 */
   public static AbstractContainerMenu chestMenu(int id, Inventory inventory, Container container, IntConsumer onClick) {
-    return new ChestMenu(MenuType.GENERIC_9x6, id, inventory, container, 6) {
+    return new ChestMenu(MenuType.GENERIC_9x5, id, inventory, container, 5) { // Platform.MENU_ROWS
       @Override
       public void clicked(int slot, int button, ClickType type, Player player) {
         if (slot >= 0 && slot < container.getContainerSize()) onClick.accept(slot);

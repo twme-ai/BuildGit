@@ -344,7 +344,7 @@ final class PaperPlatform implements Platform, Listener {
   @Override
   public void openMenu(ServerPlayer player, Component title, List<MenuItem> items) {
     var holder = new Holder(new HashMap<>(), new Inventory[1]);
-    var inv = Bukkit.createInventory(holder, 54, title);
+    var inv = Bukkit.createInventory(holder, MENU_ROWS * 9, title);
     holder.inventory()[0] = inv;
     for (var item : items) {
       var material = Material.matchMaterial(item.item());

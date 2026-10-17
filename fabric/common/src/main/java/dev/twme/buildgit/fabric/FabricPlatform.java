@@ -443,7 +443,7 @@ final class FabricPlatform implements Platform {
 
   @Override
   public void openMenu(ServerPlayer player, Component title, List<MenuItem> items) {
-    var container = new SimpleContainer(54);
+    var container = new SimpleContainer(MENU_ROWS * 9);
     var actions = new HashMap<Integer, String>();
     for (var item : items) {
       var id = Identifier.tryParse(item.item());
