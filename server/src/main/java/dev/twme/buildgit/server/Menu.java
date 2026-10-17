@@ -27,20 +27,20 @@ final class Menu {
     boolean inMerge = wt != null && Workspace.isScratch(wt.branch());
     boolean inView = ws.view(p.level()) != null;
 
-    put(items, 0, "book", "menu-status", "status", p, "buildgit.view");
+    put(items, 0, "book", "menu-status", "status", p, "buildgit.status");
     put(items, 1, "writable_book", "menu-save", "save", p, "buildgit.save");
-    put(items, 2, "clock", "menu-log", "log", p, "buildgit.view");
-    put(items, 3, "spyglass", "menu-diff", "diff", p, "buildgit.view");
+    put(items, 2, "clock", "menu-log", "log", p, "buildgit.log");
+    put(items, 3, "spyglass", "menu-diff", "diff", p, "buildgit.diff");
     put(items, 4, "compass", "menu-inspect", "inspect", p, "buildgit.inspect");
-    put(items, 5, "player_head", "menu-who", "who", p, "buildgit.view");
-    put(items, 6, "wooden_axe", "menu-sel", "sel show", p, "buildgit.view");
+    put(items, 5, "player_head", "menu-who", "who", p, "buildgit.who");
+    put(items, 6, "wooden_axe", "menu-sel", "sel show", p, "buildgit.sel");
     if (inDraft) {
       put(items, 7, "emerald", "menu-publish", "publish", p, "buildgit.publish");
-      put(items, 8, "oak_door", "menu-back", "back", p, "buildgit.go");
+      put(items, 8, "oak_door", "menu-back", "back", p, "buildgit.back");
     } else if (inMerge) {
       put(items, 7, "emerald", "menu-merge-continue", "merge continue", p, null);
       put(items, 8, "barrier", "menu-merge-conflicts", "merge conflicts", p, null);
-    } else if (inView) put(items, 8, "oak_door", "menu-back", "back", p, "buildgit.go");
+    } else if (inView) put(items, 8, "oak_door", "menu-back", "back", p, "buildgit.back");
 
     int slot = 18;
     try {

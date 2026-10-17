@@ -17,22 +17,15 @@ public final class PermissionSets {
   public static final String MANAGER = "buildgit.role.manager";
   public static final String ADMIN = "buildgit.admin";
 
-  /** 節點 → 它直接包含的節點。 */
-  private static final Map<String, List<String>> INCLUDES = Map.ofEntries(
-      Map.entry(VIEWER, List.of("buildgit.view", "buildgit.inspect", "buildgit.go")),
-      Map.entry(BUILDER, List.of(VIEWER, "buildgit.try", "buildgit.save", "buildgit.sync")),
-      Map.entry(MANAGER, List.of(BUILDER, "buildgit.publish", "buildgit.commit", "buildgit.merge", "buildgit.revert",
-          "buildgit.restore", "buildgit.mark", "buildgit.branch.create", "buildgit.branch.delete")),
-      Map.entry(ADMIN, List.of(MANAGER)),
-      Map.entry("buildgit.inspect", List.of("buildgit.view")),
-      Map.entry("buildgit.save", List.of("buildgit.view")),
-      Map.entry("buildgit.try", List.of("buildgit.go", "buildgit.save")),
-      Map.entry("buildgit.sync", List.of("buildgit.try")),
-      Map.entry("buildgit.publish", List.of("buildgit.try")),
-      Map.entry("buildgit.commit", List.of("buildgit.save")),
-      Map.entry("buildgit.merge", List.of("buildgit.publish")),
-      Map.entry("buildgit.revert", List.of("buildgit.save")),
-      Map.entry("buildgit.restore", List.of("buildgit.save")));
+  /** 權限集 → 它直接包含的節點。其他節點都只管一個指令，彼此不包含。 */
+  private static final Map<String, List<String>> INCLUDES = Map.of(
+      VIEWER, List.of("buildgit.menu", "buildgit.status", "buildgit.log", "buildgit.graph", "buildgit.show", "buildgit.diff",
+          "buildgit.blame", "buildgit.inspect", "buildgit.who", "buildgit.sel", "buildgit.branch.list", "buildgit.go", "buildgit.back",
+          "buildgit.view"),
+      BUILDER, List.of(VIEWER, "buildgit.try", "buildgit.save", "buildgit.pull", "buildgit.push"),
+      MANAGER, List.of(BUILDER, "buildgit.publish", "buildgit.commit", "buildgit.merge", "buildgit.merge.resolve", "buildgit.revert",
+          "buildgit.restore", "buildgit.mark", "buildgit.branch.create", "buildgit.branch.delete"),
+      ADMIN, List.of(MANAGER, "buildgit.init", "buildgit.reload", "buildgit.disk"));
 
   /** 節點 → 有了就算有這個節點的所有節點（含自己），先具體後寬鬆。 */
   private static final Map<String, Set<String>> GRANTED_BY = new HashMap<>();

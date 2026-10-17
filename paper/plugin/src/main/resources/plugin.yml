@@ -9,7 +9,7 @@ website: https://twme.dev
 libraries:
   - com.github.luben:zstd-jni:${zstd}
 softdepend: [WorldEdit, FastAsyncWorldEdit, AxiomPaper, DebugStickPro]
-# 包含關係（權限集、哪個節點帶出哪些節點）在程式裡判斷（PermissionSets），兩個平台相同，所以這裡不寫 children。
+# 每個指令一個節點、彼此不包含；權限集的包含關係在程式裡判斷（PermissionSets），兩個平台相同，所以這裡不寫 children。
 permissions:
   buildgit.role.viewer:
     description: 權限集：看歷史與方塊來源、進出草稿與舊版本，不能改
@@ -21,47 +21,95 @@ permissions:
     description: 權限集：builder＋併回、撤銷、還原、處理衝突、建立與刪除草稿、手動補記
     default: op
   buildgit.admin:
-    description: 全部權限，加上 init、reload、disk
+    description: 權限集：manager＋init、reload、disk
     default: op
-  buildgit.view:
-    description: 查看狀態、歷史、存檔內容與方塊來源
+  buildgit.menu:
+    description: 只輸入 /bg 時打開選單
+    default: op
+  buildgit.status:
+    description: 目前的分支與未存的變更（status），自動存檔通知
+    default: op
+  buildgit.log:
+    description: 存檔歷史（log）
+    default: op
+  buildgit.graph:
+    description: 分支歷史圖（graph）
+    default: op
+  buildgit.show:
+    description: 某次存檔的內容（show）
+    default: op
+  buildgit.diff:
+    description: 在世界裡標出差異（diff）
+    default: op
+  buildgit.blame:
+    description: 看著的方塊是誰改的（blame）
     default: op
   buildgit.inspect:
-    description: 檢查模式（含 view）
+    description: 檢查模式（inspect）
+    default: op
+  buildgit.who:
+    description: 每位玩家在哪個草稿（who）
+    default: op
+  buildgit.sel:
+    description: 不用 WorldEdit 時的選取範圍（sel）
     default: op
   buildgit.go:
-    description: 進出草稿世界、唯讀看舊版本（go、back、view）
+    description: 到某個草稿或主世界（go）
     default: op
-  buildgit.save:
-    description: 存檔（含 view）
+  buildgit.back:
+    description: 回到來源世界（back）
+    default: op
+  buildgit.view:
+    description: 唯讀看舊版本（view）
     default: op
   buildgit.try:
-    description: 開草稿（含 go、save）
+    description: 開草稿（try）
     default: op
-  buildgit.sync:
-    description: 把選取範圍帶到單人世界、把改過的範圍送回成草稿（pull、push；含 try）
+  buildgit.save:
+    description: 存檔（save）
+    default: op
+  buildgit.pull:
+    description: 把選取範圍帶到單人世界（pull）
+    default: op
+  buildgit.push:
+    description: 把單人世界改過的範圍送回成草稿（push）
     default: op
   buildgit.publish:
-    description: 把草稿併回（含 try）
+    description: 把草稿併回（publish）
     default: op
   buildgit.commit:
-    description: 以自訂訊息存檔（含 save）
+    description: 以自訂訊息存檔（commit）
     default: op
   buildgit.merge:
-    description: 底層合併任意分支、處理衝突整合（含 publish）
+    description: 底層合併任意分支（merge <分支>）
+    default: op
+  buildgit.merge.resolve:
+    description: 處理衝突整合（merge view、take、continue、abort 等）
     default: op
   buildgit.revert:
-    description: 撤銷某次存檔（含 save）
+    description: 撤銷某次存檔（revert）
     default: op
   buildgit.restore:
-    description: 把分支或範圍還原到舊版本（含 save）
+    description: 把分支或範圍還原到舊版本（restore）
     default: op
   buildgit.mark:
-    description: 手動補記範圍
+    description: 手動補記範圍（mark）
+    default: op
+  buildgit.branch.list:
+    description: 列出草稿（branch list）
     default: op
   buildgit.branch.create:
-    description: 建立分支（不傳送）
+    description: 建立分支，不傳送（branch create）
     default: op
   buildgit.branch.delete:
-    description: 刪除草稿與它的世界
+    description: 刪除草稿與它的世界（branch delete）
+    default: op
+  buildgit.init:
+    description: 讓所在的世界開始受版本控制（init）
+    default: op
+  buildgit.reload:
+    description: 重新讀取設定與語言檔（reload）
+    default: op
+  buildgit.disk:
+    description: BuildGit 用掉的磁碟空間（disk）
     default: op

@@ -34,10 +34,10 @@ BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE
 
 | 權限集 | 適合給誰 | 可以做的事 |
 |---|---|---|
-| `buildgit.role.viewer` | 訪客、評審 | 看狀態、歷史、存檔內容、方塊是誰改的（`status`、`log`、`graph`、`show`、`diff`、`blame`、`inspect`、`who`、`sel`、`branch list`）；進出草稿、唯讀看舊版本（`go`、`back`、`view`） |
+| `buildgit.role.viewer` | 訪客、評審 | 選單；看狀態、歷史、存檔內容、方塊是誰改的（`status`、`log`、`graph`、`show`、`diff`、`blame`、`inspect`、`who`、`sel`、`branch list`）；進出草稿、唯讀看舊版本（`go`、`back`、`view`） |
 | `buildgit.role.builder` | 一般建築師 | viewer 全部，加上開草稿（`try`）、存檔（`save`）、帶到單人世界改再送回（`pull`、`push`）。**不能把草稿併回主世界** |
 | `buildgit.role.manager` | 負責審核、維護主世界的人 | builder 全部，加上併回（`publish`）、自訂訊息存檔（`commit`）、處理衝突與底層合併（`merge`）、撤銷（`revert`）、還原（`restore`）、手動補記（`mark`）、建立與刪除草稿（`branch create`、`branch delete`） |
-| `buildgit.admin` | 伺服器管理員 | 全部，加上 `init`、`reload`、`disk` |
+| `buildgit.admin` | 伺服器管理員 | manager 全部，加上 `init`、`reload`、`disk` |
 
 LuckPerms 範例：
 
@@ -46,30 +46,47 @@ LuckPerms 範例：
 /lp group staff permission set buildgit.role.manager true
 ```
 
-也可以只給單一節點：
+也可以逐項給：**每個指令都有自己的節點，彼此不包含**，例如只給 `buildgit.publish` 就只能併回，不能開草稿。
 
-| 節點 | 內容 | 同時帶出 |
-|---|---|---|
-| `buildgit.view` | 看狀態、歷史、方塊來源 | |
-| `buildgit.inspect` | 檢查模式 | view |
-| `buildgit.go` | 進出草稿、唯讀看舊版本 | |
-| `buildgit.save` | 存檔 | view |
-| `buildgit.try` | 開草稿 | go、save |
-| `buildgit.sync` | `pull`、`push` | try |
-| `buildgit.publish` | 併回草稿 | try |
-| `buildgit.commit` | 自訂訊息存檔 | save |
-| `buildgit.merge` | 底層合併、處理衝突 | publish |
-| `buildgit.revert` | 撤銷某次存檔 | save |
-| `buildgit.restore` | 還原到舊版本 | save |
-| `buildgit.mark` | 手動補記範圍 | |
-| `buildgit.branch.create`／`buildgit.branch.delete` | 建立／刪除草稿 | |
+| 節點 | 內容 |
+|---|---|
+| `buildgit.menu` | 只輸入 `/bg` 時打開選單（選單裡的按鈕仍各自看權限） |
+| `buildgit.status` | `status`：目前的分支與未存的變更；也決定看不看得到自動存檔通知 |
+| `buildgit.log` | `log`：存檔歷史 |
+| `buildgit.graph` | `graph`：分支歷史圖 |
+| `buildgit.show` | `show`：某次存檔改了什麼 |
+| `buildgit.diff` | `diff`：在世界裡標出差異 |
+| `buildgit.blame` | `blame`：看著的方塊是誰改的 |
+| `buildgit.inspect` | `inspect`：檢查模式，點方塊看是誰改的 |
+| `buildgit.who` | `who`：每位玩家在哪個草稿 |
+| `buildgit.sel` | `sel`：不用 WorldEdit 時的選取範圍 |
+| `buildgit.go` | `go`：到某個草稿或主世界 |
+| `buildgit.back` | `back`：回到來源世界 |
+| `buildgit.view` | `view`：唯讀看舊版本 |
+| `buildgit.try` | `try`：開草稿 |
+| `buildgit.save` | `save`：存檔 |
+| `buildgit.pull` | `pull`：把選取範圍帶到單人世界 |
+| `buildgit.push` | `push`：把單人世界改過的範圍送回成草稿 |
+| `buildgit.publish` | `publish`：把草稿併回 |
+| `buildgit.commit` | `commit`：以自訂訊息存檔 |
+| `buildgit.merge` | `merge <分支>`：底層合併任意分支 |
+| `buildgit.merge.resolve` | `merge view`／`conflicts`／`goto`／`take`／`continue`／`abort`／`list`：處理衝突整合。有 `publish`、`revert`、`merge` 的人也能處理 |
+| `buildgit.revert` | `revert`：撤銷某次存檔 |
+| `buildgit.restore` | `restore`：把分支或範圍還原到舊版本 |
+| `buildgit.mark` | `mark`：手動補記範圍 |
+| `buildgit.branch.list` | `branch list`：列出草稿 |
+| `buildgit.branch.create` | `branch create`：建立分支，不傳送 |
+| `buildgit.branch.delete` | `branch delete`：刪除草稿與它的世界 |
+| `buildgit.init` | `init`：讓所在的世界開始受版本控制（會複製一份起點世界，占用和世界差不多的磁碟空間） |
+| `buildgit.reload` | `reload`：重新讀取設定與語言檔 |
+| `buildgit.disk` | `disk`：BuildGit 用掉的磁碟空間 |
 
 注意：
 
 - 包含關係由 BuildGit 自己判斷，Paper 與 Fabric 相同，所以在 Fabric 上給權限集也有效。
 - 因為這樣，**對權限集裡的單一節點設成 false 不會把它拿掉**。想少給某一項時，請改成逐項給節點，不要用權限集。
 - 沒有某項權限的玩家看不到那個子指令。
-- 有衝突時，有 `publish` 或 `revert` 權限的人也能處理自己引起的衝突整合。
+- 有衝突時，有 `publish`、`revert` 或 `merge` 權限的人也能處理衝突整合（`merge.resolve` 是給只負責處理衝突的人）。
 - 玩家的建築本身不需要任何 BuildGit 權限：只要世界受版本控制，誰改的都會記錄。
 
 ## 5. 設定
@@ -96,7 +113,7 @@ LuckPerms 範例：
 | `world/dimensions/minecraft/bg_<草稿>…` | 每個草稿的世界（Paper 26.x 的位置；舊版與 Fabric 依伺服器的世界資料夾規則） |
 | `…/bgview_<存檔>…` | 唯讀看舊版本時的暫時世界，用完就刪 |
 
-`/bg disk`（需要 `buildgit.admin`）會列出：
+`/bg disk`（需要 `buildgit.disk`）會列出：
 
 - **版本紀錄**：所有分支共用，相同內容只存一份，所以沒辦法拆給個別分支；通常很小。
 - **起點世界副本**：大約等於 init 時那些世界的大小。

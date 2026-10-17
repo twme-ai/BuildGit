@@ -143,7 +143,7 @@ public final class BuildGit {
     if (ticks % 20 != 0) return;
     workspace.autosaveTick(r -> r.commit().ifPresent(id -> {
       for (var p : platform.server().getPlayerList().getPlayers())
-        if (platform.hasPermission(p, "buildgit.view")) messages.send(platform.sender(p), "autosave-done", "id", id.abbrev(), "cells", r.cells());
+        if (platform.hasPermission(p, "buildgit.status")) messages.send(platform.sender(p), "autosave-done", "id", id.abbrev(), "cells", r.cells());
     }));
     hud.tick();
     sync.tick();

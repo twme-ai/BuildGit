@@ -70,42 +70,48 @@ public final class BgCommand {
   BgCommand(BuildGit bg) {
     this.bg = bg;
     sub("help", null, (s, a) -> msg().send(s, "help"), null);
-    sub("init", "buildgit.admin", (s, a) -> init(s), null);
-    sub("reload", "buildgit.admin", (s, a) -> {
+    sub("init", "buildgit.init", (s, a) -> init(s), null);
+    sub("reload", "buildgit.reload", (s, a) -> {
       bg.reload();
       msg().send(s, "reloaded");
     }, null);
-    sub("status", "buildgit.view", (s, a) -> status(s), null);
+    sub("status", "buildgit.status", (s, a) -> status(s), null);
     sub("save", "buildgit.save", (s, a) -> save(s, String.join(" ", a)), null);
     sub("commit", "buildgit.commit", (s, a) -> save(s, String.join(" ", a)), null);
-    sub("log", "buildgit.view", this::log, (s, b) -> concat(List.of("--all", "--author"), draftNames()));
-    sub("graph", "buildgit.view", this::graph, (s, b) -> List.of("--all"));
-    sub("show", "buildgit.view", this::show, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--cells"));
-    sub("diff", "buildgit.view", this::diff, (s, b) -> b.size() < 2 ? recentCommits(s) : List.of());
+    sub("log", "buildgit.log", this::log, (s, b) -> concat(List.of("--all", "--author"), draftNames()));
+    sub("graph", "buildgit.graph", this::graph, (s, b) -> List.of("--all"));
+    sub("show", "buildgit.show", this::show, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--cells"));
+    sub("diff", "buildgit.diff", this::diff, (s, b) -> b.size() < 2 ? recentCommits(s) : List.of());
     sub(List.of("inspect", "i"), "buildgit.inspect", (s, a) -> toggleInspect(s), null);
-    sub("blame", "buildgit.view", (s, a) -> blame(s), null);
+    sub("blame", "buildgit.blame", (s, a) -> blame(s), null);
     sub("mark", "buildgit.mark", this::mark, null);
-    sub("sel", "buildgit.view", this::sel, (s, b) -> b.isEmpty() ? List.of("pos1", "pos2", "show", "clear") : List.of());
-    sub("who", "buildgit.view", (s, a) -> who(s), null);
-    sub("disk", "buildgit.admin", (s, a) -> disk(s), null);
+    sub("sel", "buildgit.sel", this::sel, (s, b) -> b.isEmpty() ? List.of("pos1", "pos2", "show", "clear") : List.of());
+    sub("who", "buildgit.who", (s, a) -> who(s), null);
+    sub("disk", "buildgit.disk", (s, a) -> disk(s), null);
     sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames() : List.of());
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames() : List.of());
-    sub("back", "buildgit.go", (s, a) -> back(s), null);
-    sub("pull", "buildgit.sync", this::pull, null);
-    sub("push", "buildgit.sync", this::push, (s, b) -> b.isEmpty() && s.player() instanceof ServerPlayer p ? bg.sync().names(p) : List.of());
+    sub("back", "buildgit.back", (s, a) -> back(s), null);
+    sub("pull", "buildgit.pull", this::pull, null);
+    sub("push", "buildgit.push", this::push, (s, b) -> b.isEmpty() && s.player() instanceof ServerPlayer p ? bg.sync().names(p) : List.of());
     sub("load", null, this::load, (s, b) -> b.isEmpty() && bg.platform().syncFolder() != null ? LocalSync.names(bg.platform().syncFolder()) : List.of());
-    sub("view", "buildgit.go", this::view, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
+    sub("view", "buildgit.view", this::view, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm"), s.isPlayer() ? List.of() : draftNames()));
-    sub("branch", "buildgit.view", this::branch, (s, b) -> b.isEmpty() ? List.of("list", "create", "delete")
+    sub("branch", "buildgit.branch.list|buildgit.branch.create|buildgit.branch.delete", this::branch, (s, b) -> b.isEmpty() ? List.of("list", "create", "delete")
         : b.size() == 1 && b.getFirst().equals("delete") ? draftNames()
         : b.size() == 2 && b.getFirst().equals("create") ? draftNames()
         : b.size() == 2 && b.getFirst().equals("delete") ? List.of("--force") : List.of());
-    sub("merge", null, this::merge, (s, b) -> b.isEmpty() ? concat(List.of("view", "conflicts", "goto", "take", "continue", "abort", "list"), draftNames())
+    sub("merge", "buildgit.merge|buildgit.merge.resolve|buildgit.publish|buildgit.revert", this::merge, (s, b) -> b.isEmpty() ? concat(List.of("view", "conflicts", "goto", "take", "continue", "abort", "list"), draftNames())
         : b.size() == 1 && b.getFirst().equals("view") ? List.of("ours", "theirs", "result")
         : b.size() == 1 && b.getFirst().equals("take") ? List.of("ours", "theirs")
         : b.size() == 2 && b.getFirst().equals("take") ? List.of("here", "selection", "all") : List.of());
     sub("revert", "buildgit.revert", this::revert, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("restore", "buildgit.restore", this::restore, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--selection", "confirm"));
+  }
+
+  /** {@code permissions}：以 {@code |} 分隔，有其中一個就能用（子指令各有權限時）。 */
+  private static boolean anyPermission(Sender sender, String permissions) {
+    for (var p : permissions.split("\\|")) if (sender.hasPermission(p)) return true;
+    return false;
   }
 
   private void sub(String name, String permission, Handler handler, Suggester suggester) {
@@ -136,7 +142,7 @@ public final class BgCommand {
   public <S> LiteralCommandNode<S> build(Function<S, Sender> sender) {
     var root = LiteralArgumentBuilder.<S>literal("bg").executes(ctx -> {
       var s = sender.apply(ctx.getSource());
-      if (s.player() != null && s.hasPermission("buildgit.view") && ws().isOpen()) bg.menu().open(s.player());
+      if (s.player() != null && s.hasPermission("buildgit.menu") && ws().isOpen()) bg.menu().open(s.player());
       else msg().send(s, "help");
       return 1;
     });
@@ -154,7 +160,7 @@ public final class BgCommand {
           next = arg;
         }
         var literal = LiteralArgumentBuilder.<S>literal(name)
-            .requires(src -> sub.permission() == null || sender.apply(src).hasPermission(sub.permission()))
+            .requires(src -> sub.permission() == null || anyPermission(sender.apply(src), sub.permission()))
             .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), new String[0]));
         if (next != null) literal.then(next);
         root.then(literal);
@@ -1134,6 +1140,10 @@ public final class BgCommand {
     var what = w.isEmpty() ? "list" : w.getFirst().toLowerCase(Locale.ROOT);
     switch (what) {
       case "list" -> {
+        if (!sender.hasPermission("buildgit.branch.list")) {
+          msg().send(sender, "no-permission");
+          return;
+        }
         for (var e : ws().drafts().entrySet()) {
           var wt = ws().worktree(e.getKey());
           int players = 0;
@@ -1191,7 +1201,7 @@ public final class BgCommand {
   }
 
   private boolean mayResolve(Sender sender) {
-    if (sender.hasPermission("buildgit.merge") || sender.hasPermission("buildgit.publish") || sender.hasPermission("buildgit.revert")) return true;
+    if (anyPermission(sender, "buildgit.merge.resolve|buildgit.merge|buildgit.publish|buildgit.revert")) return true;
     msg().send(sender, "no-permission");
     return false;
   }

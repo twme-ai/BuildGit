@@ -521,7 +521,7 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 - 方塊狀態要能解析、方塊實體 NBT 要能以有深度與節點數上限的解析器讀取；沒有管理員方塊權限（`canUseGameMasterBlocks`）時，指令方塊等與指令方塊礦車不接受。不接受的格子維持取出時的樣子，並告訴玩家數量。
 - 實體只收建築實體、位置在範圍內，且不能用範圍外已有的 UUID（否則能把範圍外的實體搬進來）。
 - 資料錯誤只回覆玩家，不寫堆疊，避免被拿來洗記錄。
-- 取出的體積上限由 `sync.max-blocks` 設定（預設 200 萬格）。`buildgit.sync` 預設只有 OP。
+- 取出的體積上限由 `sync.max-blocks` 設定（預設 200 萬格）。`buildgit.pull`、`buildgit.push` 預設只有 OP。
 
 ## 7. 查詢與顯示（底層指令）
 
@@ -549,25 +549,12 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 
 | 權限集 | 包含 |
 |---|---|
-| `buildgit.role.viewer` | view、inspect、go |
-| `buildgit.role.builder` | viewer、try、save、sync |
-| `buildgit.role.manager` | builder、publish、commit、merge、revert、restore、mark、branch.create、branch.delete |
-| `buildgit.admin` | manager，加上 init、reload、disk |
+| `buildgit.role.viewer` | menu、status、log、graph、show、diff、blame、inspect、who、sel、branch.list、go、back、view |
+| `buildgit.role.builder` | viewer、try、save、pull、push |
+| `buildgit.role.manager` | builder、publish、commit、merge、merge.resolve、revert、restore、mark、branch.create、branch.delete |
+| `buildgit.admin` | manager、init、reload、disk |
 
-| 節點 | 範圍 | 同時帶出 |
-|---|---|---|
-| `buildgit.view` | status、log、graph、show、diff、blame、who、sel、branch list | |
-| `buildgit.inspect` | 檢查工具 | view |
-| `buildgit.go` | 進出分支世界、`back`、`view` | |
-| `buildgit.save` | 手動存檔 | view |
-| `buildgit.try` | 開草稿 | go、save |
-| `buildgit.sync` | `pull`、`push`：帶到單人世界改再送回（§6.7）；單人世界的 `load` 不需要權限 | try |
-| `buildgit.publish` | 併回草稿（含 `--selection`） | try |
-| `buildgit.commit` | 自訂訊息存檔 | save |
-| `buildgit.merge` | 底層 `merge <分支>`；衝突處理（有 `publish` 或 `revert` 權限的人也能處理自己引起的整合） | publish |
-| `buildgit.revert`／`buildgit.restore` | 撤銷、還原 | save |
-| `buildgit.mark` | 手動補標記 | |
-| `buildgit.branch.create`／`buildgit.branch.delete` | 建立、刪除分支 | |
+其他節點都是 `buildgit.<指令>`（`branch` 的三個子指令是 `branch.list`／`branch.create`／`branch.delete`，處理衝突整合是 `merge.resolve`），一個節點只開一個指令、彼此不包含（決策 #47）。例外：有 `publish`、`revert`、`merge` 的人也能處理衝突整合，因為整合是這些動作引起的；單人世界的 `load` 與 `help` 不需要權限。
 
 包含關係是程式判斷，所以權限集裡的單一節點設成 false 不會拿掉它；要少給某一項時逐項給節點。
 
@@ -674,3 +661,4 @@ BuildGit/
 | 44 | 2026-10-16 | 權限集 `buildgit.role.viewer`／`builder`／`manager`（使用者要求，方便管理員授權）；包含關係改由程式判斷，Paper 與 Fabric 一致，`plugin.yml` 不再寫 `children` |
 | 45 | 2026-10-16 | 支援 DebugStickPro（使用者要求）：經典、複製模式以它的事件標記；凍結中的格子存檔時跳過，不把暫時的屏障存進版本（§3.9.1） |
 | 46 | 2026-10-17 | 記錄生態域（使用者指出遺漏）：以 4×4×4 生態域格存在 section 覆寫表裡，有標記的 section 存檔時一併比較；兩邊都改時保留目標、不進衝突整合；pull／push 先不帶（§3.9.2） |
+| 47 | 2026-10-17 | 每個指令一個獨立權限節點（使用者要求）：節點只開一個指令、彼此不包含，組合交給權限集；`buildgit.view` 改為只管 `/bg view`，原本的 `sync`、`admin` 底下的指令拆成 `pull`、`push`、`reload`、`disk`（§8） |
