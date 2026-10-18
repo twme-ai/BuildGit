@@ -124,6 +124,13 @@ public final class Worktree {
     return committing.get();
   }
 
+  /** 存檔或寫入世界做到哪裡（同一時間只有一個在進行）。 */
+  private final Progress progress = new Progress();
+
+  Progress progress() {
+    return progress;
+  }
+
   // ---- 存檔 ----
 
   public record SaveResult(Optional<ObjectId> commit, int cells, int entities, int biomes) {}
@@ -150,16 +157,21 @@ public final class Worktree {
     try {
       marks = defer(drained.marks());
       readEntities(marks, snapshot);
-      for (var entry : chunks(marks).entrySet()) {
+      var chunks = chunks(marks);
+      progress.reset(chunks.size());
+      for (var entry : chunks.entrySet()) {
         var key = entry.getKey();
         var world = worlds.get(key.dimension);
-        if (world.hasChunk(key.x, key.z)) read(world, world.getChunk(key.x, key.z), entry.getValue(), marks, snapshot);
-        else
+        if (world.hasChunk(key.x, key.z)) {
+          read(world, world.getChunk(key.x, key.z), entry.getValue(), marks, snapshot);
+          progress.step();
+        } else
           // 要生成到完整狀態：合成的 chunk 沒有光照資料，載入時要補完最後的步驟。
           // 從未生成的 chunk 也照常生成，讀到的就是玩家會看到的內容。讀不到絕不能當成空氣。
           futures.add(ws.platform().loadChunk(world, key.x, key.z).thenAccept(chunk -> {
             if (chunk == null) throw new IllegalStateException("無法載入 chunk " + key.x + "," + key.z);
             read(world, chunk, entry.getValue(), marks, snapshot);
+            progress.step();
           }));
       }
     } catch (RuntimeException e) {
@@ -175,6 +187,7 @@ public final class Worktree {
     var repo = ws.repo();
     CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
         .thenApplyAsync(ignored -> {
+          progress.reset(0); // 寫進版本：算不出進度
           try {
             ws.awaitGenesis();
             var head = repo.head(branch);

@@ -7,7 +7,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * 不在主世界時的提示（設計 §6.6）：草稿、衝突整合、檢視世界各有 bossbar；
+ * 不在主世界時的提示（設計 §6.6）：草稿、衝突整合、檢視世界各有 bossbar；花時間的動作進行中時，執行的玩家改看到進度。
  * 檢視世界是唯讀的，玩家的修改由平台的掛點詢問 {@link #readOnly} 後取消；離開後沒人的檢視世界收掉。
  */
 public final class Hud {
@@ -15,6 +15,10 @@ public final class Hud {
       Platform.BarColor.YELLOW, Platform.BarColor.PURPLE, Platform.BarColor.WHITE};
   private final BuildGit bg;
   private final Map<UUID, Long> warned = new HashMap<>();
+  private final Map<UUID, Task> tasks = new HashMap<>();
+
+  /** {@code progress} 為 null 時只顯示經過的秒數。 */
+  private record Task(Component label, Progress progress, long start) {}
 
   Hud(BuildGit bg) {
     this.bg = bg;
@@ -29,8 +33,29 @@ public final class Hud {
     for (var p : bg.platform().server().getPlayerList().getPlayers()) update(p);
   }
 
+  /** 開始在玩家的 bossbar 上顯示進度，直到 {@link #end}（主執行緒）。主控台不顯示。 */
+  void start(Sender sender, Component label, Progress progress) {
+    if (!(sender.player() instanceof ServerPlayer p)) return;
+    tasks.put(p.getUUID(), new Task(label, progress, System.currentTimeMillis()));
+    update(p);
+  }
+
+  /** 動作結束（成功或失敗都要呼叫），bossbar 回到平常的提示。 */
+  void end(Sender sender) {
+    if (sender.player() instanceof ServerPlayer p && tasks.remove(p.getUUID()) != null) update(p);
+  }
+
   void update(ServerPlayer p) {
     var msg = bg.messages();
+    var task = tasks.get(p.getUUID());
+    if (task != null) {
+      float f = task.progress() == null ? -1 : task.progress().fraction();
+      long seconds = (System.currentTimeMillis() - task.start()) / 1000;
+      var text = f < 0 ? msg.get("progress-elapsed", "label", task.label(), "seconds", seconds)
+          : msg.get("progress-percent", "label", task.label(), "percent", (int) (f * 100), "seconds", seconds);
+      bg.platform().bar(p, text, Platform.BarColor.GREEN, f < 0 ? 1f : f);
+      return;
+    }
     Component text = null;
     var color = Platform.BarColor.WHITE;
     if (ws().isOpen()) {
@@ -52,7 +77,7 @@ public final class Hud {
         color = COLORS[Math.floorMod(wt.branch().hashCode(), COLORS.length)];
       }
     }
-    bg.platform().bar(p, text, color);
+    bg.platform().bar(p, text, color, 1f);
   }
 
   /**
@@ -77,6 +102,7 @@ public final class Hud {
 
   void quit(ServerPlayer p) {
     warned.remove(p.getUUID());
+    tasks.remove(p.getUUID());
     if (ws().isOpen()) ws().left(p.level());
   }
 }

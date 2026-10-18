@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -38,6 +39,8 @@ final class GenesisCopy {
   /** 只在複製執行緒使用。 */
   private final Map<Path, RegionWriter> writers = new HashMap<>();
   final CompletableFuture<Long> done = new CompletableFuture<>();
+  /** 以 region 檔計。 */
+  final Progress progress = new Progress();
 
   GenesisCopy(String dimension, Path from, Path to, Logger log) throws IOException {
     this.dimension = dimension;
@@ -102,19 +105,22 @@ final class GenesisCopy {
   private void run(Runnable flush) {
     try {
       flush.run();
+      var files = new LinkedHashMap<String, List<Path>>();
       for (var sub : List.of("region", "entities")) {
-        List<Path> files;
         try (Stream<Path> s = Files.list(from.resolve(sub))) {
-          files = s.filter(p -> p.getFileName().toString().endsWith(".mca")).sorted().toList();
+          files.put(sub, s.filter(p -> p.getFileName().toString().endsWith(".mca")).sorted().toList());
         } catch (java.nio.file.NoSuchFileException e) {
-          continue;
-        }
-        for (var file : files) {
-          var m = NAME.matcher(file.getFileName().toString());
-          if (m.matches()) copyFile(sub, file, Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
-          closeWriters(); // 大世界有上千個 region 檔，不要一直開著
+          files.put(sub, List.of());
         }
       }
+      progress.reset(files.values().stream().mapToLong(List::size).sum());
+      for (var e : files.entrySet())
+        for (var file : e.getValue()) {
+          var m = NAME.matcher(file.getFileName().toString());
+          if (m.matches()) copyFile(e.getKey(), file, Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
+          closeWriters(); // 大世界有上千個 region 檔，不要一直開著
+          progress.step();
+        }
       synchronized (this) {
         finished = true;
       }

@@ -309,7 +309,7 @@ final class PaperPlatform implements Platform, Listener {
   // ---- 畫面 ----
 
   @Override
-  public void bar(ServerPlayer player, Component text, BarColor color) {
+  public void bar(ServerPlayer player, Component text, BarColor color, float progress) {
     var p = bukkit(player);
     var bar = bars.get(p.getUniqueId());
     if (text == null) {
@@ -319,12 +319,13 @@ final class PaperPlatform implements Platform, Listener {
     }
     var c = BossBar.Color.valueOf(color.name());
     if (bar == null) {
-      bar = BossBar.bossBar(text, 1f, c, BossBar.Overlay.PROGRESS);
+      bar = BossBar.bossBar(text, progress, c, BossBar.Overlay.PROGRESS);
       bars.put(p.getUniqueId(), bar);
       p.showBossBar(bar);
     } else {
       bar.name(text);
       bar.color(c);
+      bar.progress(progress);
     }
   }
 

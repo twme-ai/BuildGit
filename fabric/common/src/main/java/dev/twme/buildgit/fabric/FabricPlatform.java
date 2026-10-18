@@ -412,7 +412,7 @@ final class FabricPlatform implements Platform {
   // ---- 畫面 ----
 
   @Override
-  public void bar(ServerPlayer player, Component text, BarColor color) {
+  public void bar(ServerPlayer player, Component text, BarColor color, float progress) {
     var bar = bars.get(player.getUUID());
     if (text == null) {
       if (bar != null) bar.removeAllPlayers();
@@ -428,6 +428,7 @@ final class FabricPlatform implements Platform {
       bar.setName(vanilla(text));
       bar.setColor(c);
     }
+    bar.setProgress(progress);
   }
 
   @Override

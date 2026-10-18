@@ -124,8 +124,8 @@ public interface Platform {
 
   enum BarColor { PINK, BLUE, RED, GREEN, YELLOW, PURPLE, WHITE }
 
-  /** 顯示或更新玩家的 bossbar；{@code text} 為 null 時隱藏。 */
-  void bar(ServerPlayer player, Component text, BarColor color);
+  /** 顯示或更新玩家的 bossbar；{@code text} 為 null 時隱藏。{@code progress} 是 0 到 1 的長度。 */
+  void bar(ServerPlayer player, Component text, BarColor color, float progress);
 
   /** 隱藏所有 bossbar（停用時）。 */
   void clearBars();

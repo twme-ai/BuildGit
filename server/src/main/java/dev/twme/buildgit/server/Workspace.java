@@ -912,6 +912,7 @@ public final class Workspace {
       failed.accept(new IOException("分支正在存檔或併回，請稍後再試：" + wt.branch()));
       return;
     }
+    wt.progress().reset(0);
     CompletableFuture.supplyAsync(() -> {
       try {
         awaitGenesis();
@@ -1006,8 +1007,11 @@ public final class Workspace {
     return (long) x << 32 | z & 0xFFFFFFFFL;
   }
 
-  /** 逐 chunk 載入並分刻寫入（主執行緒）。實體等該 chunk 的實體載入後才處理。 */
+  /** 逐 chunk 載入並分刻寫入（主執行緒）。實體等該 chunk 的實體載入後才處理。進度以 chunk 與實體計。 */
   private CompletableFuture<Void> apply(Worktree wt, Writes writes) {
+    var progress = wt.progress();
+    progress.reset(writes.cells().values().stream().mapToLong(Map::size).sum() + writes.biomes().values().stream().mapToLong(Map::size).sum()
+        + writes.entities().size());
     var futures = new ArrayList<CompletableFuture<?>>();
     var parsed = new HashMap<String, net.minecraft.world.level.block.state.BlockState>();
     writes.cells().forEach((dim, byChunk) -> {
@@ -1022,7 +1026,7 @@ public final class Workspace {
           } catch (IOException e) {
             throw new UncheckedIOException(e);
           }
-        })));
+        })).thenRun(progress::step));
       });
     });
     writes.biomes().forEach((dim, byChunk) -> {
@@ -1032,6 +1036,7 @@ public final class Workspace {
         boolean changed = false;
         for (var e : sections.entrySet()) changed |= LiveWriter.setBiomes(world, chunk, e.getKey(), e.getValue());
         if (changed) LiveWriter.resendBiomes(world, List.of(chunk));
+        progress.step();
       })));
     });
     CompletableFuture<Void> blocks = CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
@@ -1048,7 +1053,7 @@ public final class Workspace {
               } catch (IOException ex) {
                 throw new UncheckedIOException(ex);
               }
-            }));
+            })).thenRun(progress::step);
       }
       return chain;
     });

@@ -219,7 +219,17 @@ public final class BgCommand {
   }
 
   private void failed(Sender sender, Throwable e) {
+    done(sender);
     msg().send(sender, "branch-failed", "error", String.valueOf(e.getMessage()));
+  }
+
+  /** 花時間的動作：在執行的玩家的 bossbar 上顯示進度（{@code progress} 為 null 時只顯示秒數），直到 {@link #done}。 */
+  private void progress(Sender sender, Progress progress, String key, Object... placeholders) {
+    bg.hud().start(sender, msg().get(key, placeholders), progress);
+  }
+
+  private void done(Sender sender) {
+    bg.hud().end(sender);
   }
 
   /** 玩家所在世界的草稿與主世界（主控台：全部）。 */
@@ -315,9 +325,13 @@ public final class BgCommand {
     }
     boolean started = wt.save(author(sender), "autosave", Commit.AUTO, r -> next.run(), e -> {
       bg.platform().log().log(Level.WARNING, "自動存檔失敗", e);
+      done(sender);
       msg().send(sender, "save-failed", "error", String.valueOf(e.getMessage()));
     });
-    if (!started) msg().send(sender, "save-busy");
+    if (!started) {
+      done(sender);
+      msg().send(sender, "save-busy");
+    }
   }
 
   /** 玩家的選取範圍換成版本中的維度與範圍。 */
@@ -375,8 +389,14 @@ public final class BgCommand {
     try {
       var copy = ws().init(p != null ? bg.tracker().author(p) : bg.tracker().author(new UUID(0, 0), null), world);
       msg().send(sender, "init-started", "world", name);
-      copy.whenDone(size -> ws().sync(() -> msg().send(sender, "init-done", "world", name, "size", size / (1024 * 1024))),
-          error -> ws().sync(() -> msg().send(sender, "init-failed", "error", String.valueOf(error.getMessage()))));
+      progress(sender, copy.progress, "progress-init", "world", name);
+      copy.whenDone(size -> ws().sync(() -> {
+        done(sender);
+        msg().send(sender, "init-done", "world", name, "size", size / (1024 * 1024));
+      }), error -> ws().sync(() -> {
+        done(sender);
+        msg().send(sender, "init-failed", "error", String.valueOf(error.getMessage()));
+      }));
     } catch (Workspace.Refused e) {
       msg().send(sender, "init-failed", "error", e.getMessage());
     } catch (IOException e) {
@@ -402,8 +422,11 @@ public final class BgCommand {
 
   private void save(Sender sender, String message) {
     msg().send(sender, "save-start");
-    boolean started = current(sender).save(author(sender), message.isBlank() ? "save" : message, 0,
+    var wt = current(sender);
+    progress(sender, wt.progress(), "progress-save");
+    boolean started = wt.save(author(sender), message.isBlank() ? "save" : message, 0,
         r -> {
+          done(sender);
           if (r.commit().isEmpty()) msg().send(sender, "save-nothing");
           else {
             msg().send(sender, "save-done", "id", r.commit().get().abbrev(), "cells", r.cells(), "entities", r.entities());
@@ -411,10 +434,14 @@ public final class BgCommand {
           }
         },
         e -> {
+          done(sender);
           bg.platform().log().log(Level.WARNING, "存檔失敗", e);
           msg().send(sender, "save-failed", "error", String.valueOf(e.getMessage()));
         });
-    if (!started) msg().send(sender, "save-busy");
+    if (!started) {
+      done(sender);
+      msg().send(sender, "save-busy");
+    }
   }
 
   /** {@code log [分支] [頁數] [--all] [--author <玩家>]}：預設只列里程碑，自動存檔收合成一行；分頁顯示。 */
@@ -1060,6 +1087,7 @@ public final class BgCommand {
     var d = draft;
     boolean confirm = flags.contains("confirm");
     msg().send(sender, confirm ? "publish-start" : "publish-preview-start", "name", draft.branch(), "target", branchLabel(targetBranch));
+    progress(sender, confirm ? target.progress() : null, confirm ? "progress-publish" : "progress-preview", "name", draft.branch());
     autosaveThen(sender, draft, () -> autosaveThen(sender, target, () -> {
       if (confirm) merge(sender, target, d.branch(), finalScope, d);
       else preview(sender, target, d.branch(), finalScope, flags.contains("--selection"));
@@ -1068,6 +1096,7 @@ public final class BgCommand {
 
   private void preview(Sender sender, Worktree target, String source, Workspace.Scope scope, boolean selection) {
     ws().preview(target.branch(), source, scope).whenComplete((preview, error) -> ws().sync(() -> {
+      done(sender);
       if (error != null) {
         failed(sender, Workspace.unwrap(error));
         return;
@@ -1107,6 +1136,7 @@ public final class BgCommand {
   /** 合併並寫入目標世界；有衝突時開始衝突整合。{@code draft} 不為 null 時，完成後把在草稿裡的玩家送回目標世界。 */
   private void merge(Sender sender, Worktree target, String source, Workspace.Scope scope, Worktree draft) {
     ws().merge(target, source, scope, author(sender), applied -> {
+      done(sender);
       if (applied.isEmpty()) {
         msg().send(sender, "publish-nothing");
         return;
@@ -1120,6 +1150,7 @@ public final class BgCommand {
         if (scope == null && draft.branch().equals(source)) sendButton(s(p), "draft-delete-button", "/bg branch delete " + source);
       }
     }, error -> {
+      done(sender);
       if (error instanceof Workspace.ConflictException c)
         startSession(sender, scope == null ? MergeSessions.Kind.MERGE : MergeSessions.Kind.PARTIAL, target.branch(), source, scope, c);
       else {
@@ -1131,7 +1162,9 @@ public final class BgCommand {
 
   private void startSession(Sender sender, MergeSessions.Kind kind, String target, String source, Workspace.Scope scope,
       Workspace.ConflictException c) {
+    progress(sender, null, "progress-merge-start");
     ws().merges().start(kind, target, source, scope, c, author(sender), session -> {
+      done(sender);
       msg().send(sender, "merge-started", "cells", c.result.cellConflicts().size(), "entities", c.result.entityConflicts().size());
       msg().send(sender, "merge-help");
       if (!(sender.player() instanceof ServerPlayer p)) {
@@ -1381,7 +1414,9 @@ public final class BgCommand {
         var s = session(sender, w);
         if (s == null) return;
         msg().send(sender, "merge-finishing");
+        progress(sender, ws().openBranch(s.target()).progress(), "progress-merge-finish");
         ws().merges().finish(s, author(sender), applied -> {
+          done(sender);
           if (applied.isEmpty()) msg().send(sender, "merge-finished-empty", "target", branchLabel(s.target()));
           else {
             var a = applied.get();
@@ -1390,6 +1425,7 @@ public final class BgCommand {
             if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
           }
         }, e -> {
+          done(sender);
           if (e instanceof Workspace.ConflictException c)
             msg().send(sender, "merge-target-moved", "count", c.result.cellConflicts().size() + c.result.entityConflicts().size());
           else failed(sender, e);
@@ -1482,7 +1518,9 @@ public final class BgCommand {
       msg().send(sender, "merge-use-continue");
       return;
     }
+    progress(sender, wt.progress(), "progress-revert");
     autosaveThen(sender, wt, () -> ws().revert(wt, id, author(sender), applied -> {
+      done(sender);
       if (applied.isEmpty()) msg().send(sender, "revert-nothing");
       else {
         var a = applied.get();
@@ -1490,6 +1528,7 @@ public final class BgCommand {
         if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
       }
     }, e -> {
+      done(sender);
       if (e instanceof Workspace.ConflictException c) startSession(sender, MergeSessions.Kind.REVERT, wt.branch(), null, null, c);
       else failed(sender, e);
     }));
@@ -1523,7 +1562,9 @@ public final class BgCommand {
       return;
     }
     var finalScope = scope;
+    progress(sender, wt.progress(), "progress-restore");
     autosaveThen(sender, wt, () -> ws().restore(wt, id, finalScope, author(sender), applied -> {
+      done(sender);
       if (applied.isEmpty()) msg().send(sender, "restore-nothing");
       else {
         var a = applied.get();
