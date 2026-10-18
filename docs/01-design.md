@@ -557,6 +557,7 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 | `/bg who` | 每位玩家所在的分支或檢視世界 |
 | `/bg disk` | 管理員：BuildGit 用掉的磁碟空間，分成版本紀錄（所有分支共用，無法拆給個別分支）、起點世界副本、標記日誌等、每個草稿的世界資料夾、檢視世界；背景執行緒計算 |
 | `/bg sel pos1\|pos2\|show\|clear` | 不用 WorldEdit 時的選取範圍 |
+| `/bg mark <x1 y1 z1 x2 y2 z2>\|sel` | 手動補記一個範圍（記錄不到的變更）；`sel` 用目前的選取範圍。打座標時按 Tab 會依序補上選取範圍的座標 |
 
 指令以 Paper 的 Brigadier API（`LifecycleEvents.COMMANDS`）註冊：子指令依權限顯示，參數有補全；需要確認的動作（併回、還原）在聊天訊息附 MiniMessage 的點擊按鈕，主控台則提示要執行的完整指令。
 

@@ -84,7 +84,7 @@ public final class BgCommand {
     sub("diff", "buildgit.diff", this::diff, (s, b) -> b.isEmpty() ? concat(List.of("off"), recentCommits(s)) : b.size() < 2 ? recentCommits(s) : List.of());
     sub(List.of("inspect", "i"), "buildgit.inspect", (s, a) -> toggleInspect(s), null);
     sub("blame", "buildgit.blame", (s, a) -> blame(s), null);
-    sub("mark", "buildgit.mark", this::mark, null);
+    sub("mark", "buildgit.mark", this::mark, this::suggestMark);
     sub("sel", "buildgit.sel", this::sel, (s, b) -> b.isEmpty() ? List.of("pos1", "pos2", "show", "clear") : List.of());
     sub("who", "buildgit.who", (s, a) -> who(s), null);
     sub("disk", "buildgit.disk", (s, a) -> disk(s), null);
@@ -696,18 +696,32 @@ public final class BgCommand {
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
-    if (w.size() != 6) {
-      msg().send(sender, "usage-mark");
-      return;
+    Box box;
+    if (w.size() == 1 && w.getFirst().equalsIgnoreCase("sel")) {
+      var sel = bg.selections().get(p);
+      if (sel.isEmpty()) {
+        msg().send(sender, "sel-none");
+        return;
+      }
+      if (sel.get().level() != p.level()) {
+        msg().send(sender, "mark-sel-elsewhere", "world", bg.platform().levelName(sel.get().level()));
+        return;
+      }
+      box = sel.get().box();
+    } else {
+      if (w.size() != 6) {
+        msg().send(sender, "usage-mark");
+        return;
+      }
+      int[] v = new int[6];
+      try {
+        for (int i = 0; i < 6; i++) v[i] = Integer.parseInt(w.get(i));
+      } catch (NumberFormatException e) {
+        msg().send(sender, "usage-mark");
+        return;
+      }
+      box = Box.of(new BlockPos(v[0], v[1], v[2]), new BlockPos(v[3], v[4], v[5]));
     }
-    int[] v = new int[6];
-    try {
-      for (int i = 0; i < 6; i++) v[i] = Integer.parseInt(w.get(i));
-    } catch (NumberFormatException e) {
-      msg().send(sender, "usage-mark");
-      return;
-    }
-    var box = Box.of(new BlockPos(v[0], v[1], v[2]), new BlockPos(v[3], v[4], v[5]));
     long volume = (long) (box.maxX() - box.minX() + 1) * (box.maxY() - box.minY() + 1) * (box.maxZ() - box.minZ() + 1);
     if (volume > MAX_MARK) {
       msg().send(sender, "mark-too-large", "max", MAX_MARK);
@@ -719,6 +733,22 @@ public final class BgCommand {
     }
     bg.tracker().markBox(p.level(), box, bg.tracker().author(p));
     msg().send(sender, "mark-done", "cells", volume);
+    bg.outlines().show(p, p.level(), List.of(new Outlines.Shape(box, Outlines.MODIFIED)), OUTLINE_SECONDS);
+  }
+
+  /** 第一個參數可以是 {@code sel}；每個座標都補上選取範圍（WorldEdit 或 /bg sel）對應的值，按 Tab 就能一路填完。 */
+  private List<String> suggestMark(Sender sender, List<String> before) {
+    var p = sender.player();
+    if (p == null || before.size() >= 6 || !before.isEmpty() && before.getFirst().equalsIgnoreCase("sel")) return List.of();
+    var result = new ArrayList<String>();
+    if (before.isEmpty()) result.add("sel");
+    var sel = bg.selections().get(p);
+    if (sel.isPresent() && sel.get().level() == p.level()) {
+      var b = sel.get().box();
+      int[] v = {b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ()};
+      result.add(Integer.toString(v[before.size()]));
+    }
+    return result;
   }
 
   private void sel(Sender sender, String[] args) {
