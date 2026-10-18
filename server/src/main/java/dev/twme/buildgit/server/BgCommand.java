@@ -388,6 +388,10 @@ public final class BgCommand {
     String name = bg.platform().levelName(world);
     try {
       var copy = ws().init(p != null ? bg.tracker().author(p) : bg.tracker().author(new UUID(0, 0), null), world);
+      if (copy == null) {
+        msg().send(sender, "init-lazy", "world", name);
+        return;
+      }
       msg().send(sender, "init-started", "world", name);
       progress(sender, copy.progress, "progress-init", "world", name);
       copy.whenDone(size -> ws().sync(() -> {

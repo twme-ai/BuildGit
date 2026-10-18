@@ -37,6 +37,7 @@ not-initialized: "<red>Version control has not started. An admin can run <aqua>/
 open-failed: "<red>The repository could not be opened; recording is disabled: <error></red>"
 already-initialized: "<red>World <world> is already under version control.</red>"
 init-started: "<green>World <world> is now under version control. Player changes in this world are recorded from now on.</green> <gray>The genesis is being copied in the background; until it finishes, changes in this world are not saved yet and drafts cannot be opened.</gray>"
+init-lazy: "<green>World</green> <white><world></white> <green>is now under version control (lazy copy).</green> <gray>Chunks are copied into the starting world when first loaded; do not open this world without BuildGit running or edit it with offline tools.</gray>"
 init-done: "<green>Finished copying the genesis of <world>.</green> <gray>(<size> MB; run /bg init inside each other world you want tracked)</gray>"
 init-failed: "<red>Init failed: <error></red>"
 reloaded: "<green>Configuration reloaded.</green>"

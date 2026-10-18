@@ -18,6 +18,7 @@ public final class AnvilSource implements StateSource, Closeable {
   private static final int OPEN_REGIONS = 32;
 
   private final Function<String, Path> dimensions;
+  private final Function<String, Path> fallback;
   private final Upgrader upgrader;
   /** 開著的 region 檔；超過上限時關掉最久沒用的，避免大世界占滿檔案代碼。 */
   private final Map<Path, RegionFile> regions =
@@ -49,7 +50,18 @@ public final class AnvilSource implements StateSource, Closeable {
 
   /** @param upgrader 讀到的 chunk 先升級到目前的格式（起點世界可能是較舊的版本存的） */
   public AnvilSource(Function<String, Path> dimensions, Upgrader upgrader) {
+    this(dimensions, d -> null, upgrader);
+  }
+
+  /**
+   * 起點世界延遲複製（設計 §4.3）：{@code dimensions} 的目錄裡沒有的 chunk，從 {@code fallback} 的目錄讀。
+   * 一個 chunk 的方塊在 {@code dimensions} 裡有，它的實體就以 {@code dimensions} 為準（沒有表示沒有實體）。
+   *
+   * @param fallback 維度 id 對應的後備目錄；沒有時回傳 null
+   */
+  public AnvilSource(Function<String, Path> dimensions, Function<String, Path> fallback, Upgrader upgrader) {
     this.dimensions = dimensions;
+    this.fallback = fallback;
     this.upgrader = upgrader;
   }
 
@@ -113,6 +125,11 @@ public final class AnvilSource implements StateSource, Closeable {
     if (dir == null) return null;
     var region = region(dir.resolve("region"), chunkX, chunkZ);
     var nbt = region == null ? null : region.read(RegionFile.index(chunkX, chunkZ));
+    var other = fallback.apply(dimension);
+    if (nbt == null && other != null) {
+      var r = region(other.resolve("region"), chunkX, chunkZ);
+      nbt = r == null ? null : r.read(RegionFile.index(chunkX, chunkZ));
+    }
     var data = nbt == null ? new ChunkData(Map.of(), Map.of(), Map.of()) : decode(upgrader.chunk(nbt), upgrader);
     chunks.put(id, data);
     return data;
@@ -232,14 +249,35 @@ public final class AnvilSource implements StateSource, Closeable {
           var chunk = region.read(i);
           if (chunk != null) chunk = upgrader.entityChunk(chunk);
           if (chunk == null) continue;
-          for (var o : chunk.list("Entities").values()) {
-            if (!(o instanceof Nbt.Compound e) || !(e.get("UUID") instanceof int[] u) || u.length != 4) continue;
-            var uuid = new UUID((long) u[0] << 32 | u[1] & 0xFFFFFFFFL, (long) u[2] << 32 | u[3] & 0xFFFFFFFFL);
-            result.put(uuid, new EntityState(uuid, Nbt.write(Normalizer.entity(e))));
-          }
+          index(chunk, result);
         }
       }
+    var other = fallback.apply(dimension);
+    if (other == null || !Files.isDirectory(other.resolve("entities"))) return result;
+    try (var s = Files.list(other.resolve("entities"))) {
+      files = s.filter(p -> RegionFile.NAME.matcher(p.getFileName().toString()).matches()).sorted().toList();
+    }
+    for (var file : files) {
+      var blocks = dir.resolve("region").resolve(file.getFileName());
+      try (var region = new RegionFile(file); var copied = Files.isRegularFile(blocks) ? new RegionFile(blocks) : null) {
+        for (int i = 0; i < 1024; i++) {
+          if (copied != null && copied.has(i)) continue; // 已複製進起點世界的 chunk 以起點世界為準
+          var chunk = region.read(i);
+          if (chunk != null) chunk = upgrader.entityChunk(chunk);
+          if (chunk == null) continue;
+          index(chunk, result);
+        }
+      }
+    }
     return result;
+  }
+
+  private static void index(Nbt.Compound chunk, Map<UUID, EntityState> result) throws IOException {
+    for (var o : chunk.list("Entities").values()) {
+      if (!(o instanceof Nbt.Compound e) || !(e.get("UUID") instanceof int[] u) || u.length != 4) continue;
+      var uuid = new UUID((long) u[0] << 32 | u[1] & 0xFFFFFFFFL, (long) u[2] << 32 | u[3] & 0xFFFFFFFFL);
+      result.put(uuid, new EntityState(uuid, Nbt.write(Normalizer.entity(e))));
+    }
   }
 
   /** 世界存檔後讀到的內容可能已過時；讀取未載入 chunk 前呼叫。 */

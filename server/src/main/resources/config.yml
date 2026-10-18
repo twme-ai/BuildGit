@@ -65,6 +65,14 @@ worlds:
   # 有人再進去（go、try、併回等）時自動重新載入。最少 30 秒；-1 表示一直留在記憶體。
   unload-idle-seconds: 60
 
+init:
+  # 世界的存檔（region 與 entities）超過這個大小（MB）時，/bg init 不複製整個世界，改成延遲複製：
+  # 每個 chunk 第一次載入時才把它的原樣複製進起點世界，沒載入過的直接讀世界自己的存檔。
+  # 省下大部分空間、init 立刻完成，但要遵守：不要在 BuildGit 沒執行時開這個世界（包括 --forceUpgrade、
+  # 單人遊戲、MCA Selector 等離線工具），否則沒載入過的 chunk 的起點會被改掉。
+  # -1 表示一律完整複製（預設）；0 表示一律延遲複製。只影響之後才 init 的世界。
+  lazy-copy-above-mb: -1
+
 sync:
   # /bg pull 一次最多取出的方塊數（選取範圍的體積）。
   max-blocks: 2000000

@@ -37,6 +37,7 @@ not-initialized: "<red>還沒有開始版本控制。管理員可以執行 <aqua
 open-failed: "<red>版本庫無法開啟，記錄已停用：<error></red>"
 already-initialized: "<red>世界 <world> 已經受版本控制了。</red>"
 init-started: "<green>世界 <world> 開始受版本控制，從現在起玩家在這個世界造成的變更都會被記錄。</green> <gray>起點世界正在背景複製；完成前這個世界的變更先不存檔，也還不能開草稿。</gray>"
+init-lazy: "<green>世界</green> <white><world></white> <green>開始受版本控制（延遲複製）。</green> <gray>chunk 第一次載入時才複製進起點世界；請不要在 BuildGit 沒執行時開這個世界或用離線工具修改它。</gray>"
 init-done: "<green>世界 <world> 的起點世界複製完成。</green> <gray>（<size> MB；其他世界要各自在裡面執行 /bg init）</gray>"
 init-failed: "<red>初始化失敗：<error></red>"
 reloaded: "<green>設定已重新載入。</green>"

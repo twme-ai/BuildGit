@@ -225,7 +225,49 @@ public final class Workspace {
     main().addWorld(dim, world);
     owners.put(world, main());
     resumeCopy(world);
+    copyLoaded(world);
     if (!copying(dim)) openBranchWorlds(world);
+  }
+
+  // ---- 延遲複製（設計 §4.3） ----
+
+  /** genesis/<維度>/ 裡的這個檔案表示延遲複製，內容是主世界存檔目錄。 */
+  private static final String LAZY = "lazy";
+
+  private final Map<String, Optional<Path>> lazy = new java.util.concurrent.ConcurrentHashMap<>();
+
+  /** 延遲複製的維度：起點世界缺的 chunk 從這個目錄（主世界的存檔）讀；完整複製的維度為 null。任何執行緒。 */
+  Path lazySource(String dimension) {
+    return lazy.computeIfAbsent(dimension, d -> {
+      var f = genesisDir(d).resolve(LAZY);
+      try {
+        return Files.exists(f) ? Optional.of(Path.of(Files.readString(f).strip())) : Optional.empty();
+      } catch (IOException e) {
+        log().log(Level.SEVERE, "無法讀取 " + f, e);
+        return Optional.empty();
+      }
+    }).orElse(null);
+  }
+
+  /** 延遲複製：已經載入的 chunk（啟動時的出生點、多世界插件剛載入的世界）也要在被改之前複製。 */
+  private void copyLoaded(ServerLevel world) {
+    String dim = Tracker.dimensionId(world);
+    var source = lazySource(dim);
+    if (source != null) genesisRecorder.copyLoaded(dim, source, platform.loadedChunks(world), () -> {});
+  }
+
+  /** init 時是否改用延遲複製：設定的門檻以世界存檔（region 與 entities）的大小比較。 */
+  private boolean lazyCopy(Path levelDir) throws IOException {
+    long threshold = tracker.settings().lazyCopyAboveMb();
+    if (threshold < 0) return false;
+    long size = 0;
+    for (var sub : List.of("region", "entities")) {
+      if (!Files.isDirectory(levelDir.resolve(sub))) continue;
+      try (Stream<Path> s = Files.list(levelDir.resolve(sub))) {
+        size += s.mapToLong(p -> p.toFile().length()).sum();
+      }
+    }
+    return size >= threshold * 1024 * 1024;
   }
 
   /** 上次沒複製完的起點世界（伺服器在複製途中關閉）：補完，已有的 chunk 跳過。 */
@@ -319,7 +361,7 @@ public final class Workspace {
     genesis = new AnvilSource(d -> {
       var p = genesisDir(d);
       return Files.isDirectory(p) ? p : null;
-    }, upgrader);
+    }, this::lazySource, upgrader);
     genesisRecorder = new GenesisRecorder(this::genesisDir, genesis, log());
     var main = new Worktree(this, Repository.MAIN);
     worktrees.put(Repository.MAIN, main);
@@ -327,6 +369,7 @@ public final class Workspace {
       main.addWorld(Tracker.dimensionId(w), w);
       owners.put(w, main);
       resumeCopy(w);
+      copyLoaded(w);
     }
     deleteStaleViews();
     merges = new MergeSessions(this);
@@ -416,7 +459,7 @@ public final class Workspace {
    * 讓一個世界開始受版本控制：存檔、把它的 region 與實體檔複製成凍結的起點世界；第一個世界同時建立版本庫。
    * 只處理這一個世界（地獄、終界與其他世界各自 init）。主執行緒只存這個世界一次，複製在背景進行（{@link GenesisCopy}）。
    *
-   * @return 背景複製；完成時的值是起點世界大小（位元組）
+   * @return 背景複製；完成時的值是起點世界大小（位元組）。延遲複製時為 null：不必等待
    */
   public GenesisCopy init(Author author, ServerLevel world) throws IOException {
     if (ownWorld(world)) throw new Refused("這是 BuildGit 建立的世界；請在要版本控制的世界裡執行");
@@ -426,7 +469,31 @@ public final class Workspace {
     // 主執行緒只把 chunk 交給 IO 執行緒，等它寫完在複製執行緒上進行。
     var flush = platform.save(world);
     String dim = Tracker.dimensionId(world);
-    var copy = new GenesisCopy(dim, platform.levelDirectory(world), genesisDir(dim), log());
+    var levelDir = platform.levelDirectory(world);
+    if (lazyCopy(levelDir)) {
+      // 延遲複製：只複製已載入的 chunk（存檔寫完之後），其餘在第一次載入時複製
+      var g = genesisDir(dim);
+      Files.createDirectories(g.resolve("region"));
+      Files.createDirectories(g.resolve("entities"));
+      String source;
+      try {
+        source = Path.of("").toAbsolutePath().relativize(levelDir.toAbsolutePath()).toString();
+      } catch (IllegalArgumentException e) {
+        source = levelDir.toAbsolutePath().toString(); // 不同磁碟機
+      }
+      lazy.put(dim, Optional.empty()); // 開啟時先不要複製已載入的 chunk：要等存檔寫完
+      Files.writeString(g.resolve(LAZY), source);
+      if (repo == null) {
+        Repository.init(dir, author, System.currentTimeMillis(), upgrader);
+        open();
+      } else {
+        worldLoaded(world);
+      }
+      lazy.put(dim, Optional.of(Path.of(source)));
+      genesisRecorder.copyLoaded(dim, Path.of(source), platform.loadedChunks(world), flush);
+      return null;
+    }
+    var copy = new GenesisCopy(dim, levelDir, genesisDir(dim), log());
     copies.put(dim, copy);
     if (repo == null) {
       Repository.init(dir, author, System.currentTimeMillis(), upgrader);
@@ -458,11 +525,14 @@ public final class Workspace {
     }));
   }
 
-  /** 新生成的 chunk 以外的 chunk 載入了（主執行緒）：起點世界還在複製時，趁它被改之前先複製。 */
+  /** 新生成的 chunk 以外的 chunk 載入了（主執行緒）：起點世界還在複製時，或延遲複製時，趁它被改之前先複製。 */
   public void chunkLoaded(ServerLevel world, int chunkX, int chunkZ) {
-    if (copies.isEmpty() || owners.get(world) != main()) return;
-    var copy = copies.get(Tracker.dimensionId(world));
+    if (owners.get(world) != main()) return;
+    String dim = Tracker.dimensionId(world);
+    var copy = copies.get(dim);
     if (copy != null) copy.chunkLoaded(chunkX, chunkZ);
+    var source = lazySource(dim);
+    if (source != null) genesisRecorder.copy(dim, source, chunkX, chunkZ);
   }
 
 
@@ -713,8 +783,8 @@ public final class Workspace {
       var s = synthesizers.get(key);
       if (s != null) return s;
       var g = genesisDir(source.dimension());
-      s = new RegionSynthesizer(Files.isDirectory(g) ? g : null, new OverlayReader(repo.overlays(), tree), source.dimension(),
-          upgrader);
+      s = new RegionSynthesizer(Files.isDirectory(g) ? g : null, lazySource(source.dimension()), new OverlayReader(repo.overlays(), tree),
+          source.dimension(), upgrader);
       synthesizers.put(key, s);
       return s;
     }
