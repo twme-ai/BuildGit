@@ -62,6 +62,8 @@ public final class Workspace {
   /** 舊版 Minecraft 寫下的歷史與起點世界在讀取時升級（設計 §4.6）。 */
   private final DataUpgrader upgrader = new DataUpgrader();
   private final Path dir;
+  private final Path genesisRoot;
+  private static final String GENESIS_POINTER = "genesis-dir";
   private Repository repo;
   private AnvilSource genesis;
   private GenesisRecorder genesisRecorder;
@@ -96,6 +98,42 @@ public final class Workspace {
     this.tracker = tracker;
     this.ticked = new TickWrites(platform, tracker);
     this.dir = platform.repoDir();
+    this.genesisRoot = locateGenesis();
+  }
+
+  /**
+   * 起點世界放在哪裡：設定的 {@code init.genesis-dir}，空白為 {@code buildgit/genesis}。實際用的位置記在
+   * {@code buildgit/genesis-dir}，設定改了但資料還沒搬過去時繼續用原本的位置，免得受版本控制的世界看起來都沒 init。
+   */
+  private Path locateGenesis() {
+    var fallback = dir.resolve("genesis");
+    var setting = tracker.settings().genesisDir();
+    var wanted = setting.isBlank() ? fallback : Path.of(setting);
+    var pointer = dir.resolve(GENESIS_POINTER);
+    try {
+      var previous = Files.exists(pointer) ? Path.of(Files.readString(pointer).strip()) : fallback;
+      if (!same(wanted, previous) && Files.exists(previous) && !Files.exists(wanted)) {
+        log().warning("起點世界還在 " + previous.toAbsolutePath() + "，設定的 init.genesis-dir 是 " + wanted.toAbsolutePath()
+            + "：關服後把那個資料夾搬過去才會改用新位置，這次繼續用原本的位置");
+        return previous;
+      }
+      if (same(wanted, fallback)) Files.deleteIfExists(pointer);
+      else if (!Files.exists(pointer) || !same(wanted, previous)) {
+        Files.createDirectories(dir);
+        Files.writeString(pointer, setting.strip());
+      }
+    } catch (IOException e) {
+      log().log(Level.SEVERE, "無法讀寫 " + pointer, e);
+    }
+    return wanted;
+  }
+
+  private static boolean same(Path a, Path b) {
+    return a.toAbsolutePath().normalize().equals(b.toAbsolutePath().normalize());
+  }
+
+  Path genesisRoot() {
+    return genesisRoot;
   }
 
   Path dir() {
@@ -331,7 +369,7 @@ public final class Workspace {
   /** 已初始化（有起點世界）的維度。 */
   List<String> trackedDimensions() throws IOException {
     var result = new ArrayList<String>();
-    var root = dir.resolve("genesis");
+    var root = genesisRoot;
     if (!Files.isDirectory(root)) return result;
     try (var namespaces = Files.list(root)) {
       for (var ns : namespaces.filter(Files::isDirectory).toList())
@@ -349,7 +387,7 @@ public final class Workspace {
 
   Path genesisDir(String dimension) {
     int colon = dimension.indexOf(':');
-    return dir.resolve("genesis").resolve(dimension.substring(0, colon)).resolve(dimension.substring(colon + 1));
+    return genesisRoot.resolve(dimension.substring(0, colon)).resolve(dimension.substring(colon + 1));
   }
 
   // ---- 開啟 ----

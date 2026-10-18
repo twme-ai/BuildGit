@@ -1192,6 +1192,7 @@ public final class BgCommand {
   /** 版本庫與 BuildGit 建立的世界各占多少磁碟（背景執行緒計算）。 */
   private void disk(Sender sender) throws IOException {
     var dir = ws().dir();
+    var genesisRoot = ws().genesisRoot();
     var dims = ws().trackedDimensions();
     var branches = new ArrayList<>(ws().branches().keySet());
     branches.remove(Repository.MAIN);
@@ -1199,8 +1200,8 @@ public final class BgCommand {
     platform.async(() -> {
       try {
         long objects = folderSize(dir.resolve("objects"));
-        long genesis = folderSize(dir.resolve("genesis"));
-        long total = folderSize(dir);
+        long genesis = folderSize(genesisRoot);
+        long total = folderSize(dir) + (genesisRoot.toAbsolutePath().normalize().startsWith(dir.toAbsolutePath().normalize()) ? 0 : genesis);
         var lines = new ArrayList<Component>();
         lines.add(msg().get("disk-entry", "name", msg().get("disk-objects"), "size", megabytes(objects)));
         lines.add(msg().get("disk-entry", "name", msg().get("disk-genesis"), "size", megabytes(genesis)));
