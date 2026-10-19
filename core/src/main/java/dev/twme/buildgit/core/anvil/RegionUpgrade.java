@@ -23,6 +23,8 @@ public final class RegionUpgrade {
    * @return 升級的 chunk 數；0 表示檔案沒有動
    */
   public static int rewrite(Path file, int current, UnaryOperator<Nbt.Compound> upgrade, Runnable beforeReplace) throws IOException {
+    // 先只讀：沒有舊 chunk 的檔案（例如已經升級過）不寫暫存檔。
+    if (!hasOlder(file, current)) return 0;
     Path tmpDir = file.resolveSibling(".buildgit-upgrade");
     Files.createDirectories(tmpDir);
     Path tmp = tmpDir.resolve(file.getFileName());
@@ -34,7 +36,7 @@ public final class RegionUpgrade {
           var bytes = in.readBytes(i);
           if (bytes == null) continue;
           var chunk = Nbt.read(bytes);
-          if (chunk.get("DataVersion") instanceof Integer v && v >= OLDEST && v < current) {
+          if (chunk.get("DataVersion") instanceof Integer v && older(v, current)) {
             bytes = Nbt.write(upgrade.apply(chunk));
             upgraded++;
           }
@@ -57,5 +59,19 @@ public final class RegionUpgrade {
       }
       Files.deleteIfExists(tmpDir);
     }
+  }
+
+  private static boolean hasOlder(Path file, int current) throws IOException {
+    try (var in = new RegionFile(file)) {
+      for (int i = 0; i < 1024; i++) {
+        var bytes = in.readBytes(i);
+        if (bytes != null && Nbt.read(bytes).get("DataVersion") instanceof Integer v && older(v, current)) return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean older(int version, int current) {
+    return version >= OLDEST && version < current;
   }
 }
