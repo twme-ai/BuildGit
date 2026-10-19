@@ -644,7 +644,8 @@ public final class Workspace {
 
   /**
    * 剛生成一個 chunk（主執行緒）：
-   * 1. 受追蹤的世界：生成結果補進起點世界（設計 §2.3），已有的不覆寫；
+   * 1. 受追蹤的世界：生成結果補進起點世界（設計 §2.3），已有的不覆寫。草稿也要補：存檔以起點世界為比較基準，
+   *    沒有的 chunk 會被當成空氣（挖掉的方塊存不進去）。所以草稿的產生器必須和主世界相同；
    * 2. BuildGit 建立的世界：這個 chunk 若在覆寫表中有內容（起點世界沒有、所以沒被合成），套用上去。
    */
   public void newChunk(ServerLevel world, LevelChunk chunk) {

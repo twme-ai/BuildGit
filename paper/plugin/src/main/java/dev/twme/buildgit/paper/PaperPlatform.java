@@ -148,7 +148,13 @@ final class PaperPlatform implements Platform, Listener {
     World world;
     creating.put(name, new Pending(template, blocks, entities));
     try {
-      world = new WorldCreator(name).copy(template.getWorld()).createWorld();
+      var creator = new WorldCreator(name).copy(template.getWorld());
+      // copy 不帶超平坦的層設定：沒給時伺服器改用預設的草地超平坦，起點世界外新生成的 chunk 會和原本的世界不同
+      if (template.getChunkSource().getGenerator() instanceof net.minecraft.world.level.levelgen.FlatLevelSource flat)
+        creator.generatorSettings(net.minecraft.world.level.levelgen.flat.FlatLevelGeneratorSettings.CODEC
+            .encodeStart(net.minecraft.resources.RegistryOps.create(com.mojang.serialization.JsonOps.INSTANCE, template.registryAccess()), flat.settings())
+            .getOrThrow().toString());
+      world = creator.createWorld();
     } finally {
       creating.remove(name);
     }
