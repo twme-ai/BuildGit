@@ -1,6 +1,7 @@
 package dev.twme.buildgit.server;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -26,17 +27,40 @@ public record Settings(
     long lazyCopyAboveMb,
     String genesisDir) {
 
-  /** 讀取 {@code dir/config.yml}；不存在時先寫入內建的預設檔。 */
+  /** 讀取 {@code dir/config.yml}；不存在時先寫入內建的預設檔，缺少新版本的設定時補上。 */
   public static Settings load(Path dir, Logger log) {
     var file = dir.resolve("config.yml");
-    if (!Files.exists(file))
-      try (var in = Settings.class.getResourceAsStream("/config.yml")) {
+    try (var in = Settings.class.getResourceAsStream("/config.yml")) {
+      if (in != null) {
+        var template = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         Files.createDirectories(dir);
-        if (in != null) Files.copy(in, file);
-      } catch (IOException e) {
-        log.warning("無法寫入預設設定檔 " + file + "：" + e.getMessage());
+        if (!Files.exists(file)) Files.writeString(file, template);
+        else update(file, template, log);
       }
+    } catch (IOException e) {
+      log.warning("無法寫入設定檔 " + file + "：" + e.getMessage());
+    }
     return of(Yaml.load(file), log);
+  }
+
+  /**
+   * 外掛更新後，內建的預設檔有使用者的檔案沒有的設定時：以預設檔為範本（新的設定與說明），填回使用者設的值，
+   * 原本的檔案留在 {@code config.yml.old}。讀不懂的檔案不動。
+   */
+  private static void update(Path file, String template, Logger log) throws IOException {
+    Yaml user;
+    try {
+      user = Yaml.read(file);
+    } catch (IOException e) {
+      log.warning("config.yml 讀不懂，沒有補上新的設定：" + e.getMessage());
+      return;
+    }
+    var added = new ArrayList<String>();
+    for (var path : Yaml.load(new java.io.ByteArrayInputStream(template.getBytes(StandardCharsets.UTF_8))).paths())
+      if (user.get(path) == null) added.add(path);
+    if (added.isEmpty()) return;
+    Yaml.replace(file, Yaml.fill(template, user::get));
+    log.info("config.yml 補上了新的設定 " + String.join("、", added) + "；原本的檔案留在 config.yml.old");
   }
 
   public static Settings of(Yaml c, Logger log) {

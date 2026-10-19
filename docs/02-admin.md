@@ -100,6 +100,11 @@ LuckPerms 範例：
 
 設定檔：Paper 在 `plugins/BuildGit/config.yml`，Fabric 在 `config/buildgit/config.yml`。改完執行 `/bg reload`。
 
+- **外掛更新後自動補上新設定**：新版本多了設定時，啟動（或 `/bg reload`）會以新版的預設檔為範本、填回你設的值，新的設定與說明一起出現。原本的檔案留在 `config.yml.old`；你自己加的註解、已經不用的設定不會保留，需要時從那裡找回。設定檔有語法錯誤時不會動它。
+- **語言檔**：訊息在設定資料夾的 `lang/zh_tw.yml`、`lang/en_us.yml`，可以直接修改（MiniMessage 格式），改完執行 `/bg reload`。外掛更新後：沒改過的訊息換成新版、新的訊息補上，你改過的保留；原本的檔案留在 `.old`。`lang/.bundled/` 是上次寫出的內建版本，用來分辨哪些訊息改過，不要修改。
+  - 改過的訊息若新版本換了參數（例如 `<name>`），要自己對照新版調整。
+  - 其他語言：在 `lang/` 放 `<語言>.yml` 並把 `language` 設成它；缺的訊息用英文。
+
 常會調整的項目：
 
 | 設定 | 預設 | 說明 |
