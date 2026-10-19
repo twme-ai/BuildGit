@@ -217,6 +217,7 @@ BuildGit 的做法：只記**位置**，不讀世界。
 - **FAWE 佇列模式**（預設）：在 `EditSessionEvent`（`BEFORE_CHANGE`）時，對編輯的佇列加上批次處理器 `FaweRecorder`（與 FAWE 自身的歷史紀錄同一個掛點）。FAWE 每處理完一個 chunk 的修改集，處理器掃描每個 section 的 `char[]`，非 0 的格子組成位元集，**整個 section 一次標記**；方塊實體、實體移除與新實體也一併標記。
 - **FAWE 非佇列模式與原版 WorldEdit**：包一層 `MarkingExtent` 逐格標記（只記位置），並在執行期把套件名稱加進 FAWE 的 `allowed-plugins`（只在記憶體中）。
 - 作者：編輯者是玩家時取該玩家；沒有玩家（其他插件透過 API 呼叫 WorldEdit）時取目前執行緒的原因（§3.10 的 `attribute`）。
+- **Fabric**：WorldEdit 模組有裝時掛上同樣的 `EditSessionEvent` 與 `MarkingExtent`（Fabric 沒有 FAWE），選取範圍也讀 WorldEdit 的。WorldEdit 的世界轉回原版世界的方式依版本不同（7.4.2／Minecraft 1.21.11 是 `FabricAdapter.adapt`，7.4.5 起經過 core-mc 的 `FabricAdapter.get().toNativeWorld`），放在各版本自己的 `WorldEditWorlds`。編譯時只依賴 WorldEdit，不打包。
 - 實測（Paper 26.2、FAWE 2.15.4，256 萬格 `setBlocks`）：掛上處理器 123–212 ms，不掛 127–187 ms，差異在量測誤差內；標記數與實際修改數完全一致。
 
 ### 3.9 Axiom
@@ -274,7 +275,7 @@ recorder.pendingAuthor(block);                               // 尚未存檔的�
 - 非玩家造成的實體移除（例如盔甲座被苦力怕炸掉）不記錄，與方塊的自然變化相同；版本保留它，世界裡已經沒有。玩家碰過、或在玩家原因期間（指令）移除的實體都會記錄。
 - 伺服器當機時最後一次 flush（預設 1 秒）之後的標記可能遺失（§3.6）。
 - 生態域：兩邊都改了同一個生態域格時保留目標的內容（§3.9.2）；`/bg pull`、`/bg push` 不帶生態域（§6.7）；`blame`、`inspect` 不顯示生態域的作者。
-- Fabric 版尚未整合 WorldEdit 與 Axiom，也沒有公開 API（§3.10 依賴 Bukkit）；`/bg sel` 的 WorldEdit 選取範圍在 Fabric 上不可用。
+- Fabric 版尚未整合 Axiom，也沒有公開 API（§3.10 依賴 Bukkit）。
 - Fabric 的權限透過 fabric-permissions-api：沒有權限模組時是權限等級 2。
 
 ## 4. 分支世界

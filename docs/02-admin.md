@@ -16,7 +16,7 @@ BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE
 
 1. 依伺服器版本下載對應的 jar（[README 的下載表](../README.md#下載)），放進 `plugins/`（Paper）或 `mods/`（Fabric）。版本不符時插件會自行停用。
 2. Fabric 另外需要 Fabric API。
-3. 想記錄 WorldEdit、FAWE、Axiom、DebugStickPro 的編輯：裝上它們即可（Paper；Fabric 版目前沒有這些整合）。原版除錯棒兩個平台都會記錄。
+3. 想記錄 WorldEdit、FAWE、Axiom、DebugStickPro 的編輯：裝上它們即可。Paper 支援全部；Fabric 版目前支援 WorldEdit 模組（Fabric 沒有 FAWE），還沒有 Axiom 與 DebugStickPro。原版除錯棒兩個平台都會記錄。
 4. 啟動伺服器。這時**還沒有任何世界受版本控制**，BuildGit 不會記錄任何東西。
 
 ## 3. 開始版本控制：`/bg init`
@@ -160,7 +160,7 @@ LuckPerms 範例：
 - 生態域：草稿和主世界改了同一處（4×4×4 格）的生態域時，併回保留主世界的，併回預覽會列出數量，需要的話再用 `/fillbiome` 修正。帶到單人世界改（`pull`／`push`）不帶生態域。其他插件以 API 改的生態域記錄不到，可以用 `/bg mark` 補記。
 - `/place feature` 這類世界產生器放的大型結構可能記錄不完整，可以用 `/bg mark` 補記範圍。
 - 伺服器當機時，最後約 1 秒內的變更可能沒記到（`tracking.journal-flush-ticks`）。
-- Fabric 版目前沒有 WorldEdit／Axiom 整合，也沒有給其他插件的 API。
+- Fabric 版目前沒有 Axiom 整合，也沒有給其他插件的 API。
 
 ## 11. 常見問題
 

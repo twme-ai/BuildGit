@@ -83,7 +83,7 @@ sync:
   max-blocks: 2000000
 
 integrations:
-  # 記錄 WorldEdit／FastAsyncWorldEdit 的編輯。
+  # 記錄 WorldEdit／FastAsyncWorldEdit 的編輯（Fabric 是 WorldEdit 模組）。
   worldedit: true
   # 記錄 Axiom 的編輯（需要 AxiomPaper）。
   axiom: true

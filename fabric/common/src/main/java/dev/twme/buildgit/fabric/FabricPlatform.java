@@ -469,6 +469,7 @@ final class FabricPlatform implements Platform {
 
   @Override
   public Optional<Selection> worldEditSelection(ServerPlayer player) {
-    return Optional.empty();
+    if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("worldedit")) return Optional.empty();
+    return dev.twme.buildgit.fabric.worldedit.WorldEditSelection.of(player);
   }
 }

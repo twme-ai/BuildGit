@@ -1,6 +1,9 @@
 package dev.twme.buildgit.fabric;
 
 import dev.twme.buildgit.fabric.mc.Versions;
+import dev.twme.buildgit.fabric.worldedit.WorldEditHook;
+import java.util.logging.Level;
+import net.fabricmc.loader.api.FabricLoader;
 import dev.twme.buildgit.server.BuildGit;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -21,6 +24,7 @@ import net.minecraft.server.MinecraftServer;
 public final class BuildGitMod implements ModInitializer {
   private FabricPlatform platform;
   private BuildGit bg;
+  private WorldEditHook worldEdit;
 
   @Override
   public void onInitialize() {
@@ -65,6 +69,15 @@ public final class BuildGitMod implements ModInitializer {
     bg = new BuildGit(platform);
     Hooks.bg = bg;
     register(server.getCommands().getDispatcher());
+    if (bg.settings().worldEdit() && FabricLoader.getInstance().isModLoaded("worldedit")) {
+      try {
+        worldEdit = new WorldEditHook(bg.tracker(), platform.log());
+        worldEdit.register();
+      } catch (LinkageError e) {
+        worldEdit = null;
+        platform.log().log(Level.WARNING, "無法掛上 WorldEdit（版本不相容？）", e);
+      }
+    }
   }
 
   private void register(CommandDispatcher<CommandSourceStack> dispatcher) {
@@ -76,6 +89,10 @@ public final class BuildGitMod implements ModInitializer {
   private void stop() {
     if (bg == null) return;
     Hooks.bg = null;
+    if (worldEdit != null) {
+      worldEdit.unregister();
+      worldEdit = null;
+    }
     try {
       bg.disable();
     } finally {
