@@ -116,7 +116,10 @@ final class Sync {
         ws().sync(() -> send(uuid, Frame.split(Frame.BUNDLE, name, data, Frame.SERVER_PART), () -> {
           busy.remove(uuid);
           var player = online(uuid);
-          if (player != null) msg().send(s(player), "sync-pulled", "name", name, "kb", (data.length + 1023) / 1024);
+          if (player == null) return;
+          msg().send(s(player), "sync-pulled", "name", name, "kb", (data.length + 1023) / 1024);
+          // 用戶端的 /bgc 指令：離開伺服器、在單人世界打開
+          s(player).send(msg().get("sync-open-button").clickEvent(ClickEvent.runCommand("/bgc open " + name)));
         }));
       } catch (IOException | RuntimeException e) {
         ws().sync(() -> failed(uuid, e));

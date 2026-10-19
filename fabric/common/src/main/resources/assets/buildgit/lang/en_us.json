@@ -1,0 +1,3 @@
+{
+  "buildgit.open.missing": "No pulled area %s: run /bg pull on the server first."
+}

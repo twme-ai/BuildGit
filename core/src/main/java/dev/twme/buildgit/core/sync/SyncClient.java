@@ -15,6 +15,11 @@ public final class SyncClient {
   /** 取出的範圍：{@code <名稱>.bgpack}；單人世界改過後存成 {@code <名稱>.edited.bgpack}。 */
   public static final String PULLED = ".bgpack", EDITED = ".edited.bgpack";
   private static final long LIMIT = 64L * 1024 * 1024;
+  /** 點了「在單人世界打開」後留下的記號，單人世界載入時讀走。 */
+  private static final String OPEN = ".open";
+
+  /** 要在單人世界打開的範圍：世界資料夾名稱，以及玩家在伺服器上的位置（打開後傳送到這裡）。 */
+  public record Open(String name, String level, double x, double y, double z, float yaw, float pitch) {}
 
   private final Path folder;
   /** 一次只收一個範圍，開始收新的就丟掉舊的。 */
@@ -75,6 +80,31 @@ public final class SyncClient {
     }
     Collections.sort(names);
     return new Frame(Frame.EDITED, "list", 0, 0, String.join("\n", names).getBytes(StandardCharsets.UTF_8));
+  }
+
+  public static boolean pulled(Path folder, String name) {
+    return Files.exists(folder.resolve(name + PULLED));
+  }
+
+  public static void writeOpen(Path folder, Open o) throws IOException {
+    Files.createDirectories(folder);
+    Files.writeString(folder.resolve(OPEN), String.join("\n", o.name(), o.level(), String.valueOf(o.x()), String.valueOf(o.y()),
+        String.valueOf(o.z()), String.valueOf(o.yaw()), String.valueOf(o.pitch())));
+  }
+
+  /** 讀走記號；沒有或讀不懂時為 null。 */
+  public static Open takeOpen(Path folder) {
+    var file = folder.resolve(OPEN);
+    try {
+      if (!Files.exists(file)) return null;
+      var l = Files.readAllLines(file);
+      Files.delete(file);
+      if (l.size() != 7 || !Frame.NAME.matcher(l.get(0)).matches()) return null;
+      return new Open(l.get(0), l.get(1), Double.parseDouble(l.get(2)), Double.parseDouble(l.get(3)), Double.parseDouble(l.get(4)),
+          Float.parseFloat(l.get(5)), Float.parseFloat(l.get(6)));
+    } catch (IOException | NumberFormatException e) {
+      return null;
+    }
   }
 
   private static List<Frame> error(String name, String code) {

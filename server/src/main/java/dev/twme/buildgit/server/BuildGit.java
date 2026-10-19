@@ -189,6 +189,7 @@ public final class BuildGit {
   /** 玩家上線（主執行緒）。 */
   public void joined(ServerPlayer player) {
     workspace.playerJoined(player);
+    if (platform.syncFolder() != null) localSync.joined(player, platform.syncFolder());
   }
 
   public void quit(ServerPlayer player) {

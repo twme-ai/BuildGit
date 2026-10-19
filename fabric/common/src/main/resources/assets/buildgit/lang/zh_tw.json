@@ -1,0 +1,3 @@
+{
+  "buildgit.open.missing": "找不到範圍 %s：先在伺服器上 /bg pull。"
+}

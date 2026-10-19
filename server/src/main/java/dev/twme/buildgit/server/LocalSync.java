@@ -56,6 +56,45 @@ final class LocalSync {
     return String.valueOf(level.dimension());
   }
 
+  /**
+   * 玩家進入單人世界（主執行緒）：用戶端 {@code /bgc open} 留了記號、而且這就是為它開的世界時，
+   * 把玩家帶到主世界的原位置（不在範圍內就是範圍正上方）並放入範圍。
+   */
+  void joined(ServerPlayer p, Path folder) {
+    var open = SyncClient.takeOpen(folder);
+    if (open == null) return;
+    var server = bg.platform().server();
+    if (!open.level().equals(server.getWorldPath(LevelResource.ROOT).toAbsolutePath().normalize().getFileName().toString())) return;
+    var name = open.name();
+    var box = readBox(folder, name);
+    if (box == null) {
+      msg().send(bg.platform().sender(p), "sync-load-missing", "name", name);
+      return;
+    }
+    boolean inside = open.x() >= box.minX() && open.x() < box.maxX() + 1 && open.z() >= box.minZ() && open.z() < box.maxZ() + 1;
+    double x = inside ? open.x() : (box.minX() + box.maxX() + 1) / 2.0, z = inside ? open.z() : (box.minZ() + box.maxZ() + 1) / 2.0;
+    double y = inside ? open.y() : box.maxY() + 1;
+    var uuid = p.getUUID();
+    bg.platform().teleport(p, server.overworld(), x, y, z, open.yaw(), open.pitch()).whenComplete((ok, error) -> bg.workspace().sync(() -> {
+      var player = server.getPlayerList().getPlayer(uuid);
+      if (player == null) return;
+      try {
+        load(player, name, folder);
+      } catch (IOException | RuntimeException e) {
+        bg.platform().log().log(Level.WARNING, "無法載入範圍 " + name, e);
+        msg().send(bg.platform().sender(player), "sync-failed", "error", String.valueOf(e.getMessage()));
+      }
+    }));
+  }
+
+  private Box readBox(Path folder, String name) {
+    try {
+      return Bundle.decode(Files.readAllBytes(folder.resolve(name + SyncClient.PULLED)), bg.workspace().upgrader()).box();
+    } catch (IOException e) {
+      return null;
+    }
+  }
+
   /** 把範圍放到玩家所在世界的同一個位置：方塊整塊蓋掉，範圍內的實體換成範圍檔裡的。 */
   void load(ServerPlayer p, String name, Path folder) throws IOException {
     var sender = bg.platform().sender(p);
