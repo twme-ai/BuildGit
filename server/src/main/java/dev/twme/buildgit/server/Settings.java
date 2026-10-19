@@ -78,8 +78,8 @@ public record Settings(
         c.getBoolean("integrations.worldedit", true),
         c.getBoolean("integrations.axiom", true),
         c.getBoolean("integrations.debugstickpro", true),
-        Math.max(1, c.getLong("sync.max-blocks", 2_000_000)),
-        Math.max(1, c.getInt("sync.radius", 32)),
+        Math.max(1, c.getLong("sync.max-blocks", 12_000_000)),
+        Math.max(1, c.getInt("sync.radius", 80)),
         c.getLong("init.lazy-copy-above-mb", -1),
         c.getString("init.genesis-dir", ""));
   }
