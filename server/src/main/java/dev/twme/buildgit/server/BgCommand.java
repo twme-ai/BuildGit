@@ -88,6 +88,7 @@ public final class BgCommand {
     sub("sel", "buildgit.sel", this::sel, (s, b) -> b.isEmpty() ? List.of("pos1", "pos2", "show", "clear") : List.of());
     sub("who", "buildgit.who", (s, a) -> who(s), null);
     sub("disk", "buildgit.disk", (s, a) -> disk(s), null);
+    sub("genesis", "buildgit.genesis", this::genesis, (s, b) -> b.isEmpty() ? List.of("upgrade") : List.of());
     sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("back", "buildgit.back", (s, a) -> back(s), null);
@@ -1220,6 +1221,22 @@ public final class BgCommand {
   // ---- 分支 ----
 
   /** 版本庫與 BuildGit 建立的世界各占多少磁碟（背景執行緒計算）。 */
+  /** {@code /bg genesis upgrade}：把起點世界裡較舊版本存的 chunk 改寫成目前的格式。 */
+  private void genesis(Sender sender, String[] args) throws IOException {
+    if (args.length != 1 || !args[0].equals("upgrade")) {
+      msg().send(sender, "usage-genesis");
+      return;
+    }
+    var task = ws().upgradeGenesis();
+    msg().send(sender, "genesis-upgrade-started");
+    progress(sender, task.progress(), "progress-genesis-upgrade");
+    task.done().thenAccept(count -> ws().sync(() -> {
+      done(sender);
+      msg().send(sender, "genesis-upgrade-done", "files", count[0], "chunks", count[1]);
+      if (count[2] > 0) msg().send(sender, "genesis-upgrade-failed", "count", count[2]);
+    }));
+  }
+
   private void disk(Sender sender) throws IOException {
     var dir = ws().dir();
     var genesisRoot = ws().genesisRoot();

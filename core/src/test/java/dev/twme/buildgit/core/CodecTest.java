@@ -96,7 +96,7 @@ class CodecTest {
       }
 
       @Override
-      public Nbt.Compound chunk(Nbt.Compound chunk) {
+      public Nbt.Compound chunk(String dimension, Nbt.Compound chunk) {
         return chunk;
       }
 

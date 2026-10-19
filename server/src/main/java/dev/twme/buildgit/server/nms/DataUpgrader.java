@@ -11,27 +11,46 @@ import dev.twme.buildgit.core.nbt.Normalizer;
 import java.io.*;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.util.datafix.DataFixers;
 import net.minecraft.util.datafix.fixes.References;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.storage.SimpleRegionStorage;
 
 /** 以原版的 DataFixer 把舊版的內容升級到伺服器目前的格式（與 Minecraft 載入舊世界的方式相同）。 */
 public final class DataUpgrader implements Upgrader {
   private final int current = LiveReader.dataVersion();
+  private final Supplier<MinecraftServer> server;
+  private final Function<ServerLevel, String> dataFixDimension;
+  /** 維度 → 原版升級 chunk 時帶入的資訊（維度與地形產生器）。 */
+  private final Map<String, CompoundTag> contexts = new ConcurrentHashMap<>();
   /** 「版本|方塊狀態」→ 升級後的方塊狀態。 */
   private final Map<String, String> states = new ConcurrentHashMap<>();
   /** region 檔調色盤項目與方塊狀態字串的對照（兩個方向各一份）。 */
   private final Map<Object, String> paletteStates = new ConcurrentHashMap<>();
   private final Map<String, Object> paletteEntries = new ConcurrentHashMap<>();
+
+  /** @param dataFixDimension 伺服器升級 chunk 時當作維度的 id（{@code Platform#dataFixDimension}） */
+  public DataUpgrader(Supplier<MinecraftServer> server, Function<ServerLevel, String> dataFixDimension) {
+    this.server = server;
+    this.dataFixDimension = dataFixDimension;
+  }
 
   @Override
   public int current() {
@@ -60,22 +79,46 @@ public final class DataUpgrader implements Upgrader {
     return Nbt.write(Normalizer.entity(convert(fix(References.ENTITY, read(nbt), from))));
   }
 
+  /** 與原版的 {@code ChunkMap.upgradeChunkTag} 相同：帶入維度與地形產生器再升級。 */
   @Override
-  public Nbt.Compound chunk(Nbt.Compound chunk) {
-    return chunk(DataFixTypes.CHUNK, chunk);
+  public Nbt.Compound chunk(String dimension, Nbt.Compound chunk) {
+    int from = chunk.get("DataVersion") instanceof Integer v ? v : current;
+    if (from >= current) return chunk;
+    var tag = read(Nbt.write(chunk));
+    SimpleRegionStorage.injectDatafixingContext(tag, context(dimension).copy());
+    var fixed = DataFixTypes.CHUNK.update(DataFixers.getDataFixer(), tag, from, current);
+    fixed.remove("__context");
+    fixed.putInt("DataVersion", current);
+    return convert(fixed);
   }
 
   @Override
   public Nbt.Compound entityChunk(Nbt.Compound chunk) {
-    return chunk(DataFixTypes.ENTITY_CHUNK, chunk);
-  }
-
-  private Nbt.Compound chunk(DataFixTypes type, Nbt.Compound chunk) {
     int from = chunk.get("DataVersion") instanceof Integer v ? v : current;
     if (from >= current) return chunk;
-    var fixed = type.updateToCurrentVersion(DataFixers.getDataFixer(), read(Nbt.write(chunk)), from);
+    var fixed = DataFixTypes.ENTITY_CHUNK.update(DataFixers.getDataFixer(), read(Nbt.write(chunk)), from, current);
     fixed.putInt("DataVersion", current);
     return convert(fixed);
+  }
+
+  /**
+   * 與原版（以及 Paper）的 {@code ChunkMap.getChunkDataFixContextTag} 相同的內容。世界沒載入時只帶維度
+   * （地形產生器只影響 1.18 以前的主世界 chunk 怎麼補上新的高度）。
+   */
+  private CompoundTag context(String dimension) {
+    var cached = contexts.get(dimension);
+    if (cached != null) return cached;
+    var s = server.get();
+    var level = s == null ? null : s.getLevel(ResourceKey.create(Registries.DIMENSION, Identifier.parse(dimension)));
+    var context = new CompoundTag();
+    context.putString("dimension", level == null ? dimension : dataFixDimension.apply(level));
+    context.putString("level_identifier", dimension);
+    if (level == null) return context;
+    // 1.21.11 是產生器類型的 ResourceKey，26.x 起是 Identifier
+    Optional<?> generator = level.getChunkSource().getGenerator().getTypeNameForDataFixer();
+    generator.ifPresent(g -> context.putString("generator", (g instanceof ResourceKey<?> k ? k.identifier() : g).toString()));
+    contexts.put(dimension, context);
+    return context;
   }
 
   /** 以原版的方塊狀態格式讀：伺服器是哪個版本，就認得哪個版本的寫法（26.3 起預設狀態只存方塊 ID）。 */

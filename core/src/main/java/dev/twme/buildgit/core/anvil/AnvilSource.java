@@ -130,7 +130,7 @@ public final class AnvilSource implements StateSource, Closeable {
       var r = region(other.resolve("region"), chunkX, chunkZ);
       nbt = r == null ? null : r.read(RegionFile.index(chunkX, chunkZ));
     }
-    var data = nbt == null ? new ChunkData(Map.of(), Map.of(), Map.of()) : decode(upgrader.chunk(nbt), upgrader);
+    var data = nbt == null ? new ChunkData(Map.of(), Map.of(), Map.of()) : decode(upgrader.chunk(dimension, nbt), upgrader);
     chunks.put(id, data);
     return data;
   }

@@ -30,6 +30,7 @@ help: |-
   <aqua>/bg who</aqua> <gray>— who is in which draft</gray>
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— record a region manually</gray>
   <aqua>/bg disk</aqua> <gray>— disk space used by BuildGit (admin)</gray>
+  <aqua>/bg genesis upgrade</aqua> <gray>— after upgrading Minecraft, rewrite the starting world in the new format (admin)</gray>
   <aqua>/bg init</aqua> <gray>/</gray> <aqua>/bg reload</aqua> <gray>— admin</gray>
 no-permission: "<red>You don't have permission.</red>"
 players-only: "<red>Only players can use this command.</red>"
@@ -40,6 +41,10 @@ init-started: "<green>World <world> is now under version control. Player changes
 init-lazy: "<green>World</green> <white><world></white> <green>is now under version control (lazy copy).</green> <gray>Chunks are copied into the starting world when first loaded; do not open this world without BuildGit running or edit it with offline tools.</gray>"
 init-done: "<green>Finished copying the genesis of <world>.</green> <gray>(<size> MB; run /bg init inside each other world you want tracked)</gray>"
 init-failed: "<red>Init failed: <error></red>"
+usage-genesis: "<red>Usage: /bg genesis upgrade (rewrite chunks saved by older versions in the starting world in the current format)</red>"
+genesis-upgrade-started: "<green>Upgrading the starting world.</green> <gray>This runs in the background one region file at a time while the server keeps running; the content does not change, and old saves can still be viewed and restored.</gray>"
+genesis-upgrade-done: "<green>Starting world upgraded:</green> <white><chunks></white> <green>chunks in</green> <white><files></white> <green>files rewritten in the current format.</green>"
+genesis-upgrade-failed: "<yellow><count> files could not be upgraded and were left as they are (still upgraded when read); see the console.</yellow>"
 reloaded: "<green>Configuration reloaded.</green>"
 console-confirm: "<gray>To confirm, run: </gray><aqua><command></aqua>"
 
@@ -254,6 +259,7 @@ params-show: "commit --cells"
 params-diff: "commit other-commit"
 params-mark: "x1 y1 z1 x2 y2 z2"
 params-sel: "pos1|pos2|show|clear"
+params-genesis: "upgrade"
 params-try: "draft-name"
 params-go: "draft-name|main"
 params-pull: "name"
@@ -272,6 +278,7 @@ progress-percent: "<label> <white><percent>%</white> <gray>・<seconds>s</gray>"
 progress-elapsed: "<label> <gray>・<seconds>s</gray>"
 progress-init: "<green>Creating the starting world of</green> <white><world></white>"
 progress-save: "<green>Saving</green>"
+progress-genesis-upgrade: "<green>Upgrading the starting world</green>"
 progress-preview: "<green>Comparing draft</green> <light_purple><name></light_purple>"
 progress-publish: "<green>Publishing</green> <light_purple><name></light_purple>"
 progress-merge-start: "<green>Preparing conflict resolution</green>"

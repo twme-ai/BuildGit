@@ -114,6 +114,22 @@ final class GenesisRecorder {
     }
   }
 
+  /** 在寫入執行緒上執行（和補進起點世界的寫入依序進行）。 */
+  void execute(Runnable task) {
+    io.execute(task);
+  }
+
+  /** 只在 io 執行緒使用：檔案要被換掉了，關掉開著的寫入。 */
+  void forget(Path file) {
+    var writer = writers.remove(file);
+    if (writer != null)
+      try {
+        writer.close();
+      } catch (IOException ignored) {
+        // 每次寫入都已 force
+      }
+  }
+
   /** 只在 io 執行緒使用。 */
   private RegionWriter writer(String dimension, String sub, int x, int z) throws IOException {
     var file = genesisDir.apply(dimension).resolve(sub).resolve(RegionFile.fileName(x, z));

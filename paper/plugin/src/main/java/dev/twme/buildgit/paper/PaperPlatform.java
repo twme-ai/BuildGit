@@ -223,6 +223,11 @@ final class PaperPlatform implements Platform, Listener {
   }
 
   @Override
+  public String dataFixDimension(ServerLevel level) {
+    return level.getTypeKey().identifier().toString();
+  }
+
+  @Override
   public CompletableFuture<LevelChunk> loadChunk(ServerLevel level, int chunkX, int chunkZ) {
     return level.getWorld().getChunkAtAsync(chunkX, chunkZ, true).thenApply(c -> level.getChunk(chunkX, chunkZ));
   }

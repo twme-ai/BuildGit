@@ -113,3 +113,6 @@ permissions:
   buildgit.disk:
     description: BuildGit 用掉的磁碟空間（disk）
     default: op
+  buildgit.genesis:
+    description: 把起點世界改寫成目前版本的格式（genesis upgrade）
+    default: op

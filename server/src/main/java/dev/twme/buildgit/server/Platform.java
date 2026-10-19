@@ -60,6 +60,11 @@ public interface Platform {
     boolean synthesize(Path target, int regionX, int regionZ) throws IOException;
   }
 
+  /** 伺服器升級 chunk 時當作維度的 id（Paper 用維度類型，多世界插件建的世界也照它的類型升級）。 */
+  default String dataFixDimension(ServerLevel level) {
+    return level.dimension().identifier().toString();
+  }
+
   /** 已載入的 BuildGit 世界；沒有時為 null。 */
   ServerLevel findLevel(String name);
 

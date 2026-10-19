@@ -52,6 +52,25 @@ class AnvilSourceTest {
   }
 
   @Test
+  void upgradeRewritesOnlyOlderChunks() throws Exception {
+    var file = dir.resolve("region/r.0.0.mca");
+    try (var w = new RegionWriter(file)) {
+      w.write(0, Nbt.write(new Nbt.Compound().with("DataVersion", 4000).with("v", "old")));
+      w.write(1, Nbt.write(new Nbt.Compound().with("DataVersion", 5000).with("v", "current")));
+      w.write(2, Nbt.write(new Nbt.Compound().with("DataVersion", 1343).with("v", "1.12")));
+    }
+    int n = dev.twme.buildgit.core.anvil.RegionUpgrade.rewrite(file, 5000, c -> c.with("DataVersion", 5000).with("v", "new"), () -> {});
+    assertEquals(1, n);
+    try (var r = new RegionFile(file)) {
+      assertEquals("new", r.read(0).string("v"));
+      assertEquals("current", r.read(1).string("v"));
+      assertEquals("1.12", r.read(2).string("v"));
+    }
+    assertFalse(Files.exists(dir.resolve("region/.buildgit-upgrade")));
+    assertEquals(0, dev.twme.buildgit.core.anvil.RegionUpgrade.rewrite(file, 5000, c -> c, () -> fail("沒有要升級的不換檔")));
+  }
+
+  @Test
   void readsPalettedSectionsBlockEntitiesAndEntities() throws Exception {
     // 調色盤 17 項 → 每格 5 bits，每個 long 12 格，最後一個 long 未滿。
     var palette = new java.util.ArrayList<Object>();

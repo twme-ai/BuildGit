@@ -30,6 +30,7 @@ help: |-
   <aqua>/bg who</aqua> <gray>— 誰在哪個草稿</gray>
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— 手動補記一個範圍</gray>
   <aqua>/bg disk</aqua> <gray>— BuildGit 用掉的磁碟空間（管理）</gray>
+  <aqua>/bg genesis upgrade</aqua> <gray>— 升級 Minecraft 後，把起點世界改寫成新版的格式（管理）</gray>
   <aqua>/bg init</aqua> <gray>／</gray><aqua>/bg reload</aqua> <gray>— 管理</gray>
 no-permission: "<red>你沒有權限。</red>"
 players-only: "<red>只有玩家可以使用這個指令。</red>"
@@ -40,6 +41,10 @@ init-started: "<green>世界 <world> 開始受版本控制，從現在起玩家�
 init-lazy: "<green>世界</green> <white><world></white> <green>開始受版本控制（延遲複製）。</green> <gray>chunk 第一次載入時才複製進起點世界；請不要在 BuildGit 沒執行時開這個世界或用離線工具修改它。</gray>"
 init-done: "<green>世界 <world> 的起點世界複製完成。</green> <gray>（<size> MB；其他世界要各自在裡面執行 /bg init）</gray>"
 init-failed: "<red>初始化失敗：<error></red>"
+usage-genesis: "<red>用法：/bg genesis upgrade（把起點世界裡舊版本存的 chunk 改寫成目前的格式）</red>"
+genesis-upgrade-started: "<green>開始升級起點世界。</green> <gray>在背景逐個 region 檔進行，伺服器照常運作；內容不會改變，舊存檔照樣可以看與還原。</gray>"
+genesis-upgrade-done: "<green>起點世界升級完成：</green><white><files></white> <green>個檔案、</green><white><chunks></white> <green>個 chunk 改寫成目前的格式。</green>"
+genesis-upgrade-failed: "<yellow><count> 個檔案無法升級，維持原樣（讀取時照舊升級），詳見主控台。</yellow>"
 reloaded: "<green>設定已重新載入。</green>"
 console-confirm: "<gray>確認請執行：</gray><aqua><command></aqua>"
 
@@ -254,6 +259,7 @@ params-show: "存檔 --cells"
 params-diff: "存檔 另一個存檔"
 params-mark: "x1 y1 z1 x2 y2 z2"
 params-sel: "pos1|pos2|show|clear"
+params-genesis: "upgrade"
 params-try: "草稿名稱"
 params-go: "草稿名稱|main"
 params-pull: "名稱"
@@ -272,6 +278,7 @@ progress-percent: "<label> <white><percent>%</white> <gray>・<seconds> 秒</gra
 progress-elapsed: "<label> <gray>・<seconds> 秒</gray>"
 progress-init: "<green>正在建立</green> <white><world></white> <green>的起點世界</green>"
 progress-save: "<green>正在存檔</green>"
+progress-genesis-upgrade: "<green>正在升級起點世界</green>"
 progress-preview: "<green>正在比較草稿</green> <light_purple><name></light_purple>"
 progress-publish: "<green>正在併回</green> <light_purple><name></light_purple>"
 progress-merge-start: "<green>正在準備衝突整合</green>"

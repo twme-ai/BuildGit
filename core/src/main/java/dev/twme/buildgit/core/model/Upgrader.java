@@ -28,7 +28,7 @@ public interface Upgrader {
     }
 
     @Override
-    public Nbt.Compound chunk(Nbt.Compound chunk) {
+    public Nbt.Compound chunk(String dimension, Nbt.Compound chunk) {
       return chunk;
     }
 
@@ -52,8 +52,11 @@ public interface Upgrader {
   /** {@code from} 版寫下的實體 NBT（正規化後）。 */
   byte[] entity(byte[] nbt, int from);
 
-  /** region 檔裡的 chunk，依它自己的 {@code DataVersion}；結果的 {@code DataVersion} 是目前版本。 */
-  Nbt.Compound chunk(Nbt.Compound chunk);
+  /**
+   * region 檔裡的 chunk，依它自己的 {@code DataVersion}；結果的 {@code DataVersion} 是目前版本。
+   * 和原版一樣帶入所在維度（1.18 的高度擴充只套用在主世界維度）。
+   */
+  Nbt.Compound chunk(String dimension, Nbt.Compound chunk);
 
   /** 實體 region 檔裡的 chunk，同上。 */
   Nbt.Compound entityChunk(Nbt.Compound chunk);

@@ -2,6 +2,7 @@ package dev.twme.buildgit.server;
 
 import dev.twme.buildgit.core.anvil.AnvilSource;
 import dev.twme.buildgit.core.anvil.RegionSynthesizer;
+import dev.twme.buildgit.core.anvil.RegionUpgrade;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.model.BlockPos;
 import dev.twme.buildgit.core.model.Box;
@@ -60,13 +61,15 @@ public final class Workspace {
   /** 大量系統寫入分刻進行。 */
   final TickWrites ticked;
   /** 舊版 Minecraft 寫下的歷史與起點世界在讀取時升級（設計 §4.6）。 */
-  private final DataUpgrader upgrader = new DataUpgrader();
+  private final DataUpgrader upgrader;
   private final Path dir;
   private final Path genesisRoot;
   private static final String GENESIS_POINTER = "genesis-dir";
   private Repository repo;
   private AnvilSource genesis;
   private GenesisRecorder genesisRecorder;
+  /** 進行中的起點世界升級（{@code /bg genesis upgrade}）；關閉時清掉，排著的工作就不再做。 */
+  private volatile GenesisUpgrade upgrade;
   /** 維度 → 背景複製中的起點世界（{@code /bg init}）。 */
   private final Map<String, GenesisCopy> copies = new ConcurrentHashMap<>();
   private MergeSessions merges;
@@ -96,6 +99,7 @@ public final class Workspace {
   public Workspace(Platform platform, Tracker tracker) {
     this.platform = platform;
     this.tracker = tracker;
+    this.upgrader = new DataUpgrader(platform::server, platform::dataFixDimension);
     this.ticked = new TickWrites(platform, tracker);
     this.dir = platform.repoDir();
     this.genesisRoot = locateGenesis();
@@ -423,6 +427,7 @@ public final class Workspace {
     sources.clear();
     tracker.detachAll();
     copies.clear(); // 複製執行緒會繼續寫完；沒寫完的下次啟動補完
+    upgrade = null; // 沒升級完的檔案維持原樣，讀取時照舊升級
     if (genesisRecorder != null) genesisRecorder.close();
     if (genesis != null) genesis.close();
     repo = null;
@@ -489,6 +494,54 @@ public final class Workspace {
   /** 存檔讀取起點世界之前呼叫（背景執行緒）：等新生成 chunk 的寫入完成。 */
   void awaitGenesis() {
     genesisRecorder.awaitIdle();
+  }
+
+  /** 以 region 檔計的進度；完成時的值是改寫的檔案數、升級的 chunk 數、失敗的檔案數。 */
+  record GenesisUpgrade(Progress progress, CompletableFuture<long[]> done) {}
+
+  /**
+   * 把起點世界裡較舊版本存的 chunk 改寫成目前的格式（設計 §4.5）。內容不變（讀取時本來就會升級），省下之後每次讀取的升級。
+   * 在寫入起點世界的執行緒上逐個 region 檔進行，和補進起點世界的寫入依序進行，不必暫停伺服器。
+   */
+  GenesisUpgrade upgradeGenesis() throws IOException {
+    if (!copies.isEmpty()) throw new Refused("起點世界還在複製，複製完再升級");
+    if (upgrade != null) throw new Refused("起點世界已經在升級了");
+    var files = new ArrayList<Map.Entry<String, Path>>();
+    for (var dim : trackedDimensions())
+      for (var sub : List.of("region", "entities")) {
+        var d = genesisDir(dim).resolve(sub);
+        if (!Files.isDirectory(d)) continue;
+        try (var s = Files.list(d)) {
+          s.filter(p -> p.getFileName().toString().matches("r\\.-?\\d+\\.-?\\d+\\.mca")).sorted().forEach(p -> files.add(Map.entry(dim, p)));
+        }
+      }
+    var task = new GenesisUpgrade(new Progress(), new CompletableFuture<>());
+    task.progress().reset(files.size());
+    upgrade = task;
+    var count = new long[3]; // 只在寫入執行緒使用
+    for (var f : files)
+      genesisRecorder.execute(() -> {
+        task.progress().step();
+        if (upgrade != task) return;
+        var file = f.getValue();
+        boolean blocks = file.getParent().getFileName().toString().equals("region");
+        try {
+          int n = RegionUpgrade.rewrite(file, upgrader.current(), c -> blocks ? upgrader.chunk(f.getKey(), c) : upgrader.entityChunk(c),
+              () -> genesisRecorder.forget(file));
+          if (n == 0) return;
+          count[0]++;
+          count[1] += n;
+          genesis.invalidate();
+        } catch (IOException | RuntimeException e) {
+          count[2]++;
+          log().log(Level.WARNING, "無法升級起點世界的 " + file + "；這個檔案維持原樣，讀取時照舊升級", e);
+        }
+      });
+    genesisRecorder.execute(() -> {
+      if (upgrade == task) upgrade = null;
+      task.done().complete(count);
+    });
+    return task;
   }
 
   // ---- init ----
