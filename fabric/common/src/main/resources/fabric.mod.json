@@ -12,7 +12,7 @@
     "main": ["dev.twme.buildgit.fabric.BuildGitMod"],
     "client": ["dev.twme.buildgit.fabric.client.BuildGitClient"]
   },
-  "mixins": ["buildgit.mixins.json", "buildgit.version.mixins.json"],
+  "mixins": ["buildgit.mixins.json", "buildgit.version.mixins.json", "buildgit.axiom.mixins.json"],
   "depends": {
     "fabricloader": ">=0.17",
     "fabric-api": "*",

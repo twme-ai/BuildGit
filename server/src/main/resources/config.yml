@@ -85,7 +85,7 @@ sync:
 integrations:
   # 記錄 WorldEdit／FastAsyncWorldEdit 的編輯（Fabric 是 WorldEdit 模組）。
   worldedit: true
-  # 記錄 Axiom 的編輯（需要 AxiomPaper）。
+  # 記錄 Axiom 的編輯（Paper 需要 AxiomPaper；Fabric 是 Axiom 模組）。
   axiom: true
   # 記錄 DebugStickPro 的經典、複製模式；凍結模式暫時換成屏障的方塊不存進版本。
   debugstickpro: true

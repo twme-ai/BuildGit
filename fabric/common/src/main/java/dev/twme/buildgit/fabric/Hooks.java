@@ -25,7 +25,8 @@ public final class Hooks {
   /** 自然變化（隨機刻、降雪、火）進行中：只在主執行緒使用。 */
   private static int natural;
 
-  private static Tracker tracker() {
+  /** BuildGit 沒有啟動時為 null。 */
+  public static Tracker tracker() {
     var b = bg;
     return b == null ? null : b.tracker();
   }

@@ -1,0 +1,14 @@
+{
+  "required": false,
+  "package": "dev.twme.buildgit.fabric.axiom.mixin",
+  "plugin": "dev.twme.buildgit.fabric.axiom.AxiomMixinPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "AxiomPacketMixin",
+    "DeleteEntityMixin",
+    "ManipulateEntityMixin",
+    "SetBlockMixin",
+    "SetBufferMixin"
+  ],
+  "injectors": { "defaultRequire": 0 }
+}

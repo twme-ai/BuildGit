@@ -23,7 +23,7 @@
 
 版本不符時插件會在啟動時提示並自行停用；Fabric 版由 Fabric Loader 拒絕載入。
 
-Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-api 已包在 jar 裡。版本庫在伺服器目錄的 `buildgit/`，設定在 `config/buildgit/`。Fabric 版目前沒有 WorldEdit／Axiom 整合與公開 API。用戶端也可以裝 Fabric 版，用來把選取範圍帶到單人世界改再送回（見下方「帶到單人世界改」）。
+Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-api 已包在 jar 裡。版本庫在伺服器目錄的 `buildgit/`，設定在 `config/buildgit/`。Fabric 版會記錄 WorldEdit 與 Axiom 模組的編輯，目前沒有 DebugStickPro 整合與公開 API。用戶端也可以裝 Fabric 版，用來把選取範圍帶到單人世界改再送回（見下方「帶到單人世界改」）。
 
 ## 編譯
 

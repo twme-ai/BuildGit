@@ -1,5 +1,6 @@
 package dev.twme.buildgit.fabric;
 
+import dev.twme.buildgit.fabric.axiom.AxiomRecorder;
 import dev.twme.buildgit.fabric.mc.Versions;
 import dev.twme.buildgit.fabric.worldedit.WorldEditHook;
 import java.util.logging.Level;
@@ -78,6 +79,7 @@ public final class BuildGitMod implements ModInitializer {
         platform.log().log(Level.WARNING, "無法掛上 WorldEdit（版本不相容？）", e);
       }
     }
+    if (bg.settings().axiom() && FabricLoader.getInstance().isModLoaded("axiom")) AxiomRecorder.check(platform.log());
   }
 
   private void register(CommandDispatcher<CommandSourceStack> dispatcher) {
@@ -89,6 +91,7 @@ public final class BuildGitMod implements ModInitializer {
   private void stop() {
     if (bg == null) return;
     Hooks.bg = null;
+    if (FabricLoader.getInstance().isModLoaded("axiom")) AxiomRecorder.disable();
     if (worldEdit != null) {
       worldEdit.unregister();
       worldEdit = null;

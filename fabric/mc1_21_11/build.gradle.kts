@@ -7,6 +7,7 @@ tasks.withType<JavaCompile>().configureEach { options.release.set(21) }
 repositories {
     maven("https://maven.nucleoid.xyz/") { name = "nucleoid" }
     maven("https://maven.enginehub.org/repo/") { name = "enginehub" }
+    maven("https://api.modrinth.com/maven") { name = "modrinth" }
 }
 
 sourceSets.main {
@@ -26,6 +27,8 @@ dependencies {
     // WorldEdit 只在執行期選用（有裝才掛上記錄）
     modCompileOnly("com.sk89q.worldedit:worldedit-fabric-mc1.21.11:7.4.2") { isTransitive = false }
     compileOnly("com.sk89q.worldedit:worldedit-core:7.4.2") { isTransitive = false }
+    // Axiom 6.1.3 for MC1.21.11（Modrinth 版本 id）：只在執行期選用，不打包
+    modCompileOnly("maven.modrinth:axiom:4fv8luPO") { isTransitive = false }
 }
 
 extra["minecraftVersion"] = "1.21.11"
