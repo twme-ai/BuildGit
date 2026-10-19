@@ -21,7 +21,7 @@ permissions:
     description: 權限集：builder＋併回、撤銷、還原、處理衝突、建立與刪除草稿、手動補記
     default: op
   buildgit.admin:
-    description: 權限集：manager＋init、reload、disk
+    description: 權限集：manager＋init、reload、disk、genesis、backup
     default: op
   buildgit.menu:
     description: 只輸入 /bg 時打開選單
@@ -115,4 +115,7 @@ permissions:
     default: op
   buildgit.genesis:
     description: 把起點世界改寫成目前版本的格式（genesis upgrade）
+    default: op
+  buildgit.backup:
+    description: 異地備份的狀態、立刻備份、列出快照（backup）
     default: op

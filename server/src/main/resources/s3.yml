@@ -1,0 +1,24 @@
+# BuildGit 異地備份：把版本庫增量備份到 S3 相容的物件儲存（AWS S3、MinIO、Backblaze B2 等）。
+# 這個檔案有金鑰：請不要分享，也不要放進公開的版本控制。外掛更新時不會改動這個檔案。
+# 改完用 /bg reload 生效；/bg backup status 看狀態。
+
+# 改成 true 才會備份
+enabled: false
+# 服務的網址，例如：
+#   AWS：https://s3.ap-northeast-1.amazonaws.com
+#   MinIO：http://127.0.0.1:9000
+#   Backblaze B2：https://s3.us-west-004.backblazeb2.com
+endpoint: ""
+# 區域；沒有區域的服務（MinIO 等）填 us-east-1
+region: us-east-1
+bucket: ""
+# bucket 裡的資料夾；同一個 bucket 放多台伺服器時，每台用不同的名稱
+prefix: buildgit
+# bucket 放在網址的路徑而不是主機名稱（MinIO 等需要）
+path-style: false
+access-key: ""
+secret-key: ""
+# 每幾分鐘檢查一次；有變化（新的存檔、分支移動、起點世界的檔案變了）才備份
+interval-minutes: 60
+# 保留最近幾份快照（每次有變化的備份是一份）；存檔本身永遠保留
+keep: 48

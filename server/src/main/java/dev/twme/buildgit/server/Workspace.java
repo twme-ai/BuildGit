@@ -603,6 +603,25 @@ public final class Workspace {
     return copy;
   }
 
+  /** 在寫入起點世界的執行緒上執行：備份（設計 §2.5）在這裡複製起點世界的檔案，才不會拿到寫了一半的內容。 */
+  <T> CompletableFuture<T> onGenesisThread(java.util.concurrent.Callable<T> task) {
+    var result = new CompletableFuture<T>();
+    genesisRecorder.execute(() -> {
+      try {
+        result.complete(task.call());
+      } catch (Exception e) {
+        result.completeExceptionally(e);
+      }
+    });
+    return result;
+  }
+
+  /** 主世界裡這個維度的存檔目錄；世界沒載入時為 null。 */
+  Path mainLevelDirectory(String dimension) {
+    var w = mainWorld(dimension);
+    return w == null ? null : platform.levelDirectory(w);
+  }
+
   /** 起點世界還在背景複製的維度：存檔先不收這個維度的標記，也不開它的草稿與檢視世界。 */
   public boolean copying(String dimension) {
     return copies.containsKey(dimension);

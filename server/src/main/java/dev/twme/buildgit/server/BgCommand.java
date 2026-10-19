@@ -89,6 +89,7 @@ public final class BgCommand {
     sub("who", "buildgit.who", (s, a) -> who(s), null);
     sub("disk", "buildgit.disk", (s, a) -> disk(s), null);
     sub("genesis", "buildgit.genesis", this::genesis, (s, b) -> b.isEmpty() ? List.of("upgrade") : List.of());
+    sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list") : List.of());
     sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("back", "buildgit.back", (s, a) -> back(s), null);
@@ -1263,6 +1264,47 @@ public final class BgCommand {
       msg().send(sender, "genesis-upgrade-done", "files", count[0], "chunks", count[1]);
       if (count[2] > 0) msg().send(sender, "genesis-upgrade-failed", "count", count[2]);
     }));
+  }
+
+  /** {@code /bg backup status|now|list}：異地備份（設計 §2.5）。 */
+  private void backup(Sender sender, String[] args) {
+    var backup = bg.backup();
+    String action = args.length == 0 ? "status" : args[0];
+    if (args.length > 1 || !List.of("status", "now", "list").contains(action)) {
+      msg().send(sender, "usage-backup");
+      return;
+    }
+    if (!backup.running()) {
+      msg().send(sender, "backup-disabled", "file", Backup.FILE);
+      return;
+    }
+    switch (action) {
+      case "status" -> {
+        msg().send(sender, "backup-status", "target", backup.config().target(), "interval", backup.config().intervalMinutes(), "keep", backup.config().keep());
+        long last = backup.lastTime();
+        if (last > 0) msg().send(sender, "backup-last", "time", TIME.format(java.time.Instant.ofEpochMilli(last)));
+        else msg().send(sender, "backup-never");
+        if (backup.lastError() != null) msg().send(sender, "backup-last-error", "error", backup.lastError());
+        if (!backup.incomplete().isEmpty()) msg().send(sender, "backup-incomplete", "dims", String.join(", ", backup.incomplete()));
+      }
+      case "now" -> {
+        msg().send(sender, "backup-started");
+        backup.now().whenComplete((r, e) -> ws().sync(() -> {
+          if (e != null) msg().send(sender, "backup-failed", "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+          else if (r.snapshot() == null) msg().send(sender, "backup-unchanged");
+          else msg().send(sender, "backup-done", "snapshot", r.snapshot(), "objects", r.objects(), "files", r.files());
+          if (e == null && !backup.incomplete().isEmpty()) msg().send(sender, "backup-incomplete", "dims", String.join(", ", backup.incomplete()));
+        }));
+      }
+      default -> backup.snapshots().whenComplete((names, e) -> ws().sync(() -> {
+        if (e != null) {
+          msg().send(sender, "backup-failed", "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+          return;
+        }
+        msg().send(sender, "backup-list-header", "count", names.size());
+        for (var n : names.subList(Math.max(0, names.size() - 10), names.size())) msg().send(sender, "backup-list-entry", "snapshot", n);
+      }));
+    }
   }
 
   private void disk(Sender sender) throws IOException {

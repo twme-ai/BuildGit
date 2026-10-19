@@ -402,4 +402,27 @@ class RepositoryTest {
     assertEquals(1, diff.cells().size());
     assertEquals(64 * 64, repo.changeset(repo.commit(first).changeset()).cells().size());
   }
+
+  /** 備份分兩次走訪（第二次跳過已上傳的提交）：兩次合起來剛好是版本庫裡所有的物件，第二次只有新的。 */
+  @Test
+  void backupWalkCoversAllObjects() throws Exception {
+    var m = main();
+    m.set(ALICE, 0, 65, 0, "minecraft:stone").set(ALICE, 40, 70, 40, "minecraft:glass").commit("a");
+    var first = dev.twme.buildgit.core.backup.ObjectWalk.collect(repo, repo.refs().list().values(), Set.of());
+    var d = branch("d", m);
+    d.set(BOB, 1, 65, 0, "minecraft:dirt").commit("b");
+    m.set(ALICE, 40, 71, 40, "minecraft:glass").commit("c");
+    merge(m, d, null);
+    var second = dev.twme.buildgit.core.backup.ObjectWalk.collect(repo, repo.refs().list().values(), new HashSet<>(first.commits()));
+    assertEquals(3, second.commits().size());
+    var all = new HashSet<ObjectId>();
+    try (var files = java.nio.file.Files.walk(dir.resolve("objects"))) {
+      files.filter(java.nio.file.Files::isRegularFile)
+          .forEach(f -> all.add(ObjectId.parse(f.getParent().getFileName().toString() + f.getFileName())));
+    }
+    var walked = new HashSet<>(first.objects());
+    walked.addAll(second.objects());
+    assertEquals(all, walked);
+    assertFalse(second.objects().containsAll(first.objects()), "第二次不該重走沒變的部分");
+  }
 }

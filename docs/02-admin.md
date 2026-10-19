@@ -43,7 +43,7 @@ BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE
 | `buildgit.role.viewer` | 訪客、評審 | 選單；看狀態、歷史、存檔內容、方塊是誰改的（`status`、`log`、`graph`、`show`、`diff`、`blame`、`inspect`、`who`、`sel`、`branch list`）；進出草稿、唯讀看舊版本（`go`、`back`、`view`） |
 | `buildgit.role.builder` | 一般建築師 | viewer 全部，加上開草稿（`try`）、存檔（`save`）、帶到單人世界改再送回（`pull`、`push`）。**不能把草稿併回主世界** |
 | `buildgit.role.manager` | 負責審核、維護主世界的人 | builder 全部，加上併回（`publish`）、自訂訊息存檔（`commit`）、處理衝突與底層合併（`merge`）、撤銷（`revert`）、還原（`restore`）、手動補記（`mark`）、建立與刪除草稿（`branch create`、`branch delete`） |
-| `buildgit.admin` | 伺服器管理員 | manager 全部，加上 `init`、`reload`、`disk` |
+| `buildgit.admin` | 伺服器管理員 | manager 全部，加上 `init`、`reload`、`disk`、`genesis`、`backup` |
 
 LuckPerms 範例：
 
@@ -87,6 +87,7 @@ LuckPerms 範例：
 | `buildgit.reload` | `reload`：重新讀取設定與語言檔 |
 | `buildgit.disk` | `disk`：BuildGit 用掉的磁碟空間 |
 | `buildgit.genesis` | `genesis upgrade`：把起點世界改寫成目前版本的格式（§9） |
+| `buildgit.backup` | `backup`：異地備份的狀態、立刻備份、列出快照（§8.1） |
 
 注意：
 
@@ -152,6 +153,46 @@ LuckPerms 範例：
 - **一起備份**：`buildgit/`、起點世界（有設定 `init.genesis-dir` 時在那個位置）與所有世界資料夾（包含 `bg_` 開頭的草稿世界）要在**同一個時間點**備份，最好先關服。只還原其中一邊，世界和版本紀錄會對不上。
 - 搬到新主機：關服後整個伺服器目錄一起搬即可。
 - 不要手動修改 `buildgit/` 裡的檔案。
+
+### 8.1 異地備份（S3）
+
+把版本紀錄自動備份到 S3 相容的物件儲存（AWS S3、Backblaze B2、自架的 S3 相容服務等）。主機整台壞掉時，可以把所有分支與歷史找回來。
+
+**設定**：第一次啟動後，設定資料夾（Paper：`plugins/BuildGit/`；Fabric：`config/buildgit/`）會有 `s3.yml`。填好網址、bucket、金鑰，把 `enabled` 改成 `true`，再 `/bg reload`。
+
+- `s3.yml` 有金鑰，所以和 `config.yml` 分開；外掛更新時不會改動它。請不要分享這個檔案。
+- 金鑰只需要這個 bucket（或 `prefix` 資料夾）的讀、寫、列出、刪除權限。
+- 同一個 bucket 放多台伺服器時，每台設不同的 `prefix`。
+
+| 設定 | 預設 | 說明 |
+|---|---|---|
+| `enabled` | `false` | 是否備份 |
+| `endpoint` | 空白 | 服務的網址，例如 `https://s3.ap-northeast-1.amazonaws.com` |
+| `region` | `us-east-1` | 區域；沒有區域的服務填 `us-east-1` |
+| `bucket` | 空白 | bucket 名稱 |
+| `prefix` | `buildgit` | bucket 裡的資料夾 |
+| `path-style` | `false` | bucket 放在網址路徑裡（自架的服務多半要 `true`） |
+| `access-key`、`secret-key` | 空白 | 金鑰 |
+| `interval-minutes` | `60` | 每幾分鐘檢查一次 |
+| `keep` | `48` | 保留最近幾份快照 |
+
+**怎麼運作**：
+
+- 啟動 5 分鐘後第一次檢查，之後每 `interval-minutes` 分鐘一次。有新的存檔、分支移動或刪除、起點世界的檔案變了，才備份並寫一份快照；沒有變化就什麼都不做。
+- 只上傳新的部分：已經上傳過的存檔與檔案不會重傳。第一次備份要上傳整份起點世界，比較久。
+- 備份的是**已存檔**的內容：所有分支（包括草稿上的自動存檔）、起點世界、受版本控制的世界的 `level.dat`（種子）。還沒存檔的變更、草稿世界的資料夾、玩家資料與其他插件的資料不在裡面，請照常做整台伺服器的備份。
+- 快照只保留最近 `keep` 份；存檔本身永遠保留，所以刪掉的只是「那個時間點有哪些分支」的紀錄。
+- 用了延遲複製（`init.lazy-copy-above-mb`）的世界，起點世界不完整，無法單靠這份備份還原；`/bg backup status` 會列出來。
+
+**指令**（需要 `buildgit.backup`）：
+
+| 指令 | 作用 |
+|---|---|
+| `/bg backup status` | 備份位置、上次成功的時間、上次的錯誤、無法單靠備份還原的世界 |
+| `/bg backup now` | 立刻檢查並備份 |
+| `/bg backup list` | 列出遠端最近的快照 |
+
+從備份還原的功能還在開發中。
 
 ## 9. 升級 Minecraft 版本
 

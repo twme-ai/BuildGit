@@ -27,6 +27,7 @@ public final class BuildGit {
   private BgCommand command;
   private Sync sync;
   private LocalSync localSync;
+  private final Backup backup;
   private long ticks;
   private String openError;
 
@@ -42,6 +43,7 @@ public final class BuildGit {
     menu = new Menu(this);
     sync = new Sync(this);
     localSync = new LocalSync(this);
+    backup = new Backup(this);
     command = new BgCommand(this);
   }
 
@@ -89,6 +91,10 @@ public final class BuildGit {
     return localSync;
   }
 
+  Backup backup() {
+    return backup;
+  }
+
   /** 用戶端送來的 {@code buildgit:sync} 封包（主執行緒）。 */
   public void syncReceived(ServerPlayer player, byte[] data) {
     if (workspace.isOpen()) sync.receive(player, data);
@@ -111,6 +117,7 @@ public final class BuildGit {
       platform.log().log(Level.SEVERE, "無法開啟版本庫，記錄停用", e);
     }
     if (!workspace.isOpen() && openError == null) platform.log().info("尚未初始化版本控制；用 /bg init 開始");
+    backup.start();
   }
 
   /** 版本庫存在但開不了（例如被較新的 Minecraft 寫過）的原因；沒有錯誤時為 null。 */
@@ -122,6 +129,7 @@ public final class BuildGit {
     // 關閉時玩家的離線事件可能在停用之後才發生：先記下還在草稿裡的玩家
     for (var p : platform.server().getPlayerList().getPlayers()) workspace.playerLeft(p);
     if (platform.syncFolder() != null) localSync.packAll(platform.syncFolder());
+    backup.stop();
     platform.clearBars();
     outlines.clearAll();
     if (commands != null) commands.unwrap();
@@ -133,6 +141,7 @@ public final class BuildGit {
     settings = Settings.load(platform.configDir(), platform.log());
     messages = new Messages(platform.configDir(), settings.language(), platform.log());
     tracker.settings(settings);
+    backup.start();
   }
 
   /** 每刻開始時（主執行緒）。 */

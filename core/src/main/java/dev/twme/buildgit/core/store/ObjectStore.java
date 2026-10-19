@@ -82,6 +82,11 @@ public final class ObjectStore {
     return known.containsKey(id) || Files.exists(path(id));
   }
 
+  /** 物件在磁碟上的檔案（壓縮後的內容）；備份原樣上傳。 */
+  public Path file(ObjectId id) {
+    return path(id);
+  }
+
   private Path path(ObjectId id) {
     String hex = id.hex();
     return root.resolve(hex.substring(0, 2)).resolve(hex.substring(2));
