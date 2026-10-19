@@ -20,7 +20,7 @@ help: |-
   <aqua>/bg revert <存檔></aqua> <gray>— 撤銷某次存檔，保留之後的變更</gray>
   <aqua>/bg restore <存檔> [--selection]</aqua> <gray>— 把整個分支或選取範圍還原到舊版本</gray>
   <gray>單人世界（用戶端要裝 BuildGit）：</gray>
-  <aqua>/bg pull <名稱></aqua> <gray>— 把選取範圍帶到單人世界</gray>
+  <aqua>/bg pull [名稱]</aqua> <gray>— 把選取範圍（沒選時是草稿改過的地方或周圍）帶到單人世界</gray>
   <aqua>/bg load <名稱></aqua> <gray>— 在單人世界放進取出的範圍</gray>
   <aqua>/bg push <名稱> [草稿]</aqua> <gray>— 把單人世界改過的範圍送回，存成草稿</gray>
   <gray>衝突：</gray>
@@ -225,14 +225,17 @@ menu-draft-here: "<gray>你在這裡</gray>"
 menu-merge: "<red>整合 <id></red> <gray>→ <target></gray>"
 menu-more: "<aqua>還有 <count> 個</aqua>"
 menu-more-lore: "<gray>點一下列出所有草稿</gray>"
-usage-pull: "<red>用法：/bg pull <名稱>（小寫英數、底線、連字號）</red>"
+usage-pull: "<red>用法：/bg pull [名稱]（小寫英數、底線、連字號；沒給時自動取名）</red>"
 usage-push: "<red>用法：/bg push <名稱> [草稿名稱]</red>"
 usage-load: "<red>用法：/bg load <名稱></red>"
 sync-no-client: "<red>你的用戶端沒有安裝 BuildGit（Fabric），無法和單人世界同步。</red>"
 sync-not-branch: "<red>選取範圍不在主世界或草稿裡。</red>"
 sync-too-big: "<red>範圍太大：最多 <max> 格（config.yml 的 sync.max-blocks）。</red>"
+sync-draft-too-big: "<red>草稿改過的範圍太大（最多 <max> 格）：先選取要帶走的部分再 /bg pull。</red>"
+sync-edited: "<yellow>你有 <count> 個在單人世界改過、還沒送回的範圍：</yellow>"
+sync-push-button: "<aqua>[送回 <name>]</aqua>"
 sync-pulling: "<gray>正在取出</gray> <aqua><name></aqua><gray>…</gray>"
-sync-pulled: "<green>已把範圍</green> <aqua><name></aqua> <green>送到你的用戶端</green><gray>（<kb> KB）。在單人世界輸入</gray> <aqua>/bg load <name></aqua><gray>，改完離開世界，再回來輸入</gray> <aqua>/bg push <name></aqua><gray>。</gray>"
+sync-pulled: "<green>已把範圍</green> <aqua><name></aqua> <green>送到你的用戶端</green><gray>（<kb> KB）。在單人世界輸入</gray> <aqua>/bg load <name></aqua><gray>，改完離開世界，再連回這台伺服器就會提示送回。</gray>"
 sync-unknown: "<red>你沒有取出過範圍</red> <aqua><name></aqua><red>。先用 /bg pull。</red>"
 sync-draft-exists: "<red>草稿</red> <light_purple><name></light_purple> <red>已存在；換一個草稿名稱：/bg push <名稱> <草稿名稱></red>"
 sync-push-waiting: "<gray>正在從用戶端讀取</gray> <aqua><name></aqua><gray>…</gray>"
@@ -247,7 +250,7 @@ sync-failed: "<red>同步失敗：<error></red>"
 sync-load-singleplayer: "<red>/bg load 只能在單人世界使用。</red>"
 sync-load-missing: "<red>找不到範圍</red> <aqua><name></aqua><red>：先連上伺服器用 /bg pull 取出。</red>"
 sync-loading: "<gray>正在放入</gray> <aqua><name></aqua><gray>…</gray>"
-sync-loaded: "<green>已放入範圍</green> <aqua><name></aqua><gray>（<failed> 個寫不進去）。改完後離開世界就會存成改過的版本，連上伺服器用</gray> <aqua>/bg push <name></aqua> <gray>送回。</gray>"
+sync-loaded: "<green>已放入範圍</green> <aqua><name></aqua><gray>（<failed> 個寫不進去）。改完後離開世界就會存成改過的版本，連回伺服器時會提示送回。</gray>"
 sync-busy: "<red>上一個 pull 或 push 還在進行，請稍後再試。</red>"
 
 # 指令參數名稱：輸入 /bg 子指令時顯示給玩家（以空白分隔，每個名稱不可含空白）

@@ -20,7 +20,7 @@ help: |-
   <aqua>/bg revert <save></aqua> <gray>— undo one save, keep later changes</gray>
   <aqua>/bg restore <save> [--selection]</aqua> <gray>— restore the branch or a selection to an old version</gray>
   <gray>Single-player (BuildGit on the client):</gray>
-  <aqua>/bg pull <name></aqua> <gray>— take the selection to single-player</gray>
+  <aqua>/bg pull [name]</aqua> <gray>— take the selection (or the draft's changes, or your surroundings) to single-player</gray>
   <aqua>/bg load <name></aqua> <gray>— place a pulled area in a single-player world</gray>
   <aqua>/bg push <name> [draft]</aqua> <gray>— send the edited area back as a draft</gray>
   <gray>Conflicts:</gray>
@@ -225,14 +225,17 @@ menu-draft-here: "<gray>You are here</gray>"
 menu-merge: "<red>resolution <id></red> <gray>→ <target></gray>"
 menu-more: "<aqua><count> more</aqua>"
 menu-more-lore: "<gray>Click to list all drafts</gray>"
-usage-pull: "<red>Usage: /bg pull <name> (lowercase letters, digits, _ and -)</red>"
+usage-pull: "<red>Usage: /bg pull [name] (lowercase letters, digits, _ and -; picked automatically when omitted)</red>"
 usage-push: "<red>Usage: /bg push <name> [draft name]</red>"
 usage-load: "<red>Usage: /bg load <name></red>"
 sync-no-client: "<red>Your client doesn't have BuildGit (Fabric) installed, so it can't sync with single-player.</red>"
 sync-not-branch: "<red>The selection isn't in the main world or a draft.</red>"
 sync-too-big: "<red>Area too large: at most <max> blocks (sync.max-blocks in config.yml).</red>"
+sync-draft-too-big: "<red>The draft's changes cover too large an area (at most <max> blocks): select the part to take, then /bg pull.</red>"
+sync-edited: "<yellow>You have <count> area(s) edited in single-player and not sent back yet:</yellow>"
+sync-push-button: "<aqua>[Send back <name>]</aqua>"
 sync-pulling: "<gray>Pulling</gray> <aqua><name></aqua><gray>…</gray>"
-sync-pulled: "<green>Sent</green> <aqua><name></aqua> <green>to your client</green> <gray>(<kb> KB). In single-player run</gray> <aqua>/bg load <name></aqua><gray>, leave the world when done, then come back and run</gray> <aqua>/bg push <name></aqua><gray>.</gray>"
+sync-pulled: "<green>Sent</green> <aqua><name></aqua> <green>to your client</green> <gray>(<kb> KB). In single-player run</gray> <aqua>/bg load <name></aqua><gray>, leave the world when done, then reconnect to this server to send it back.</gray>"
 sync-unknown: "<red>You haven't pulled</red> <aqua><name></aqua><red>. Use /bg pull first.</red>"
 sync-draft-exists: "<red>Draft</red> <light_purple><name></light_purple> <red>already exists; pick another: /bg push <name> <draft name></red>"
 sync-push-waiting: "<gray>Reading</gray> <aqua><name></aqua> <gray>from your client…</gray>"
@@ -247,7 +250,7 @@ sync-failed: "<red>Sync failed: <error></red>"
 sync-load-singleplayer: "<red>/bg load only works in single-player.</red>"
 sync-load-missing: "<red>No pulled area</red> <aqua><name></aqua><red>: connect to the server and /bg pull it first.</red>"
 sync-loading: "<gray>Placing</gray> <aqua><name></aqua><gray>…</gray>"
-sync-loaded: "<green>Placed</green> <aqua><name></aqua> <gray>(<failed> failed). Leave the world when done to save the edited area, then /bg push <name> on the server.</gray>"
+sync-loaded: "<green>Placed</green> <aqua><name></aqua> <gray>(<failed> failed). Leave the world when done to save the edited area; reconnecting to the server offers to send it back.</gray>"
 sync-busy: "<red>Your previous pull or push is still running; try again later.</red>"
 
 # Command argument names shown while typing /bg subcommands (space-separated; no spaces inside a name)

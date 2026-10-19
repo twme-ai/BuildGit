@@ -3,6 +3,7 @@ package dev.twme.buildgit.fabric.client;
 import dev.twme.buildgit.core.sync.Frame;
 import dev.twme.buildgit.core.sync.SyncClient;
 import dev.twme.buildgit.fabric.SyncPayload;
+import dev.twme.buildgit.fabric.mc.ClientVersions;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import net.fabricmc.api.ClientModInitializer;
@@ -13,7 +14,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.LoggerFactory;
 
 /**
- * 用戶端的入口（設計 §6.7）：收下伺服器送來的範圍，伺服器要求時把改過的範圍送回。
+ * 用戶端的入口（設計 §6.7）：收下伺服器送來的範圍，伺服器要求時把改過的範圍送回；連上時列出還沒送回的範圍。
  * 範圍檔放在 {@code .minecraft/buildgit/sync/}，單人世界的 {@code /bg load} 也讀這裡。
  */
 public final class BuildGitClient implements ClientModInitializer {
@@ -40,6 +41,10 @@ public final class BuildGitClient implements ClientModInitializer {
         return;
       }
       for (int i = 0; i < PARTS_PER_TICK && !outgoing.isEmpty(); i++) ClientPlayNetworking.send(new SyncPayload(outgoing.poll()));
+    });
+    // 連上裝了 BuildGit 的伺服器：告訴它有哪些改過的範圍還沒送回
+    ClientVersions.onServerChannels(channels -> {
+      if (channels.contains(SyncPayload.TYPE.id())) outgoing.add(sync.edited().encode());
     });
     ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> outgoing.clear());
   }

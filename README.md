@@ -104,10 +104,10 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 
 想在自己電腦上慢慢改？用戶端裝 BuildGit 的 Fabric 版（伺服器是 Paper 或 Fabric 都可以）：
 
-1. 在伺服器上選取範圍（`/bg sel pos1`、`pos2` 或 WorldEdit），輸入 `/bg pull house`。
-2. 開一個單人世界（版本相同或較新），輸入 `/bg load house`，範圍會放到同一個座標。
+1. 在伺服器上輸入 `/bg pull`。有選取範圍就帶走選取範圍；沒有的話，在草稿裡帶走草稿改過的地方，在主世界帶走你周圍一塊。名稱自動取（草稿名稱或你的名字），也可以自己給：`/bg pull house`。
+2. 開一個單人世界（版本相同或較新），輸入 `/bg load <名稱>`，範圍會放到同一個座標。
 3. 改好後離開世界，會自動存成改過的版本。
-4. 回到伺服器輸入 `/bg push house`：改的東西會變成草稿 `house`，用 `/bg go house` 看、`/bg publish` 併回。
+4. 連回伺服器時會列出還沒送回的範圍，點 **[送回 …]**（或輸入 `/bg push <名稱>`）：改的東西會變成草稿，用 `/bg go` 看、`/bg publish` 併回。
 
 取出之後伺服器上別人改的部分照常合併，兩邊都改到同一格時就是一般的衝突。
 
@@ -134,7 +134,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg view <存檔>          唯讀地看舊版本
 /bg branch list|create|delete <名稱> [--force]  管理草稿
 /bg graph [頁數] [--all]  分支歷史圖（分頁）
-/bg pull <名稱>          把選取範圍帶到單人世界（用戶端要裝 BuildGit）
+/bg pull [名稱]          把選取範圍（沒選時是草稿改過的地方或周圍）帶到單人世界（用戶端要裝 BuildGit）
 /bg load <名稱>          （單人世界）放進取出的範圍
 /bg push <名稱> [草稿]   把單人世界改過的範圍送回，存成草稿
 /bg disk                 BuildGit 用掉的磁碟空間（管理員）

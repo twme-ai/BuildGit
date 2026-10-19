@@ -24,6 +24,7 @@ public record Settings(
     boolean axiom,
     boolean debugStickPro,
     long syncMaxBlocks,
+    int syncRadius,
     long lazyCopyAboveMb,
     String genesisDir) {
 
@@ -78,6 +79,7 @@ public record Settings(
         c.getBoolean("integrations.axiom", true),
         c.getBoolean("integrations.debugstickpro", true),
         Math.max(1, c.getLong("sync.max-blocks", 2_000_000)),
+        Math.max(1, c.getInt("sync.radius", 32)),
         c.getLong("init.lazy-copy-above-mb", -1),
         c.getString("init.genesis-dir", ""));
   }

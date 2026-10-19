@@ -1285,6 +1285,23 @@ public final class Workspace {
     }, done, failed);
   }
 
+  /** 草稿從主世界分出來後在這個維度改過的方塊所佔的範圍；主世界或沒改過時為 null。背景執行。 */
+  Box changedArea(String branch, String dimension) throws IOException {
+    if (branch.equals(Repository.MAIN)) return null;
+    var head = repo.head(branch);
+    var base = repo.mergeBase(repo.head(Repository.MAIN), head);
+    if (base == null || base.equals(head)) return null;
+    Box area = null;
+    for (var c : TreeDiff.collect(repo.overlays(), repo.commit(base).tree(), repo.commit(head).tree()).cells()) {
+      if (!c.dimension().equals(dimension)) continue;
+      var p = c.pos();
+      area = area == null ? new Box(p.x(), p.y(), p.z(), p.x(), p.y(), p.z())
+          : new Box(Math.min(area.minX(), p.x()), Math.min(area.minY(), p.y()), Math.min(area.minZ(), p.z()),
+              Math.max(area.maxX(), p.x()), Math.max(area.maxY(), p.y()), Math.max(area.maxZ(), p.z()));
+    }
+    return area;
+  }
+
   /** 不同世界的草稿不能互相合併（主世界包含所有世界）；可以時回傳 null。 */
   Refused crossWorld(String target, String source) {
     var a = dimension(target);

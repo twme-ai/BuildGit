@@ -79,8 +79,10 @@ init:
   genesis-dir: ""
 
 sync:
-  # /bg pull 一次最多取出的方塊數（選取範圍的體積）。
+  # /bg pull 一次最多取出的方塊數（範圍的體積）。
   max-blocks: 2000000
+  # 沒有選取範圍時：在草稿裡取草稿改過的範圍（外加 8 格），其他時候取玩家周圍這麼多格（水平半徑、整個高度）。
+  radius: 32
 
 integrations:
   # 記錄 WorldEdit／FastAsyncWorldEdit 的編輯（Fabric 是 WorldEdit 模組）。

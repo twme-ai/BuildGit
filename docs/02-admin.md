@@ -114,6 +114,7 @@ LuckPerms 範例：
 | `autosave.max-interval-seconds` | 1800 | 一直有人在蓋時，最長多久一定自動存檔一次；0 停用 |
 | `worlds.unload-idle-seconds` | 60 | 草稿世界沒人這麼久後卸載（見 §7）；-1 永不卸載 |
 | `sync.max-blocks` | 2000000 | `/bg pull` 一次最多帶走的方塊數 |
+| `sync.radius` | 32 | 沒有選取範圍、也不在改過的草稿裡時，`/bg pull` 帶走玩家周圍多少格（水平半徑、整個高度） |
 | `init.genesis-dir` | 空白 | 起點世界放在哪個資料夾（相對於伺服器目錄或絕對路徑）；空白為 `buildgit/genesis`。要重新啟動才生效（見 §6） |
 | `init.lazy-copy-above-mb` | -1 | 世界存檔超過這個大小（MB）時 init 改用延遲複製（見 §3）；0 一律延遲複製，-1 一律完整複製 |
 | `integrations.worldedit`／`axiom`／`debugstickpro` | true | 是否記錄 WorldEdit／FAWE、Axiom、DebugStickPro 的編輯 |

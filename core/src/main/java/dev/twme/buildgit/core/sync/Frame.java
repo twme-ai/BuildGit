@@ -22,6 +22,10 @@ public record Frame(int type, String name, int index, int total, byte[] data) {
   public static final int UPLOAD = 3;
   /** 用戶端 → 伺服器：無法完成，{@code data} 是原因代碼（UTF-8）。 */
   public static final int ERROR = 4;
+  /** 用戶端 → 伺服器：連上時列出改過、還沒送回的範圍，{@code data} 是以換行分隔的名稱（UTF-8）。 */
+  public static final int EDITED = 5;
+  /** 伺服器 → 用戶端：已送回成草稿，刪掉改過的範圍檔。 */
+  public static final int DONE = 6;
 
   /** 伺服器送出的一段（原版上限 1 MiB）。 */
   public static final int SERVER_PART = 512 * 1024;

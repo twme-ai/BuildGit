@@ -3,6 +3,8 @@ package dev.twme.buildgit.core.sync;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -41,6 +43,10 @@ public final class SyncClient {
           }
           return List.of();
         }
+        case Frame.DONE -> {
+          Files.deleteIfExists(folder.resolve(f.name() + EDITED));
+          return List.of();
+        }
         case Frame.PUSH -> {
           var file = folder.resolve(f.name() + EDITED);
           if (!Files.exists(file)) return error(f.name(), "missing");
@@ -54,6 +60,21 @@ public final class SyncClient {
       receiving = null;
       return error(f.name(), "save-failed");
     }
+  }
+
+  /** 連上伺服器時送出：改過、還沒送回的範圍名稱。 */
+  public Frame edited() {
+    var names = new ArrayList<String>();
+    try (var files = Files.list(folder)) {
+      files.forEach(f -> {
+        var n = f.getFileName().toString();
+        if (n.endsWith(EDITED)) names.add(n.substring(0, n.length() - EDITED.length()));
+      });
+    } catch (IOException e) {
+      // 還沒有範圍
+    }
+    Collections.sort(names);
+    return new Frame(Frame.EDITED, "list", 0, 0, String.join("\n", names).getBytes(StandardCharsets.UTF_8));
   }
 
   private static List<Frame> error(String name, String code) {

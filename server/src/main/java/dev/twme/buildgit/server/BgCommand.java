@@ -941,13 +941,16 @@ public final class BgCommand {
 
   // ---- 與單人世界同步（設計 §6.7） ----
 
-  /** {@code pull <名稱>}：把選取範圍送到自己的用戶端。 */
+  /**
+   * {@code pull [名稱]}：把範圍送到自己的用戶端。有選取範圍就用它；沒有時在草稿裡取草稿改過的範圍，
+   * 其他時候取玩家周圍（{@code sync.radius}）。沒給名稱時用草稿名稱或玩家名稱，用過就加編號。
+   */
   private void pull(Sender sender, String[] args) throws IOException {
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
-    String name = w.size() == 1 ? w.getFirst().toLowerCase(Locale.ROOT) : "";
-    if (!Frame.NAME.matcher(name).matches()) {
+    String given = w.size() == 1 ? w.getFirst().toLowerCase(Locale.ROOT) : null;
+    if (w.size() > 1 || given != null && !Frame.NAME.matcher(given).matches()) {
       msg().send(s(p), "usage-pull");
       return;
     }
@@ -956,23 +959,46 @@ public final class BgCommand {
       return;
     }
     var sel = bg.selections().get(p);
-    if (sel.isEmpty()) {
-      msg().send(s(p), "sel-none");
-      return;
-    }
-    var wt = ws().worktree(sel.get().level());
+    var level = sel.isPresent() ? sel.get().level() : p.level();
+    var wt = ws().worktree(level);
     if (wt == null) {
       msg().send(s(p), "sync-not-branch");
       return;
     }
-    var box = sel.get().box();
-    if (Bundle.volume(box) > bg.settings().syncMaxBlocks()) {
+    var selected = sel.isPresent() ? sel.get().box() : null;
+    if (selected != null && Bundle.volume(selected) > bg.settings().syncMaxBlocks()) {
       msg().send(s(p), "sync-too-big", "max", bg.settings().syncMaxBlocks());
       return;
     }
-    String dimension = ws().logicalDimension(sel.get().level());
+    String dimension = ws().logicalDimension(level);
     if (ws().copying(dimension)) throw new Workspace.Refused("這個世界的起點世界還在背景複製，請稍後再試");
-    autosaveThen(sender, wt, () -> bg.sync().pull(p, name, wt.branch(), dimension, box));
+    String base = given != null ? given : wt != ws().main() ? wt.branch() : p.getScoreboardName().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", "_");
+    String name = given != null ? given : bg.sync().freeName(p, base);
+    int px = p.getBlockX(), pz = p.getBlockZ(), minY = level.getMinY(), maxY = level.getMaxY();
+    autosaveThen(sender, wt, () -> {
+      if (selected != null) {
+        bg.sync().pull(p, name, wt.branch(), dimension, selected);
+        return;
+      }
+      ws().async(() -> {
+        try {
+          var changed = ws().changedArea(wt.branch(), dimension);
+          int r = bg.settings().syncRadius(), m = 8;
+          var box = changed == null ? new Box(px - r, minY, pz - r, px + r, maxY, pz + r)
+              : new Box(changed.minX() - m, Math.max(minY, changed.minY() - m), changed.minZ() - m,
+                  changed.maxX() + m, Math.min(maxY, changed.maxY() + m), changed.maxZ() + m);
+          ws().sync(() -> {
+            if (Bundle.volume(box) > bg.settings().syncMaxBlocks()) {
+              msg().send(s(p), changed == null ? "sync-too-big" : "sync-draft-too-big", "max", bg.settings().syncMaxBlocks());
+              return;
+            }
+            bg.sync().pull(p, name, wt.branch(), dimension, box);
+          });
+        } catch (IOException | RuntimeException e) {
+          ws().sync(() -> failed(sender, e));
+        }
+      });
+    });
   }
 
   /** {@code push <名稱> [草稿名稱]}：收回單人世界改過的範圍，存成草稿。 */
@@ -986,6 +1012,8 @@ public final class BgCommand {
       return;
     }
     String draft = w.size() == 2 ? w.get(1).toLowerCase(Locale.ROOT) : name;
+    // 沒指定草稿名稱：同一個範圍可能已經送回過，加上編號
+    for (int i = 2; w.size() == 1 && ws().branches().containsKey(draft); i++) draft = name + "-" + i;
     if (draft.equals(Repository.MAIN) || Workspace.isScratch(draft) || !Workspace.BRANCH_NAME.matcher(draft).matches()) {
       msg().send(s(p), "branch-bad-name");
       return;

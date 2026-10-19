@@ -13,12 +13,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.logging.Level;
+import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * 與單人世界同步，伺服器這一邊（設計 §6.7）：{@code pull} 把選取範圍送到玩家的用戶端，
+ * 與單人世界同步，伺服器這一邊（設計 §6.7）：{@code pull} 把範圍送到玩家的用戶端，
  * {@code push} 收回改過的範圍，和當初取出的存檔比較後存成草稿，之後照一般流程併回。
+ * 用戶端連上時會列出改過、還沒送回的範圍，這裡附上送回的按鈕。
  *
  * <p>上傳的內容不可信任，資源用量都有上限：只收伺服器要求過的上傳、壓縮後與解壓後的大小、
  * 實體數、等待時間，而且每位玩家同時只能有一個 pull 或 push 在進行。
@@ -80,6 +82,14 @@ final class Sync {
     }
     Collections.sort(result);
     return result;
+  }
+
+  /** 沒用過的範圍名稱：{@code base}，用過就加上 -2、-3…（用過的名稱可能還有改到一半的範圍）。 */
+  String freeName(ServerPlayer p, String base) {
+    if (base.length() > 28) base = base.substring(0, 28);
+    var used = new HashSet<>(names(p));
+    if (!used.contains(base)) return base;
+    for (int i = 2; ; i++) if (!used.contains(base + "-" + i)) return base + "-" + i;
   }
 
   // ---- pull ----
@@ -162,6 +172,10 @@ final class Sync {
     } catch (IOException e) {
       return;
     }
+    if (f.type() == Frame.EDITED) {
+      edited(p, new String(f.data(), StandardCharsets.UTF_8));
+      return;
+    }
     var up = uploads.get(p.getUUID());
     if (up == null || !up.name().equals(f.name())) return;
     if (f.type() == Frame.ERROR) {
@@ -183,6 +197,19 @@ final class Sync {
     if (data == null) return;
     uploads.remove(p.getUUID());
     if (begin(p)) accept(p, up, data);
+  }
+
+  /** 用戶端連上時列出的改過範圍：這台伺服器取出過的，附上送回的按鈕。 */
+  private void edited(ServerPlayer p, String list) {
+    if (!bg.platform().hasPermission(p, "buildgit.push")) return;
+    var known = new HashSet<>(names(p));
+    var found = Arrays.stream(list.split("\n")).limit(64).filter(known::contains).toList();
+    if (found.isEmpty()) return;
+    msg().send(s(p), "sync-edited", "count", found.size());
+    Component line = Component.empty();
+    for (var n : found)
+      line = line.append(msg().get("sync-push-button", "name", n).clickEvent(ClickEvent.runCommand("/bg push " + n))).append(Component.text(" "));
+    s(p).send(line);
   }
 
   /** 每秒：放棄等太久的上傳，釋放收到一半的資料。 */
@@ -279,6 +306,8 @@ final class Sync {
         ws().sync(() -> {
           busy.remove(uuid);
           var p = online(uuid);
+          // 用戶端刪掉改過的範圍檔，下次連上就不再提示
+          if (p != null) bg.platform().sendSync(p, new Frame(Frame.DONE, up.name(), 0, 0, new byte[0]).encode());
           if (changes == null) {
             deleteDraft(up.draft());
             if (p != null) msg().send(s(p), "sync-push-nochange", "name", up.name());
