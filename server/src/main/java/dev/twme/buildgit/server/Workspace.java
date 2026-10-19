@@ -173,7 +173,14 @@ public final class Workspace {
   }
 
   void sync(Runnable r) {
-    platform.sync(r);
+    // 多半從 CompletableFuture 的回呼呼叫：例外丟出去會被吞掉，這裡先記下
+    platform.sync(() -> {
+      try {
+        r.run();
+      } catch (RuntimeException e) {
+        log().log(Level.SEVERE, "BuildGit 主執行緒工作失敗", e);
+      }
+    });
   }
 
   /** 世界仍然載入中（沒有被卸載）。 */
