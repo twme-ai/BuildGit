@@ -64,6 +64,8 @@ final class Backup {
   private ScheduledExecutorService worker;
   private ExecutorService uploads;
   private volatile String lastError;
+  /** 連續失敗的次數；成功時歸零。 */
+  private int failures;
   private volatile List<String> incomplete = List.of();
 
   Backup(BuildGit bg) {
@@ -176,6 +178,25 @@ final class Backup {
     return result;
   }
 
+  /** 在背景從備份取回一個分支的物件（{@link Restore#fetchBranch}）。 */
+  synchronized CompletableFuture<Restore.Fetched> fetch(String branch) {
+    var result = new CompletableFuture<Restore.Fetched>();
+    if (worker == null) result.completeExceptionally(new Workspace.Refused("異地備份沒有啟用"));
+    else {
+      var s = s3;
+      var prefix = config.prefix();
+      var pool = uploads;
+      worker.execute(() -> {
+        try {
+          result.complete(Restore.fetchBranch(bg, s, prefix, pool, branch));
+        } catch (Exception e) {
+          result.completeExceptionally(e);
+        }
+      });
+    }
+    return result;
+  }
+
   /** 上次成功備份的時間（毫秒）；沒有時為 0。 */
   long lastTime() {
     var ws = bg.workspace();
@@ -189,12 +210,22 @@ final class Backup {
     try {
       var result = backup();
       lastError = null;
+      failures = 0;
       if (result.snapshot() != null)
         bg.platform().log().info("異地備份完成：" + result.snapshot() + "（" + result.objects() + " 個物件、" + result.files() + " 個檔案）");
       return result;
     } catch (Exception e) {
       lastError = String.valueOf(Workspace.unwrap(e).getMessage());
       bg.platform().log().log(Level.WARNING, "異地備份失敗：" + lastError, e instanceof IOException ? null : e);
+      // 連續失敗 3 次起，每次都提醒線上的管理員（只看主控台的話不會發現）
+      if (++failures >= 3) {
+        int count = failures;
+        String error = lastError;
+        bg.platform().sync(() -> {
+          for (var p : bg.platform().server().getPlayerList().getPlayers())
+            if (bg.platform().hasPermission(p, "buildgit.backup")) bg.messages().send(bg.platform().sender(p), "backup-failing", "count", count, "error", error);
+        });
+      }
       throw e;
     }
   }
@@ -280,20 +311,23 @@ final class Backup {
     var uploaded = new HashSet<ObjectId>();
     if (Files.exists(commitsFile)) for (var line : Files.readAllLines(commitsFile)) if (!line.isBlank()) uploaded.add(ObjectId.parse(line.strip()));
     var snapshots = names(s3.list(prefix + "snapshots/"));
-    // 本機的紀錄遺失、遠端卻已有備份：每個物件先問遠端有沒有
-    boolean ask = !Files.exists(commitsFile) && !snapshots.isEmpty();
+    // 本機的紀錄遺失、遠端卻已有備份，或上次上傳到一半中斷：先列出遠端已有的物件，不重傳
+    var uploading = state.resolve("uploading");
+    var remote = (!Files.exists(commitsFile) && !snapshots.isEmpty()) || Files.exists(uploading)
+        ? new HashSet<>(s3.list(prefix + "objects/")) : Set.<String>of();
     var walk = ObjectWalk.collect(repo, refs.values(), uploaded);
 
     boolean changed = !walk.commits().isEmpty() || !refMap.equals(last.get("refs")) || !branches.equals(last.getString("branches", ""))
         || !dataVersion.equals(last.getString("data-version", "")) || !content(dims).equals(content(last.get("dimensions")));
     if (!changed) return new Result(null, 0, 0);
 
+    Files.writeString(uploading, "");
     var objects = repo.overlays().objects();
     var futures = new ArrayList<Future<Boolean>>();
     for (var id : walk.objects()) {
       String hex = id.hex(), key = prefix + "objects/" + hex.substring(0, 2) + "/" + hex.substring(2);
       futures.add(uploads.submit(() -> {
-        if (ask && s3.exists(key)) return false;
+        if (remote.contains(key)) return false;
         s3.put(key, Files.readAllBytes(objects.file(id)));
         return true;
       }));
@@ -346,6 +380,7 @@ final class Backup {
     var lines = new ArrayList<String>();
     for (var id : walk.commits()) lines.add(id.hex());
     Files.write(commitsFile, lines, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    Files.delete(uploading);
 
     snapshots.add(name);
     prune(snapshots);

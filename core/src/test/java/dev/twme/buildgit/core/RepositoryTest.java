@@ -425,4 +425,27 @@ class RepositoryTest {
     assertEquals(all, walked);
     assertFalse(second.objects().containsAll(first.objects()), "第二次不該重走沒變的部分");
   }
+
+  @Test
+  void backupFetchCopiesReachableObjects(@TempDir Path fetched) throws Exception {
+    var m = main();
+    m.set(ALICE, 0, 65, 0, "minecraft:stone").commit("a");
+    var d = branch("d", m);
+    d.set(BOB, 1, 65, 0, "minecraft:dirt").commit("b");
+    var source = repo.overlays().objects();
+    var pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+    try {
+      var target = new dev.twme.buildgit.core.store.ObjectStore(fetched);
+      // 先取回 main，再取回 d：第二次只下載 d 多出來的
+      int first = dev.twme.buildgit.core.backup.ObjectFetch.fetch(target, List.of(repo.head("main")), false,
+          id -> java.nio.file.Files.readAllBytes(source.file(id)), pool);
+      int second = dev.twme.buildgit.core.backup.ObjectFetch.fetch(target, List.of(repo.head("d")), false,
+          id -> java.nio.file.Files.readAllBytes(source.file(id)), pool);
+      var all = dev.twme.buildgit.core.backup.ObjectWalk.collect(repo, List.of(repo.head("d")), Set.of()).objects();
+      for (var id : all) assertTrue(java.nio.file.Files.exists(target.file(id)), id.hex());
+      assertEquals(all.size(), first + second);
+    } finally {
+      pool.shutdown();
+    }
+  }
 }

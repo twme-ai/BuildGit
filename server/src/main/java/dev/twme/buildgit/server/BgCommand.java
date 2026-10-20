@@ -89,7 +89,7 @@ public final class BgCommand {
     sub("who", "buildgit.who", (s, a) -> who(s), null);
     sub("disk", "buildgit.disk", (s, a) -> disk(s), null);
     sub("genesis", "buildgit.genesis", this::genesis, (s, b) -> b.isEmpty() ? List.of("upgrade") : List.of());
-    sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list", "restore") : List.of());
+    sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list", "restore", "fetch") : List.of());
     sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("back", "buildgit.back", (s, a) -> back(s), null);
@@ -1270,7 +1270,12 @@ public final class BgCommand {
   private void backup(Sender sender, String[] args) {
     var backup = bg.backup();
     String action = args.length == 0 ? "status" : args[0];
-    if (args.length > (action.equals("restore") ? 2 : 1) || !List.of("status", "now", "list", "restore").contains(action)) {
+    int max = switch (action) {
+      case "restore" -> 2;
+      case "fetch" -> 3;
+      default -> 1;
+    };
+    if (args.length > max || !List.of("status", "now", "list", "restore", "fetch").contains(action) || (action.equals("fetch") && args.length < 2)) {
       msg().send(sender, "usage-backup");
       return;
     }
@@ -1294,6 +1299,27 @@ public final class BgCommand {
           else if (r.snapshot() == null) msg().send(sender, "backup-unchanged");
           else msg().send(sender, "backup-done", "snapshot", r.snapshot(), "objects", r.objects(), "files", r.files());
           if (e == null && !backup.incomplete().isEmpty()) msg().send(sender, "backup-incomplete", "dims", String.join(", ", backup.incomplete()));
+        }));
+      }
+      case "fetch" -> {
+        String branch = args[1], target = args.length > 2 ? args[2] : args[1];
+        try {
+          if (!Workspace.BRANCH_NAME.matcher(target).matches() || Workspace.isScratch(target)) throw new Workspace.Refused("名稱只能用小寫英數、底線、連字號：" + target);
+          if (ws().branches().containsKey(target)) throw new Workspace.Refused("已經有分支 " + target + "：請給一個新名稱，例如 /bg backup fetch " + branch + " " + branch + "-backup");
+        } catch (IOException e) {
+          msg().send(sender, "backup-fetch-failed", "error", String.valueOf(e.getMessage()));
+          return;
+        }
+        msg().send(sender, "backup-fetch-started", "branch", branch);
+        backup.fetch(branch).whenComplete((r, e) -> ws().sync(() -> {
+          try {
+            if (e != null) throw Workspace.unwrap(e);
+            String from = ws().branches().containsKey(r.source()) ? r.source() : Repository.MAIN;
+            ws().createBranch(target, from, r.head(), false, r.dimension());
+            msg().send(sender, "backup-fetch-done", "branch", target, "snapshot", r.snapshot(), "objects", r.objects());
+          } catch (Throwable t) {
+            msg().send(sender, "backup-fetch-failed", "error", String.valueOf(t.getMessage()));
+          }
         }));
       }
       case "restore" -> {

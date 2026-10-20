@@ -1,6 +1,7 @@
 package dev.twme.buildgit.server;
 
 import dev.twme.buildgit.core.anvil.RegionSynthesizer;
+import dev.twme.buildgit.core.backup.ObjectFetch;
 import dev.twme.buildgit.core.backup.ObjectWalk;
 import dev.twme.buildgit.core.backup.S3;
 import dev.twme.buildgit.core.overlay.OverlayReader;
@@ -51,23 +52,15 @@ final class Restore {
     var upgrader = ws.upgrader();
     var warnings = new ArrayList<String>();
 
-    var names = new ArrayList<String>();
-    for (var k : s3.list(prefix + "snapshots/")) if (k.endsWith(".yml")) names.add(k.substring(k.lastIndexOf('/') + 1, k.length() - 4));
-    Collections.sort(names);
+    var names = snapshots(s3, prefix);
     if (names.isEmpty()) throw new Workspace.Refused("遠端沒有快照");
     if (name == null) name = names.getLast();
     else if (!names.contains(name)) throw new Workspace.Refused("沒有快照 " + name);
     var snapshotBytes = s3.get(prefix + "snapshots/" + name + ".yml");
     if (snapshotBytes == null) throw new IOException("讀不到快照 " + name);
     var snapshot = Yaml.load(new ByteArrayInputStream(snapshotBytes));
-
-    // 跨版本：Minecraft 不能降級，和開啟版本庫的規則相同，在下載之前就檢查
     String dataVersion = snapshot.getString("data-version", "");
-    var dv = new Properties();
-    dv.load(new StringReader(dataVersion));
-    int newest = Integer.parseInt(dv.getProperty("newest", "0").strip());
-    if (newest > upgrader.current())
-      throw new Workspace.Refused("這份備份曾由較新的 Minecraft（資料版本 " + newest + "）寫入，目前伺服器是 " + upgrader.current() + "；請用相同或更新的版本還原");
+    checkVersion(dataVersion, upgrader.current());
     boolean sameVersion = snapshot.getInt("minecraft-data-version", -1) == upgrader.current();
 
     var repoDir = ws.dir();
@@ -79,26 +72,6 @@ final class Restore {
     delete(genesisStaging);
     Files.createDirectories(staging);
     var plan = new ArrayList<Map<String, Object>>();
-
-    // 物件：遠端從不刪物件，全部下載；邊下載邊驗證雜湊
-    var store = new ObjectStore(staging.resolve("objects"));
-    var futures = new ArrayList<Future<?>>();
-    for (var key : s3.list(prefix + "objects/")) {
-      String rel = key.substring(prefix.length() + "objects/".length());
-      if (rel.length() < 4 || rel.charAt(2) != '/') continue;
-      var id = ObjectId.parse(rel.substring(0, 2) + rel.substring(3));
-      futures.add(pool.submit(() -> {
-        var bytes = s3.get(key);
-        if (bytes == null) throw new IOException("讀不到物件 " + id.hex());
-        var file = store.file(id);
-        Files.createDirectories(file.getParent());
-        Files.write(file, bytes);
-        store.get(id); // 雜湊不符時丟出例外
-        return null;
-      }));
-    }
-    for (var f : futures) f.get();
-    int objects = futures.size();
 
     var refs = new RefStore(staging.resolve("refs").resolve("branches"));
     var heads = new ArrayList<ObjectId>();
@@ -113,9 +86,11 @@ final class Restore {
     var pointer = repoDir.resolve("genesis-dir");
     if (Files.exists(pointer)) Files.copy(pointer, staging.resolve("genesis-dir"));
 
+    // 物件：從快照的 refs 走訪，只下載用得到的，邊下載邊驗證雜湊
+    var store = new ObjectStore(staging.resolve("objects"));
+    int objects = ObjectFetch.fetch(store, heads, false, source(s3, prefix), pool);
     var repo = Repository.open(staging, upgrader);
     var walk = ObjectWalk.collect(repo, heads, Set.of());
-    for (var id : walk.objects()) if (!Files.exists(store.file(id))) throw new IOException("備份缺少物件 " + id.hex());
     var main = repo.refs().get(Repository.MAIN).orElseThrow(() -> new IOException("快照沒有 main 分支"));
     var mainTree = repo.commit(main).tree();
 
@@ -223,6 +198,57 @@ final class Restore {
     y.save(staging.resolve(PLAN + ".tmp"));
     Files.move(staging.resolve(PLAN + ".tmp"), staging.resolve(PLAN), StandardCopyOption.ATOMIC_MOVE);
     return new Result(name, objects, files, warnings);
+  }
+
+  /** 取回分支的結果：用的快照、分支指向的提交、下載的物件數、分支在 branches.yml 的設定（來源、所屬世界）。 */
+  record Fetched(String snapshot, ObjectId head, int objects, String source, String dimension) {}
+
+  /**
+   * 從最新一份有這個分支的快照取回它的物件（不重新啟動、不動其他分支）。物件寫進目前的版本庫；
+   * 建立分支由呼叫端在主執行緒做。
+   */
+  static Fetched fetchBranch(BuildGit bg, S3 s3, String prefix, ExecutorService pool, String branch) throws Exception {
+    var ws = bg.workspace();
+    if (!ws.isOpen()) throw new Workspace.Refused("還沒有開始版本控制");
+    var names = snapshots(s3, prefix);
+    for (int i = names.size() - 1; i >= 0; i--) {
+      var bytes = s3.get(prefix + "snapshots/" + names.get(i) + ".yml");
+      if (bytes == null) continue;
+      var snapshot = Yaml.load(new ByteArrayInputStream(bytes));
+      if (!(snapshot.get("refs") instanceof Map<?, ?> refs) || refs.get(branch) == null) continue;
+      checkVersion(snapshot.getString("data-version", ""), ws.upgrader().current());
+      var head = ObjectId.parse(String.valueOf(refs.get(branch)));
+      // 上次補到一半中斷時，已有的物件底下可能還缺：這次全部檢查
+      var marker = ws.dir().resolve("backup").resolve("fetching");
+      boolean check = Files.exists(marker);
+      Files.createDirectories(marker.getParent());
+      Files.writeString(marker, branch);
+      int objects = ObjectFetch.fetch(ws.repo().overlays().objects(), List.of(head), check, source(s3, prefix), pool);
+      Files.delete(marker);
+      var meta = Yaml.load(new ByteArrayInputStream(snapshot.getString("branches", "").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+      return new Fetched(names.get(i), head, objects, meta.getString(branch + ".source", Repository.MAIN), meta.getString(branch + ".dimension", null));
+    }
+    throw new Workspace.Refused("遠端的快照裡都沒有分支 " + branch);
+  }
+
+  static List<String> snapshots(S3 s3, String prefix) throws IOException {
+    var names = new ArrayList<String>();
+    for (var k : s3.list(prefix + "snapshots/")) if (k.endsWith(".yml")) names.add(k.substring(k.lastIndexOf('/') + 1, k.length() - 4));
+    Collections.sort(names);
+    return names;
+  }
+
+  private static ObjectFetch.Source source(S3 s3, String prefix) {
+    return id -> s3.get(prefix + "objects/" + id.hex().substring(0, 2) + "/" + id.hex().substring(2));
+  }
+
+  /** 跨版本：Minecraft 不能降級，和開啟版本庫的規則相同，在下載之前就檢查。 */
+  private static void checkVersion(String dataVersion, int current) throws IOException {
+    var dv = new Properties();
+    dv.load(new StringReader(dataVersion));
+    int newest = Integer.parseInt(dv.getProperty("newest", "0").strip());
+    if (newest > current)
+      throw new Workspace.Refused("這份備份曾由較新的 Minecraft（資料版本 " + newest + "）寫入，目前伺服器是 " + current + "；請用相同或更新的版本");
   }
 
   private static void fetch(S3 s3, String prefix, String hash, Path target) throws IOException {

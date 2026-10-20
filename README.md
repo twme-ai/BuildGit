@@ -138,7 +138,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg load <名稱>          （單人世界）放進取出的範圍
 /bg push <名稱> [草稿]   把單人世界改過的範圍送回，存成草稿
 /bg disk                 BuildGit 用掉的磁碟空間（管理員）
-/bg backup [status|now|list|restore]  異地備份到 S3、從備份還原（管理員，見管理員手冊 §8.1）
+/bg backup [status|now|list|fetch|restore]  異地備份到 S3、取回分支、從備份還原（管理員，見管理員手冊 §8.1）
 /bg log、show、diff、blame、inspect、who、sel
 ```
 

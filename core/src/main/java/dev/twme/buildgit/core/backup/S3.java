@@ -32,6 +32,7 @@ public final class S3 {
   private static final Pattern KEY = Pattern.compile("<Key>(.*?)</Key>"), NEXT = Pattern.compile("<NextContinuationToken>(.*?)</NextContinuationToken>");
 
   private final Config config;
+  private static final int RETRIES = 3;
   private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).build();
 
   public S3(Config config) {
@@ -92,7 +93,36 @@ public final class S3 {
     throw new IOException("S3 回應 " + r.statusCode() + (code.find() ? " " + code.group(1) : ""));
   }
 
+  /** 連線失敗、伺服器錯誤（5xx）或要求放慢（429）時，隔一下再試，最多三次。 */
   private HttpResponse<byte[]> request(String method, String key, Map<String, String> query, byte[] body) throws IOException {
+    for (int attempt = 1; ; attempt++) {
+      try {
+        var r = attempt(method, key, query, body);
+        if (attempt < RETRIES && (r.statusCode() >= 500 || r.statusCode() == 429)) {
+          pause(attempt);
+          continue;
+        }
+        return r;
+      } catch (IOException e) {
+        if (Thread.currentThread().isInterrupted()) throw e;
+        if (attempt >= RETRIES)
+          throw new IOException("無法連上 " + config.endpoint() + "：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()), e);
+        pause(attempt);
+      }
+    }
+  }
+
+  private static void pause(int attempt) throws IOException {
+    try {
+      Thread.sleep(2000L * attempt * attempt); // 2 秒、8 秒
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("中斷", e);
+    }
+  }
+
+  /** 一次請求；每次重新簽名（簽名帶時間）。 */
+  private HttpResponse<byte[]> attempt(String method, String key, Map<String, String> query, byte[] body) throws IOException {
     var base = URI.create(config.endpoint().replaceAll("/+$", ""));
     String host = (config.pathStyle() ? "" : config.bucket() + ".") + base.getHost()
         + (base.getPort() == -1 || base.getPort() == (base.getScheme().equals("https") ? 443 : 80) ? "" : ":" + base.getPort());
