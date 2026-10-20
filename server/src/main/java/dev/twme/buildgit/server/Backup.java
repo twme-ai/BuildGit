@@ -101,7 +101,7 @@ final class Backup {
       } catch (Exception e) {
         // run 已經記下
       }
-    }, 5, config.intervalMinutes() * 60, TimeUnit.SECONDS);
+    }, 5 * 60, config.intervalMinutes() * 60, TimeUnit.SECONDS);
   }
 
   synchronized void stop() {
@@ -153,6 +153,26 @@ final class Backup {
     var result = new ArrayList<String>();
     for (var k : keys) if (k.endsWith(".yml")) result.add(k.substring(k.lastIndexOf('/') + 1, k.length() - 4));
     Collections.sort(result);
+    return result;
+  }
+
+  /** 在背景下載快照準備還原（{@link Restore}）；和備份排在同一個執行緒，不會同時進行。 */
+  synchronized CompletableFuture<Restore.Result> restore(String name) {
+    var result = new CompletableFuture<Restore.Result>();
+    if (worker == null) result.completeExceptionally(new Workspace.Refused("異地備份沒有啟用"));
+    else {
+      var s = s3;
+      var prefix = config.prefix();
+      var pool = uploads;
+      worker.execute(() -> {
+        try {
+          result.complete(Restore.download(bg, s, prefix, pool, name));
+        } catch (Exception e) {
+          bg.platform().log().log(Level.WARNING, "下載備份失敗：" + Workspace.unwrap(e).getMessage(), e instanceof IOException ? null : e);
+          result.completeExceptionally(e);
+        }
+      });
+    }
     return result;
   }
 
@@ -281,29 +301,31 @@ final class Backup {
     int sent = 0;
     for (var f : futures) if (f.get()) sent++;
 
-    // level.dat：一直在變（時間、天氣），只在有其他變化時才帶上
+    // level.dat 與種子設定：一直在變（時間、天氣），只在有其他變化時才帶上
+    var root = bg.platform().server().getServerDirectory().toAbsolutePath().normalize();
     for (var entry : dims) {
       String dim = (String) entry.get("id");
       var levelDir = ws.mainLevelDirectory(dim);
-      var levelDat = levelDir == null ? null : levelDat(levelDir);
-      if (levelDat != null) {
-        var bytes = Files.readAllBytes(levelDat);
-        String hash = S3.hex(S3.sha256(bytes));
-        if (remoteFiles.add(prefix + "files/" + hash)) {
-          s3.put(prefix + "files/" + hash, bytes);
-          files++;
+      if (levelDir != null) {
+        var list = new ArrayList<String>();
+        for (var f : levelFiles(levelDir)) {
+          var bytes = Files.readAllBytes(f);
+          String hash = S3.hex(S3.sha256(bytes));
+          if (remoteFiles.add(prefix + "files/" + hash)) {
+            s3.put(prefix + "files/" + hash, bytes);
+            files++;
+          }
+          list.add(hash + " " + relative(root, f));
         }
-        var root = bg.platform().server().getServerDirectory().toAbsolutePath().normalize();
-        entry.put("world", root.relativize(levelDir.toAbsolutePath().normalize()).toString().replace('\\', '/'));
-        entry.put("level-dat", hash + " " + root.relativize(levelDat.toAbsolutePath().normalize()).toString().replace('\\', '/'));
+        entry.put("world", relative(root, levelDir));
+        entry.put("seed", ws.mainSeed(dim));
+        entry.put("level-files", list);
       } else {
         // 世界沒載入：沿用上一份快照記的
         if (last.get("dimensions") instanceof List<?> old)
           for (var o : old)
-            if (o instanceof Map<?, ?> m && dim.equals(m.get("id"))) {
-              if (m.get("world") != null) entry.put("world", m.get("world"));
-              if (m.get("level-dat") != null) entry.put("level-dat", m.get("level-dat"));
-            }
+            if (o instanceof Map<?, ?> m && dim.equals(m.get("id")))
+              for (var k : List.of("world", "seed", "level-files", "level-dat")) if (m.get(k) != null) entry.put(k, m.get(k));
       }
     }
 
@@ -344,6 +366,7 @@ final class Backup {
         for (var d : dims)
           if (d instanceof Map<?, ?> m) {
             if (m.get("files") instanceof List<?> files) for (var f : files) used.add(String.valueOf(f).split(" ")[0]);
+            if (m.get("level-files") instanceof List<?> files) for (var f : files) used.add(String.valueOf(f).split(" ")[0]);
             if (m.get("level-dat") != null) used.add(String.valueOf(m.get("level-dat")).split(" ")[0]);
           }
     }
@@ -371,11 +394,25 @@ final class Backup {
     Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
   }
 
-  /** 世界的 level.dat：在存檔目錄或它的上層（地獄、終界的存檔目錄在世界資料夾裡面）。 */
-  private static Path levelDat(Path dir) {
+  private static String relative(Path root, Path p) {
+    return root.relativize(p.toAbsolutePath().normalize()).toString().replace('\\', '/');
+  }
+
+  /**
+   * 世界的 level.dat 與種子設定：從存檔目錄往上找到 level.dat 為止（地獄、終界的存檔目錄在世界資料夾裡面）。
+   * 26.x 起種子另外存在 {@code data/minecraft/world_gen_settings.dat}（原版在世界資料夾，Paper 在每個維度的目錄）。
+   */
+  private static List<Path> levelFiles(Path dir) {
+    var result = new ArrayList<Path>();
     var d = dir;
-    for (int i = 0; i < 4 && d != null; i++, d = d.getParent())
-      if (Files.isRegularFile(d.resolve("level.dat"))) return d.resolve("level.dat");
-    return null;
+    for (int i = 0; i < 4 && d != null; i++, d = d.getParent()) {
+      var gen = d.resolve("data").resolve("minecraft").resolve("world_gen_settings.dat");
+      if (Files.isRegularFile(gen)) result.add(gen);
+      if (Files.isRegularFile(d.resolve("level.dat"))) {
+        result.add(d.resolve("level.dat"));
+        break;
+      }
+    }
+    return result;
   }
 }

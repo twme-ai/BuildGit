@@ -31,7 +31,7 @@ help: |-
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— record a region manually</gray>
   <aqua>/bg disk</aqua> <gray>— disk space used by BuildGit (admin)</gray>
   <aqua>/bg genesis upgrade</aqua> <gray>— after upgrading Minecraft, rewrite the starting world in the new format (admin)</gray>
-  <aqua>/bg backup [status|now|list]</aqua> <gray>— off-site backup to S3 (admin)</gray>
+  <aqua>/bg backup [status|now|list|restore]</aqua> <gray>— off-site backup to S3 (admin)</gray>
   <aqua>/bg init</aqua> <gray>/</gray> <aqua>/bg reload</aqua> <gray>— admin</gray>
 no-permission: "<red>You don't have permission.</red>"
 players-only: "<red>Only players can use this command.</red>"
@@ -46,7 +46,7 @@ usage-genesis: "<red>Usage: /bg genesis upgrade (rewrite chunks saved by older v
 genesis-upgrade-started: "<green>Upgrading the starting world.</green> <gray>This runs in the background one region file at a time while the server keeps running; the content does not change, and old saves can still be viewed and restored.</gray>"
 genesis-upgrade-done: "<green>Starting world upgraded:</green> <white><chunks></white> <green>chunks in</green> <white><files></white> <green>files rewritten in the current format.</green>"
 genesis-upgrade-failed: "<yellow><count> files could not be upgraded and were left as they are (still upgraded when read); see the console.</yellow>"
-usage-backup: "<red>Usage: /bg backup [status|now|list]</red>"
+usage-backup: "<red>Usage: /bg backup [status|now|list|restore [snapshot]]</red>"
 backup-disabled: "<red>Off-site backup is not enabled: fill in <file>, set enabled to true, then /bg reload.</red>"
 backup-status: "<gray>Off-site backup:</gray> <white><target></white> <gray>— checked every <interval> min, backed up only when something changed, keeping <keep> snapshots.</gray>"
 backup-last: "<gray>Last successful backup:</gray> <white><time></white>"
@@ -59,6 +59,11 @@ backup-unchanged: "<gray>Nothing changed since the last backup.</gray>"
 backup-failed: "<red>Backup failed: <error></red>"
 backup-list-header: "<gray><count> snapshots on the remote; the latest few (newest last):</gray>"
 backup-list-entry: "<white>  <snapshot></white>"
+backup-restore-console: "<red>Restore can only be run from the console.</red>"
+backup-restore-started: "<gray>Downloading the backup; the main world is rebuilt next to the current one afterwards. The server keeps running…</gray>"
+backup-restore-failed: "<red>Download failed: <error></red>"
+backup-restore-warning: "<yellow>Note: <warning></yellow>"
+backup-restore-ready: "<green>Snapshot <snapshot> is downloaded</green> <gray>(<objects> objects, <files> genesis files). It is swapped in on the next server start, before worlds load; the current repository and world folders are renamed and kept, not deleted. To cancel, delete the <folder> folder.</gray>"
 reloaded: "<green>Configuration reloaded.</green>"
 console-confirm: "<gray>To confirm, run: </gray><aqua><command></aqua>"
 
@@ -278,7 +283,7 @@ params-diff: "commit other-commit"
 params-mark: "x1 y1 z1 x2 y2 z2"
 params-sel: "pos1|pos2|show|clear"
 params-genesis: "upgrade"
-params-backup: "status|now|list"
+params-backup: "status|now|list|restore [snapshot]"
 params-try: "draft-name"
 params-go: "draft-name|main"
 params-pull: "name"

@@ -31,7 +31,7 @@ help: |-
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— 手動補記一個範圍</gray>
   <aqua>/bg disk</aqua> <gray>— BuildGit 用掉的磁碟空間（管理）</gray>
   <aqua>/bg genesis upgrade</aqua> <gray>— 升級 Minecraft 後，把起點世界改寫成新版的格式（管理）</gray>
-  <aqua>/bg backup [status|now|list]</aqua> <gray>— 異地備份到 S3（管理）</gray>
+  <aqua>/bg backup [status|now|list|restore]</aqua> <gray>— 異地備份到 S3（管理）</gray>
   <aqua>/bg init</aqua> <gray>／</gray><aqua>/bg reload</aqua> <gray>— 管理</gray>
 no-permission: "<red>你沒有權限。</red>"
 players-only: "<red>只有玩家可以使用這個指令。</red>"
@@ -46,7 +46,7 @@ usage-genesis: "<red>用法：/bg genesis upgrade（把起點世界裡舊版本�
 genesis-upgrade-started: "<green>開始升級起點世界。</green> <gray>在背景逐個 region 檔進行，伺服器照常運作；內容不會改變，舊存檔照樣可以看與還原。</gray>"
 genesis-upgrade-done: "<green>起點世界升級完成：</green><white><files></white> <green>個檔案、</green><white><chunks></white> <green>個 chunk 改寫成目前的格式。</green>"
 genesis-upgrade-failed: "<yellow><count> 個檔案無法升級，維持原樣（讀取時照舊升級），詳見主控台。</yellow>"
-usage-backup: "<red>用法：/bg backup [status|now|list]</red>"
+usage-backup: "<red>用法：/bg backup [status|now|list|restore [快照]]</red>"
 backup-disabled: "<red>異地備份沒有啟用：在 <file> 填好設定、把 enabled 改成 true，再 /bg reload。</red>"
 backup-status: "<gray>異地備份：</gray><white><target></white> <gray>— 每 <interval> 分鐘檢查，有變化才備份，保留 <keep> 份快照。</gray>"
 backup-last: "<gray>上次成功備份：</gray><white><time></white>"
@@ -59,6 +59,11 @@ backup-unchanged: "<gray>上次備份之後沒有變化，不用備份。</gray>
 backup-failed: "<red>備份失敗：<error></red>"
 backup-list-header: "<gray>遠端共有 <count> 份快照，最近的幾份（新的在下面）：</gray>"
 backup-list-entry: "<white>  <snapshot></white>"
+backup-restore-console: "<red>還原只能在主控台執行。</red>"
+backup-restore-started: "<gray>開始下載備份，下載完會先在旁邊重建主世界；伺服器照常運作…</gray>"
+backup-restore-failed: "<red>下載備份失敗：<error></red>"
+backup-restore-warning: "<yellow>注意：<warning></yellow>"
+backup-restore-ready: "<green>快照 <snapshot> 已下載好</green> <gray>（<objects> 個物件、<files> 個起點世界檔案）。重新啟動伺服器時，會在世界載入前換上；原本的版本庫與世界資料夾改名留著，不刪除。不想還原就刪掉 <folder> 資料夾。</gray>"
 reloaded: "<green>設定已重新載入。</green>"
 console-confirm: "<gray>確認請執行：</gray><aqua><command></aqua>"
 
@@ -278,7 +283,7 @@ params-diff: "存檔 另一個存檔"
 params-mark: "x1 y1 z1 x2 y2 z2"
 params-sel: "pos1|pos2|show|clear"
 params-genesis: "upgrade"
-params-backup: "status|now|list"
+params-backup: "status|now|list|restore [快照]"
 params-try: "草稿名稱"
 params-go: "草稿名稱|main"
 params-pull: "名稱"

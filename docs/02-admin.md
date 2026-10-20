@@ -87,7 +87,7 @@ LuckPerms 範例：
 | `buildgit.reload` | `reload`：重新讀取設定與語言檔 |
 | `buildgit.disk` | `disk`：BuildGit 用掉的磁碟空間 |
 | `buildgit.genesis` | `genesis upgrade`：把起點世界改寫成目前版本的格式（§9） |
-| `buildgit.backup` | `backup`：異地備份的狀態、立刻備份、列出快照（§8.1） |
+| `buildgit.backup` | `backup`：異地備份的狀態、立刻備份、列出快照、還原（§8.1） |
 
 注意：
 
@@ -191,8 +191,18 @@ LuckPerms 範例：
 | `/bg backup status` | 備份位置、上次成功的時間、上次的錯誤、無法單靠備份還原的世界 |
 | `/bg backup now` | 立刻檢查並備份 |
 | `/bg backup list` | 列出遠端最近的快照 |
+| `/bg backup restore [快照]` | 下載快照準備還原（只能在主控台；沒給快照就用最新的） |
 
-從備份還原的功能還在開發中。
+**還原**（例如主機壞掉，在新主機上）：
+
+1. 裝好同一個或更新的 Minecraft 版本、BuildGit 與原本的資料包、模組，先啟動一次讓世界產生。要讓起點世界以外的地形一樣，換了 Minecraft 版本時請在世界產生前把 `server.properties` 的 `level-seed` 設成原本的種子（還原時會提醒）。
+2. 在 `s3.yml` 填好同一個備份位置並啟用，`/bg reload`。
+3. 在主控台執行 `/bg backup restore`（或 `/bg backup list` 看有哪些快照，再指定一份）。伺服器照常運作，下載完會先在旁邊把主世界重建好，放在 `buildgit-restore/`。
+4. 看到「已下載好」後重新啟動。世界載入前會換上：版本庫、主世界的 `region`／`entities`、`level.dat` 換成備份的，草稿世界之後由版本重建。原本的都改名為 `….before-restore-<時間>` 留著，確認沒問題後再自己刪。
+
+- 不想還原了：重新啟動前刪掉 `buildgit-restore/`。
+- 主世界只還原到「起點世界＋main 的最新存檔」；沒有記錄的自然變化（例如沒開記錄時的方塊變化）、玩家資料不在備份裡。
+- 換上時出錯（例如磁碟滿）會停止啟動；修正後重新啟動會從中斷的地方繼續。
 
 ## 9. 升級 Minecraft 版本
 

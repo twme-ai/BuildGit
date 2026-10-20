@@ -13,6 +13,7 @@ import io.papermc.paper.command.brigadier.CommandSourceStack;
 import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import java.util.List;
+import java.nio.file.Path;
 import java.util.logging.Level;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
@@ -65,6 +66,17 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
       return yaml.getString("buildgit-minecraft", "");
     } catch (java.io.IOException e) {
       return "";
+    }
+  }
+
+  /** 世界載入之前：有下載好的異地備份還原時換上。換到一半失敗就停止啟動，不帶著一半的狀態開服。 */
+  @Override
+  public void onLoad() {
+    try {
+      BuildGit.applyRestore(Path.of("").toAbsolutePath().resolve("buildgit"), getLogger());
+    } catch (IllegalStateException e) {
+      getLogger().log(Level.SEVERE, e.getMessage(), e.getCause());
+      Bukkit.shutdown();
     }
   }
 

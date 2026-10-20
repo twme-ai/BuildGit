@@ -252,6 +252,11 @@ public final class Workspace {
     return result;
   }
 
+  /** 名稱是 BuildGit 建立的世界（分支、檢視）。 */
+  static boolean ownWorldName(String name) {
+    return name.startsWith(WORLD_PREFIX) || name.startsWith(VIEW_PREFIX);
+  }
+
   /** BuildGit 建立的世界（分支、檢視）。 */
   public boolean ownWorld(ServerLevel world) {
     String name = platform.levelName(world);
@@ -614,6 +619,12 @@ public final class Workspace {
       }
     });
     return result;
+  }
+
+  /** 主世界這個維度的種子；世界沒載入時為 null。 */
+  Long mainSeed(String dimension) {
+    var w = mainWorld(dimension);
+    return w == null ? null : w.getSeed();
   }
 
   /** 主世界裡這個維度的存檔目錄；世界沒載入時為 null。 */

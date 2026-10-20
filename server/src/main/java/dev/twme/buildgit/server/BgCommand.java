@@ -89,7 +89,7 @@ public final class BgCommand {
     sub("who", "buildgit.who", (s, a) -> who(s), null);
     sub("disk", "buildgit.disk", (s, a) -> disk(s), null);
     sub("genesis", "buildgit.genesis", this::genesis, (s, b) -> b.isEmpty() ? List.of("upgrade") : List.of());
-    sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list") : List.of());
+    sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list", "restore") : List.of());
     sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("back", "buildgit.back", (s, a) -> back(s), null);
@@ -1270,7 +1270,7 @@ public final class BgCommand {
   private void backup(Sender sender, String[] args) {
     var backup = bg.backup();
     String action = args.length == 0 ? "status" : args[0];
-    if (args.length > 1 || !List.of("status", "now", "list").contains(action)) {
+    if (args.length > (action.equals("restore") ? 2 : 1) || !List.of("status", "now", "list", "restore").contains(action)) {
       msg().send(sender, "usage-backup");
       return;
     }
@@ -1294,6 +1294,22 @@ public final class BgCommand {
           else if (r.snapshot() == null) msg().send(sender, "backup-unchanged");
           else msg().send(sender, "backup-done", "snapshot", r.snapshot(), "objects", r.objects(), "files", r.files());
           if (e == null && !backup.incomplete().isEmpty()) msg().send(sender, "backup-incomplete", "dims", String.join(", ", backup.incomplete()));
+        }));
+      }
+      case "restore" -> {
+        if (sender.isPlayer()) {
+          msg().send(sender, "backup-restore-console");
+          return;
+        }
+        msg().send(sender, "backup-restore-started");
+        backup.restore(args.length > 1 ? args[1] : null).whenComplete((r, e) -> ws().sync(() -> {
+          if (e != null) {
+            msg().send(sender, "backup-restore-failed", "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+            return;
+          }
+          for (var w : r.warnings()) msg().send(sender, "backup-restore-warning", "warning", w);
+          msg().send(sender, "backup-restore-ready", "snapshot", r.snapshot(), "objects", r.objects(), "files", r.files(),
+              "folder", Restore.staging(ws().dir()).getFileName().toString());
         }));
       }
       default -> backup.snapshots().whenComplete((names, e) -> ws().sync(() -> {

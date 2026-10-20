@@ -67,6 +67,7 @@ public final class BuildGitMod implements ModInitializer {
   private void starting(MinecraftServer server) {
     platform = new FabricPlatform(server);
     Synthesis.log = platform.log();
+    BuildGit.applyRestore(platform.repoDir(), platform.log()); // 失敗時丟出例外，伺服器停止啟動
     bg = new BuildGit(platform);
     Hooks.bg = bg;
     register(server.getCommands().getDispatcher());

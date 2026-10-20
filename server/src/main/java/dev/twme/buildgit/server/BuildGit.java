@@ -91,6 +91,11 @@ public final class BuildGit {
     return localSync;
   }
 
+  /** 有下載好的異地備份還原時換上（設計 §2.5）。必須在世界載入之前呼叫；失敗時丟出 {@link IllegalStateException}。 */
+  public static void applyRestore(java.nio.file.Path repoDir, java.util.logging.Logger log) {
+    Restore.apply(repoDir, log);
+  }
+
   Backup backup() {
     return backup;
   }
