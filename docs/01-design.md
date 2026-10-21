@@ -686,6 +686,51 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 
 包含關係是程式判斷，所以權限集裡的單一節點設成 false 不會拿掉它；要少給某一項時逐項給節點。
 
+### 8.1 LuckPerms 情境（規劃，尚未實作）
+
+裝了 LuckPerms 時，BuildGit 提供「玩家現在在 BuildGit 的哪裡」當作情境（context），管理員可以讓任何插件的權限依此生效，不必知道內部的世界名稱（`bg_d1`、`bgw_<id>` 等）。例如只在草稿裡能用 WorldEdit：
+
+```
+/lp group builder permission set worldedit.* true buildgit:location=draft
+```
+
+**提供的情境**（鍵都以 `buildgit:` 開頭）：
+
+| 鍵 | 值 | 什麼時候有 |
+|---|---|---|
+| `buildgit:location` | `main`（主世界）、`draft`（草稿）、`view`（檢視過去的版本）、`resolve`（衝突整合） | 在受版本控制的世界或它的草稿、檢視、整合世界裡 |
+| `buildgit:branch` | 分支名稱（主世界是 `main`） | 在主世界或草稿、整合世界裡 |
+| `buildgit:world` | `server`，或建築世界的「擁有者/名稱」 | 建築世界（[03-worlds.md](03-worlds.md)）做好後 |
+| `buildgit:role` | `owner`、`manager`、`builder`、`visitor` | 建築世界做好後；只依那個世界的成員名單 |
+
+- **角色往下包含**：擁有者同時帶 `owner`、`manager`、`builder` 三個值，管理者帶 `manager`、`builder`。所以設在 `buildgit:role=builder` 的權限，所有能建造的人都適用。
+- **角色只看成員名單，不看權限節點**：LuckPerms 是在檢查權限時向 BuildGit 要情境的，若算情境時又去檢查權限，會無限循環。所以伺服器世界只靠權限節點時，沒有 `buildgit:role`。
+- 不在 BuildGit 管的世界時，這些鍵都不帶。
+- LuckPerms 本身的 `world` 情境照常可用，只是值是內部世界名稱，會隨草稿建立、刪除而變。
+
+**常見用法**（寫進管理員手冊）：
+
+| 想要 | 設定 |
+|---|---|
+| 只在草稿裡能用 WorldEdit／Axiom，主世界不行 | `worldedit.*`、`axiom.*` 設在 `buildgit:location=draft` |
+| 建築世界的建造者都能用 WorldEdit | `worldedit.*` 設在 `buildgit:role=builder` |
+| 草稿裡能飛 | `essentials.fly` 設在 `buildgit:location=draft` |
+| 聊天前綴顯示在哪個草稿 | 前綴（meta）設在 `buildgit:location=draft` |
+| BuildGit 自己的指令依位置限制，例如只在某個草稿能併回 | `buildgit.publish` 設在 `buildgit:branch=<名稱>`（BuildGit 檢查權限時，LuckPerms 自動套用當下的情境） |
+
+**做法**：
+- 選用相依：Paper 在 `plugin.yml` 加 `softdepend: [LuckPerms]`，Fabric 看 `luckperms` 模組有沒有載入；沒有時完全不載入相關類別。LuckPerms API（`net.luckperms:api`）只在編譯時使用，不打包。
+- 向 `ContextManager` 註冊一個 `ContextCalculator`（Paper 的對象是 `Player`，Fabric 是 `ServerPlayer`），並提供 `estimatePotentialContexts()`，讓 LuckPerms 的網頁編輯器與補全列出可用的鍵與值（分支名稱、`location` 的四個值）。
+- **執行緒**：LuckPerms 可能在任何執行緒計算情境，不能讀 `Workspace` 的內部狀態。主執行緒在玩家換世界、上線、分支刪除或改名、成員或角色變動時，更新一份「玩家 → 目前的情境」對照表（`ConcurrentHashMap`），計算時只讀這份表；更新後呼叫 `signalContextUpdate(玩家)`，讓 LuckPerms 丟掉快取。
+- 設定：`integrations.luckperms-contexts: true`（預設開，裝了 LuckPerms 才有作用）。
+- 跨版本：LuckPerms API 和 Minecraft 版本無關，程式放在共用的模組；Fabric 只要那個 Minecraft 版本有 LuckPerms 就能用（各版本要確認有沒有發佈）。情境的鍵與值是 BuildGit 自己定的，不隨 Minecraft 版本改變。
+
+**分兩步**：
+1. 現在就能做：`buildgit:location`、`buildgit:branch`（主世界、草稿、檢視、整合都已經有）。
+2. 建築世界做好後：`buildgit:world`、`buildgit:role`。建築世界改名時，舊名稱的情境設定會失效，所以改名時提示擁有者，並在管理員手冊說明；需要長期穩定時可以用世界的 id（`buildgit:world-id`，之後有需要再加）。
+
+驗收：Paper 與 Fabric 各裝 LuckPerms，在 `buildgit:location=draft` 給 `worldedit.*`：玩家在主世界不能用 WorldEdit，`/bg try` 進草稿後立刻可以，`/bg back` 回去後立刻不行；`/lp user <玩家> permission checkcontexts`（或 `/lp verbose`）看得到目前的情境；沒裝 LuckPerms 時照常啟動。
+
 ## 9. 專案結構
 
 ```
