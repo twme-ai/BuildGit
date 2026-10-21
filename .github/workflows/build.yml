@@ -1,11 +1,14 @@
 # 每次推送與 PR 都編譯並跑測試，附上 Paper 插件與 Fabric 模組的 jar；推送 v* 標籤時另建 GitHub Release。
+# 只改文件（docs/、*.md）時不跑；推送標籤不看路徑，照樣發佈。
 name: build
 
 on:
   push:
     branches: ["**"]
     tags: ["v*"]
+    paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
   workflow_dispatch:
 
 permissions:
