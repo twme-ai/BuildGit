@@ -24,8 +24,8 @@ public final class Hud {
     this.bg = bg;
   }
 
-  private Workspace ws() {
-    return bg.workspace();
+  private Workspace ws(ServerLevel level) {
+    return bg.workspace(level);
   }
 
   /** 每秒更新。 */
@@ -58,13 +58,14 @@ public final class Hud {
     }
     Component text = null;
     var color = Platform.BarColor.WHITE;
-    if (ws().isOpen()) {
-      var world = p.level();
-      var wt = ws().worktree(world);
-      var view = ws().view(world);
-      var session = ws().merges().of(world);
+    var world = p.level();
+    var ws = ws(world);
+    if (ws.isOpen()) {
+      var wt = ws.worktree(world);
+      var view = ws.view(world);
+      var session = ws.merges().of(world);
       if (session != null && wt != null) {
-        var cached = ws().merges().result(session).getNow(null);
+        var cached = ws.merges().result(session).getNow(null);
         text = msg.get("hud-merge", "source", session.source() == null ? session.base().abbrev() : session.source(), "target", session.target(),
             "conflicts", cached == null ? "?" : String.valueOf(cached.cellConflicts().size() + cached.entityConflicts().size()),
             "cells", wt.table().cellCount());
@@ -75,7 +76,9 @@ public final class Hud {
       } else if (wt != null && !wt.branch().equals(Repository.MAIN)) {
         text = msg.get("hud-draft", "name", wt.branch(), "cells", wt.table().cellCount(), "entities", wt.table().entityCount());
         color = COLORS[Math.floorMod(wt.branch().hashCode(), COLORS.length)];
-      }
+      } else if (wt != null && ws.buildWorld() != null) text = msg.get("hud-world", "world", ws.label());
+      if (text != null && ws.buildWorld() != null && wt != null && !wt.branch().equals(Repository.MAIN))
+        text = msg.get("hud-world-prefix", "world", ws.label(), "text", text);
     }
     bg.platform().bar(p, text, color, 1f);
   }
@@ -85,7 +88,8 @@ public final class Hud {
    * 平台在放置、破壞、互動、桶子、實體互動與攻擊的掛點呼叫。
    */
   public boolean readOnly(ServerPlayer p) {
-    if (!ws().isOpen() || ws().view(p.level()) == null) return false;
+    var ws = ws(p.level());
+    if (!ws.isOpen() || ws.view(p.level()) == null) return false;
     long now = System.currentTimeMillis();
     if (now - warned.getOrDefault(p.getUUID(), 0L) > 3000) {
       warned.put(p.getUUID(), now);
@@ -96,13 +100,15 @@ public final class Hud {
 
   /** 玩家換了世界。 */
   void changedWorld(ServerPlayer p, ServerLevel from) {
-    if (ws().isOpen()) ws().left(from);
+    var ws = ws(from);
+    if (ws.isOpen()) ws.left(from);
     update(p);
   }
 
   void quit(ServerPlayer p) {
     warned.remove(p.getUUID());
     tasks.remove(p.getUUID());
-    if (ws().isOpen()) ws().left(p.level());
+    var ws = ws(p.level());
+    if (ws.isOpen()) ws.left(p.level());
   }
 }

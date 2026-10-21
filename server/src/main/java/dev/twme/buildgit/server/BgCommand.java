@@ -48,6 +48,8 @@ public final class BgCommand {
   private static final int SHOW_CELLS = 200;
   private static final int OUTLINE_SECONDS = 60;
   private static final int HERE_RADIUS = 8;
+  /** 不需要版本庫已經開啟的子指令。 */
+  private static final Set<String> WORLDLESS = Set.of("init", "reload", "help", "load", "new", "open", "home", "worlds");
 
   private interface Handler {
     void run(Sender sender, String[] args) throws IOException;
@@ -65,6 +67,8 @@ public final class BgCommand {
   private final Set<UUID> inspecting = new HashSet<>();
   /** 進入檢視世界之前的位置，{@code back} 回到這裡。 */
   private final Map<UUID, Location> returnTo = new HashMap<>();
+  /** 進入建築世界之前在伺服器世界的位置，{@code home} 回到這裡。 */
+  private final Map<UUID, Location> homes = new HashMap<>();
   private final List<Sub> subs = new ArrayList<>();
 
   BgCommand(BuildGit bg) {
@@ -110,6 +114,11 @@ public final class BgCommand {
         : b.size() == 2 && b.getFirst().equals("take") ? List.of("here", "selection", "all") : List.of());
     sub("revert", "buildgit.revert", this::revert, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("restore", "buildgit.restore", this::restore, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--selection", "confirm"));
+    // 建築世界（03-worlds）：第一階段只有管理員能建立與進出
+    sub("new", "buildgit.world.admin", this::newWorld, null);
+    sub("open", "buildgit.world.admin", this::openWorld, (s, b) -> b.isEmpty() ? worldNames() : List.of());
+    sub("home", "buildgit.world.admin", (s, a) -> home(s), null);
+    sub("worlds", "buildgit.world.admin", (s, a) -> worlds(s), null);
   }
 
   /** {@code permissions}：以 {@code |} 分隔，有其中一個就能用（子指令各有權限時）。 */
@@ -136,8 +145,9 @@ public final class BgCommand {
     return bg.messages();
   }
 
-  private Workspace ws() {
-    return bg.workspace();
+  /** 指令作用的版本庫：玩家所在世界的（建築世界或伺服器世界）；主控台是伺服器世界的。 */
+  private Workspace ws(Sender sender) {
+    return sender.player() instanceof ServerPlayer p ? bg.workspace(p.level()) : bg.workspace();
   }
 
   // ---- Brigadier ----
@@ -146,7 +156,7 @@ public final class BgCommand {
   public <S> LiteralCommandNode<S> build(Function<S, Sender> sender) {
     var root = LiteralArgumentBuilder.<S>literal("bg").executes(ctx -> {
       var s = sender.apply(ctx.getSource());
-      if (s.player() != null && s.hasPermission("buildgit.menu") && ws().isOpen()) bg.menu().open(s.player());
+      if (s.player() != null && s.hasPermission("buildgit.menu") && ws(s).isOpen()) bg.menu().open(s.player());
       else msg().send(s, "help");
       return 1;
     });
@@ -187,7 +197,7 @@ public final class BgCommand {
   }
 
   private CompletableFuture<Suggestions> suggest(Sub sub, int start, Sender sender, SuggestionsBuilder builder) {
-    if (sub.suggester() == null || !ws().isOpen() && !sub.names().contains("load")) return builder.buildFuture();
+    if (sub.suggester() == null || !ws(sender).isOpen() && !sub.names().contains("load")) return builder.buildFuture();
     var input = builder.getInput();
     if (start < 0 || start > input.length()) return builder.buildFuture();
     var typed = input.substring(start);
@@ -207,7 +217,7 @@ public final class BgCommand {
 
   private int dispatch(Sub sub, Sender sender, String[] args) {
     String name = sub.names().getFirst();
-    if (!name.equals("init") && !name.equals("reload") && !name.equals("help") && !name.equals("load") && !ws().isOpen()) {
+    if (!WORLDLESS.contains(name) && !ws(sender).isOpen()) {
       if (bg.openError() != null) msg().send(sender, "open-failed", "error", bg.openError());
       else msg().send(sender, "not-initialized");
       return 1;
@@ -237,9 +247,10 @@ public final class BgCommand {
 
   /** 玩家所在世界的草稿與主世界（主控台：全部）。 */
   private List<String> draftNames(Sender sender) {
+    var ws = ws(sender);
     try {
       var dim = here(sender);
-      return ws().drafts().keySet().stream().filter(name -> dim == null || ws().covers(name, dim)).toList();
+      return ws.drafts().keySet().stream().filter(name -> dim == null || ws.covers(name, dim)).toList();
     } catch (IOException e) {
       return List.of();
     }
@@ -247,12 +258,14 @@ public final class BgCommand {
 
   /** 玩家所在的世界（版本中的維度 id）；主控台為 null。 */
   private String here(Sender sender) {
-    return sender.player() instanceof ServerPlayer p ? ws().logicalDimension(p.level()) : null;
+    var ws = ws(sender);
+    return sender.player() instanceof ServerPlayer p ? ws.logicalDimension(p.level()) : null;
   }
 
   private List<String> recentCommits(Sender sender) {
+    var ws = ws(sender);
     try {
-      var repo = ws().repo();
+      var repo = ws.repo();
       var result = new ArrayList<String>();
       for (var id : repo.history(repo.head(current(sender).branch()), 20)) result.add(id.abbrev());
       return result;
@@ -273,8 +286,9 @@ public final class BgCommand {
 
   /** 指令作用的分支：玩家所在世界的分支；主控台、檢視世界或不受控的世界為主分支。 */
   private Worktree current(Sender sender) {
-    var wt = sender.player() instanceof ServerPlayer p ? ws().worktree(p.level()) : null;
-    return wt != null ? wt : ws().main();
+    var ws = ws(sender);
+    var wt = sender.player() instanceof ServerPlayer p ? ws.worktree(p.level()) : null;
+    return wt != null ? wt : ws.main();
   }
 
   private Component branchLabel(String branch) {
@@ -310,8 +324,8 @@ public final class BgCommand {
   }
 
   /** 存檔或分支名稱（分支表示它的最新存檔）。 */
-  private ObjectId resolve(String ref) throws IOException {
-    var repo = ws().repo();
+  private ObjectId resolve(Workspace ws, String ref) throws IOException {
+    var repo = ws.repo();
     var branch = repo.refs().get(ref);
     if (branch.isPresent()) return branch.get();
     var prefix = ref.toLowerCase(Locale.ROOT);
@@ -344,17 +358,18 @@ public final class BgCommand {
       msg().send(s(p), "sel-none");
       return null;
     }
-    return new Workspace.Scope(ws().logicalDimension(sel.get().level()), sel.get().box());
+    return new Workspace.Scope(bg.workspace(sel.get().level()).logicalDimension(sel.get().level()), sel.get().box());
   }
 
   /** 在玩家目前的世界標出外框；外框在背景算，主執行緒只送出。 */
   private void outline(Sender sender, Collection<Workspace.Changed> changed) {
+    var ws = ws(sender);
     if (!(sender.player() instanceof ServerPlayer p)) return;
     var level = p.level();
-    String dimension = ws().logicalDimension(level);
-    ws().async(() -> {
+    String dimension = ws.logicalDimension(level);
+    ws.async(() -> {
       var shapes = Outlines.shapes(changed, dimension);
-      ws().sync(() -> {
+      ws.sync(() -> {
         if (p.level() == level) bg.outlines().show(p, level, shapes, OUTLINE_SECONDS);
       });
     });
@@ -382,25 +397,26 @@ public final class BgCommand {
 
   /** 玩家所在的世界開始受版本控制；主控台為預設世界。 */
   private void init(Sender sender) {
+    var ws = ws(sender);
     var p = sender.player();
     var world = p != null ? p.level() : bg.platform().server().overworld();
-    if (ws().tracked(world)) {
+    if (ws.tracked(world)) {
       msg().send(sender, "already-initialized", "world", bg.platform().levelName(world));
       return;
     }
     String name = bg.platform().levelName(world);
     try {
-      var copy = ws().init(p != null ? bg.tracker().author(p) : bg.tracker().author(new UUID(0, 0), null), world);
+      var copy = ws.init(p != null ? bg.tracker().author(p) : bg.tracker().author(new UUID(0, 0), null), world);
       if (copy == null) {
         msg().send(sender, "init-lazy", "world", name);
         return;
       }
       msg().send(sender, "init-started", "world", name);
       progress(sender, copy.progress, "progress-init", "world", name);
-      copy.whenDone(size -> ws().sync(() -> {
+      copy.whenDone(size -> ws.sync(() -> {
         done(sender);
         msg().send(sender, "init-done", "world", name, "size", size / (1024 * 1024));
-      }), error -> ws().sync(() -> {
+      }), error -> ws.sync(() -> {
         done(sender);
         msg().send(sender, "init-failed", "error", String.valueOf(error.getMessage()));
       }));
@@ -413,7 +429,8 @@ public final class BgCommand {
   }
 
   private void status(Sender sender) throws IOException {
-    var repo = ws().repo();
+    var ws = ws(sender);
+    var repo = ws.repo();
     var wt = current(sender);
     msg().send(sender, "status-header", "branch", branchLabel(wt.branch()), "head", repo.head(wt.branch()).abbrev());
     var table = wt.table();
@@ -423,7 +440,7 @@ public final class BgCommand {
       table.cellsByAuthor().forEach((a, n) -> msg().send(sender, "status-author", "author", a.name(), "cells", n));
     }
     if (wt.uncleanShutdown()) msg().send(sender, "status-unclean");
-    for (var s : ws().merges().all())
+    for (var s : ws.merges().all())
       msg().send(sender, "merge-entry", "id", s.id(), "source", s.source() == null ? s.base().abbrev() : s.source(), "target", s.target());
   }
 
@@ -453,7 +470,8 @@ public final class BgCommand {
 
   /** {@code log [分支] [頁數] [--all] [--author <玩家>]}：預設只列里程碑，自動存檔收合成一行；分頁顯示。 */
   private void log(Sender sender, String[] args) throws IOException {
-    var repo = ws().repo();
+    var ws = ws(sender);
+    var repo = ws.repo();
     String branch = current(sender).branch();
     int page = 1;
     boolean all = false;
@@ -481,7 +499,7 @@ public final class BgCommand {
           if (lines.size() >= want) break;
           var c = repo.commit(id);
           if (c.parents().isEmpty()) continue; // 初始化的空提交
-          if (who != null && !wrote(c, who)) continue;
+          if (who != null && !wrote(repo, c, who)) continue;
           if (!showAll && c.auto()) {
             folded++;
             continue;
@@ -489,7 +507,7 @@ public final class BgCommand {
           if (folded > 0) lines.add(msg().get("log-folded", "count", folded));
           folded = 0;
           lines.add(msg().get("log-entry", "id", commitLink(id), "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
-              "message", c.auto() ? msg().get("log-auto") : Component.text(c.message()), "coauthors", coauthors(c)));
+              "message", c.auto() ? msg().get("log-auto") : Component.text(c.message()), "coauthors", coauthors(repo, c)));
         }
         if (folded > 0 && lines.size() < want) lines.add(msg().get("log-folded", "count", folded));
       } catch (IOException | RuntimeException e) {
@@ -534,14 +552,15 @@ public final class BgCommand {
 
   /** {@code graph [頁數] [--all]}：像 git log --graph 的分支歷史圖，分頁顯示；預設略過自動存檔。 */
   private void graph(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     boolean all = flags(args).contains("--all");
     var w = words(args);
     int page = Math.min(200, Math.max(1, w.isEmpty() ? 1 : parseInt(w.getFirst(), 1)));
     // 分支線要從最上面一路排下來才正確，所以每頁都從頭算，只顯示這一頁；多算一列判斷有沒有下一頁
     int limit = page * PAGE + 1;
     var heads = new LinkedHashMap<ObjectId, List<String>>();
-    for (var e : ws().drafts().entrySet()) heads.computeIfAbsent(e.getValue(), k -> new ArrayList<>()).add(e.getKey());
-    var repo = ws().repo();
+    for (var e : ws.drafts().entrySet()) heads.computeIfAbsent(e.getValue(), k -> new ArrayList<>()).add(e.getKey());
+    var repo = ws.repo();
     bg.platform().async(() -> {
       List<Graph.Row> rows;
       try {
@@ -564,9 +583,9 @@ public final class BgCommand {
   }
 
   /** 存檔裡改過東西、但不是存檔者的玩家（最多列 3 位）；沒有時是空的。 */
-  private Component coauthors(Commit c) throws IOException {
+  private Component coauthors(Repository repo, Commit c) throws IOException {
     var names = new LinkedHashSet<String>();
-    for (var a : ws().repo().changeset(c.changeset()).authors())
+    for (var a : repo.changeset(c.changeset()).authors())
       if (!a.uuid().equals(c.author().uuid()) && !a.equals(Author.MERGE) && !a.equals(Author.SYSTEM)) names.add(a.name());
     if (names.isEmpty()) return Component.empty();
     var shown = Component.join(net.kyori.adventure.text.JoinConfiguration.separator(msg().get("log-coauthors-separator")),
@@ -576,17 +595,18 @@ public final class BgCommand {
         : msg().get("log-coauthors", "names", shown);
   }
 
-  private boolean wrote(Commit c, String name) throws IOException {
+  private boolean wrote(Repository repo, Commit c, String name) throws IOException {
     if (c.author().name().equalsIgnoreCase(name)) return true;
-    for (var a : ws().repo().changeset(c.changeset()).authors()) if (a.name().equalsIgnoreCase(name)) return true;
+    for (var a : repo.changeset(c.changeset()).authors()) if (a.name().equalsIgnoreCase(name)) return true;
     return false;
   }
 
   private void show(Sender sender, String[] args) throws IOException {
-    var repo = ws().repo();
+    var ws = ws(sender);
+    var repo = ws.repo();
     boolean listCells = flags(args).contains("--cells");
     var w = words(args);
-    var id = w.isEmpty() ? repo.head(current(sender).branch()) : resolve(w.getFirst());
+    var id = w.isEmpty() ? repo.head(current(sender).branch()) : resolve(ws, w.getFirst());
     if (id == null) {
       msg().send(sender, "unknown-commit", "id", w.getFirst());
       return;
@@ -600,13 +620,14 @@ public final class BgCommand {
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
-    }, ws()::async).whenComplete((r, error) -> ws().sync(() -> {
+    }, ws::async).whenComplete((r, error) -> ws.sync(() -> {
       if (error != null) failed(sender, Workspace.unwrap(error));
       else show(sender, id, r.commit(), r.changeset(), listCells);
     }));
   }
 
   private void show(Sender sender, ObjectId id, Commit c, Changeset cs, boolean listCells) {
+    var ws = ws(sender);
     msg().send(sender, "show-header", "id", id.abbrev(), "author", c.author().name(), "time", TIME.format(Instant.ofEpochMilli(c.time())),
         "message", c.message());
     cs.cellsByAuthor().forEach((a, n) -> msg().send(sender, "show-line", "author", a.name(), "cells", n));
@@ -630,8 +651,9 @@ public final class BgCommand {
    * {@code diff off}：清掉外框。
    */
   private void diff(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var w = words(args);
-    var repo = ws().repo();
+    var repo = ws.repo();
     if (w.size() == 1 && w.getFirst().equals("off")) {
       if (sender.player() instanceof ServerPlayer p) bg.outlines().clear(p);
       msg().send(sender, "diff-off");
@@ -639,21 +661,21 @@ public final class BgCommand {
     }
     if (w.isEmpty()) {
       var table = current(sender).table();
-      ws().async(() -> {
+      ws.async(() -> {
         var changed = new ArrayList<Workspace.Changed>();
         table.markedSections().forEach((key, cells) -> {
           for (int i = cells.nextSetBit(0); i >= 0; i = cells.nextSetBit(i + 1))
             changed.add(new Workspace.Changed(key.dimension(), key.pos(i), Workspace.Kind.MODIFIED));
         });
-        ws().sync(() -> {
+        ws.sync(() -> {
           sendDiff(sender, msg().get("diff-unsaved", "cells", changed.size()));
           outline(sender, changed);
         });
       });
       return;
     }
-    var a = resolve(w.getFirst());
-    var b = w.size() > 1 ? resolve(w.get(1)) : null;
+    var a = resolve(ws, w.getFirst());
+    var b = w.size() > 1 ? resolve(ws, w.get(1)) : null;
     if (a == null || w.size() > 1 && b == null) {
       msg().send(sender, "unknown-commit", "id", a == null ? w.getFirst() : w.get(1));
       return;
@@ -675,7 +697,7 @@ public final class BgCommand {
         var cache = new HashMap<dev.twme.buildgit.core.model.SectionKey, dev.twme.buildgit.core.model.Cell[]>();
         int[] counts = new int[3];
         for (var c : diff.cells()) {
-          var k = ws().kind(c.dimension(), c.pos(), c.before(), c.after(), cache);
+          var k = ws.kind(c.dimension(), c.pos(), c.before(), c.after(), cache);
           counts[k.ordinal()]++;
           changed.add(new Workspace.Changed(c.dimension(), c.pos(), k));
         }
@@ -684,7 +706,7 @@ public final class BgCommand {
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
-    }, ws()::async).whenComplete((r, error) -> ws().sync(() -> {
+    }, ws::async).whenComplete((r, error) -> ws.sync(() -> {
       if (error != null) {
         failed(sender, Workspace.unwrap(error));
         return;
@@ -788,8 +810,9 @@ public final class BgCommand {
 
   private void who(Sender sender) {
     for (var p : bg.platform().server().getPlayerList().getPlayers()) {
-      var wt = ws().worktree(p.level());
-      var view = ws().view(p.level());
+      var ws = bg.workspace(p.level());
+      var wt = ws.worktree(p.level());
+      var view = ws.view(p.level());
       Component where = wt != null ? branchLabel(wt.branch())
           : view != null ? msg().get("place-view", "id", view.commit().abbrev())
           : msg().get("place-other", "world", bg.platform().levelName(p.level()));
@@ -846,7 +869,8 @@ public final class BgCommand {
   }
 
   private void describe(ServerPlayer player, ServerLevel world, BlockPos at) {
-    var view = ws().view(world);
+    var ws = bg.workspace(world);
+    var view = ws.view(world);
     var tracker = bg.tracker();
     var d = tracker.dimension(world);
     String pos = at.x() + " " + at.y() + " " + at.z();
@@ -861,15 +885,15 @@ public final class BgCommand {
         return;
       }
     }
-    var repo = ws().repo();
-    var dim = ws().logicalDimension(world);
-    var wt = ws().worktree(world);
+    var repo = ws.repo();
+    var dim = ws.logicalDimension(world);
+    var wt = ws.worktree(world);
     bg.platform().async(() -> {
       try {
         var start = view != null ? view.commit() : repo.head(wt.branch());
         var blame = repo.blame(start, dim, at);
         String time = blame.isEmpty() ? "" : TIME.format(Instant.ofEpochMilli(repo.commit(blame.get().commit()).time()));
-        ws().sync(() -> {
+        ws.sync(() -> {
           if (blame.isEmpty()) {
             msg().send(s(player), "inspect-none", "pos", pos);
             return;
@@ -896,6 +920,7 @@ public final class BgCommand {
 
   /** 主控台也可以用：從主世界開草稿並載入世界，不傳送。 */
   private void tryDraft(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var w = words(args);
     if (w.size() != 1) {
       msg().send(sender, "usage-try");
@@ -903,8 +928,8 @@ public final class BgCommand {
     }
     String name = w.getFirst().toLowerCase(Locale.ROOT);
     var from = current(sender);
-    if (Workspace.isScratch(from.branch())) from = ws().worktree(ws().source(from.branch()));
-    if (from == null) from = ws().main();
+    if (Workspace.isScratch(from.branch())) from = ws.worktree(ws.source(from.branch()));
+    if (from == null) from = ws.main();
     if (name.equals(Repository.MAIN) || Workspace.isScratch(name) || !Workspace.BRANCH_NAME.matcher(name).matches()) {
       msg().send(sender, "branch-bad-name");
       return;
@@ -914,11 +939,11 @@ public final class BgCommand {
     if (dimension == null) return;
     autosaveThen(sender, source, () -> {
       try {
-        boolean exists = ws().branches().containsKey(name);
-        if (!exists) ws().createBranch(name, source.branch(), dimension);
+        boolean exists = ws.branches().containsKey(name);
+        if (!exists) ws.createBranch(name, source.branch(), dimension);
         msg().send(sender, exists ? "try-existing" : "try-created", "name", name);
-        var draft = ws().openBranch(name);
-        if (sender.player() instanceof ServerPlayer p) ws().teleport(p, draft);
+        var draft = ws.openBranch(name);
+        if (sender.player() instanceof ServerPlayer p) ws.teleport(p, draft);
       } catch (IOException | RuntimeException e) {
         bg.platform().log().log(Level.WARNING, "try 失敗", e);
         failed(sender, e);
@@ -931,10 +956,11 @@ public final class BgCommand {
    * 不受版本控制的世界回傳 null 並告知。
    */
   private String draftWorld(Sender sender, String from) throws IOException {
+    var ws = ws(sender);
     var dim = here(sender);
-    if (dim == null) dim = ws().dimension(from);
-    if (dim == null) dim = dev.twme.buildgit.server.track.Tracker.dimensionId(ws().mainWorlds().getFirst());
-    if (!ws().trackedDimensions().contains(dim)) {
+    if (dim == null) dim = ws.dimension(from);
+    if (dim == null) dim = dev.twme.buildgit.server.track.Tracker.dimensionId(ws.mainWorlds().getFirst());
+    if (!ws.trackedDimensions().contains(dim)) {
       msg().send(sender, "inspect-untracked");
       return null;
     }
@@ -948,6 +974,7 @@ public final class BgCommand {
    * 其他時候取玩家周圍（{@code sync.radius}）。沒給名稱時用草稿名稱或玩家名稱，用過就加編號。
    */
   private void pull(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
@@ -962,19 +989,20 @@ public final class BgCommand {
     }
     var sel = bg.selections().get(p);
     var level = sel.isPresent() ? sel.get().level() : p.level();
-    var wt = ws().worktree(level);
+    var wt = ws.worktree(level);
     if (wt == null) {
       msg().send(s(p), "sync-not-branch");
       return;
     }
+    if (ws.buildWorld() != null) throw new Workspace.Refused("建築世界還不能帶到單人世界");
     var selected = sel.isPresent() ? sel.get().box() : null;
     if (selected != null && Bundle.volume(selected) > bg.settings().syncMaxBlocks()) {
       msg().send(s(p), "sync-too-big", "max", bg.settings().syncMaxBlocks());
       return;
     }
-    String dimension = ws().logicalDimension(level);
-    if (ws().copying(dimension)) throw new Workspace.Refused("這個世界的起點世界還在背景複製，請稍後再試");
-    String base = given != null ? given : wt != ws().main() ? wt.branch() : p.getScoreboardName().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", "_");
+    String dimension = ws.logicalDimension(level);
+    if (ws.copying(dimension)) throw new Workspace.Refused("這個世界的起點世界還在背景複製，請稍後再試");
+    String base = given != null ? given : wt != ws.main() ? wt.branch() : p.getScoreboardName().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", "_");
     String name = given != null ? given : bg.sync().freeName(p, base);
     int px = p.getBlockX(), pz = p.getBlockZ(), minY = level.getMinY(), maxY = level.getMaxY();
     autosaveThen(sender, wt, () -> {
@@ -982,14 +1010,14 @@ public final class BgCommand {
         bg.sync().pull(p, name, wt.branch(), dimension, selected);
         return;
       }
-      ws().async(() -> {
+      ws.async(() -> {
         try {
-          var changed = ws().changedArea(wt.branch(), dimension);
+          var changed = ws.changedArea(wt.branch(), dimension);
           int r = bg.settings().syncRadius(), m = 8;
           var box = changed == null ? new Box(px - r, minY, pz - r, px + r, maxY, pz + r)
               : new Box(changed.minX() - m, Math.max(minY, changed.minY() - m), changed.minZ() - m,
                   changed.maxX() + m, Math.min(maxY, changed.maxY() + m), changed.maxZ() + m);
-          ws().sync(() -> {
+          ws.sync(() -> {
             if (Bundle.volume(box) > bg.settings().syncMaxBlocks()) {
               msg().send(s(p), changed == null ? "sync-too-big" : "sync-draft-too-big", "max", bg.settings().syncMaxBlocks());
               return;
@@ -997,7 +1025,7 @@ public final class BgCommand {
             bg.sync().pull(p, name, wt.branch(), dimension, box);
           });
         } catch (IOException | RuntimeException e) {
-          ws().sync(() -> failed(sender, e));
+          ws.sync(() -> failed(sender, e));
         }
       });
     });
@@ -1005,6 +1033,7 @@ public final class BgCommand {
 
   /** {@code push <名稱> [草稿名稱]}：收回單人世界改過的範圍，存成草稿。 */
   private void push(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
@@ -1015,7 +1044,7 @@ public final class BgCommand {
     }
     String draft = w.size() == 2 ? w.get(1).toLowerCase(Locale.ROOT) : name;
     // 沒指定草稿名稱：同一個範圍可能已經送回過，加上編號
-    for (int i = 2; w.size() == 1 && ws().branches().containsKey(draft); i++) draft = name + "-" + i;
+    for (int i = 2; w.size() == 1 && ws.branches().containsKey(draft); i++) draft = name + "-" + i;
     if (draft.equals(Repository.MAIN) || Workspace.isScratch(draft) || !Workspace.BRANCH_NAME.matcher(draft).matches()) {
       msg().send(s(p), "branch-bad-name");
       return;
@@ -1046,6 +1075,7 @@ public final class BgCommand {
   }
 
   private void go(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
@@ -1054,39 +1084,41 @@ public final class BgCommand {
       return;
     }
     String name = w.getFirst().toLowerCase(Locale.ROOT);
-    if (!ws().drafts().containsKey(name)) {
+    if (!ws.drafts().containsKey(name)) {
       msg().send(s(p), "branch-unknown", "name", name);
       return;
     }
-    ws().teleport(p, ws().openBranch(name));
+    ws.teleport(p, ws.openBranch(name));
     msg().send(s(p), "go-done", "branch", branchLabel(name));
   }
 
   private void back(Sender sender) throws IOException {
+    var ws = ws(sender);
     var p = player(sender);
     if (p == null) return;
     var world = p.level();
-    if (ws().view(world) != null) {
-      var session = ws().merges().of(world);
+    if (ws.view(world) != null) {
+      var session = ws.merges().of(world);
       var saved = returnTo.remove(p.getUUID());
-      if (session != null) ws().teleport(p, ws().openBranch(session.branch()));
-      else if (saved != null && ws().loaded(saved.level()))
+      if (session != null) ws.teleport(p, ws.openBranch(session.branch()));
+      else if (saved != null && ws.loaded(saved.level()))
         bg.platform().teleport(p, saved.level(), saved.x(), saved.y(), saved.z(), saved.yaw(), saved.pitch());
-      else ws().teleport(p, ws().main());
+      else ws.teleport(p, ws.main());
       return;
     }
-    var wt = ws().worktree(world);
+    var wt = ws.worktree(world);
     if (wt == null || wt.branch().equals(Repository.MAIN)) {
       msg().send(s(p), "not-in-draft");
       return;
     }
-    String source = ws().source(wt.branch());
-    ws().teleport(p, ws().openBranch(source));
+    String source = ws.source(wt.branch());
+    ws.teleport(p, ws.openBranch(source));
     msg().send(s(p), "go-done", "branch", branchLabel(source));
   }
 
   /** {@code view <版本>}：唯讀地看某個版本（設計 §6.5）。 */
   private void view(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
@@ -1094,14 +1126,14 @@ public final class BgCommand {
       msg().send(s(p), "usage-view");
       return;
     }
-    var id = resolve(w.getFirst());
+    var id = resolve(ws, w.getFirst());
     if (id == null) {
       msg().send(s(p), "unknown-commit", "id", w.getFirst());
       return;
     }
-    if (ws().view(p.level()) == null) returnTo.put(p.getUUID(), new Location(p.level(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()));
-    var world = ws().openView(id, ws().logicalDimension(p.level()));
-    ws().teleport(p, world);
+    if (ws.view(p.level()) == null) returnTo.put(p.getUUID(), new Location(p.level(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()));
+    var world = ws.openView(id, ws.logicalDimension(p.level()));
+    ws.teleport(p, world);
     msg().send(s(p), "view-opened", "id", id.abbrev());
   }
 
@@ -1112,18 +1144,19 @@ public final class BgCommand {
    * 不帶 confirm 時只預覽：數量、作者，並在世界裡顯示會變動的位置；cancel 不併回，清掉預覽的外框。
    */
   private void publish(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var flags = flags(args);
     var w = words(args);
     boolean cancel = w.size() > (sender.isPlayer() ? 0 : 1) && w.getLast().equals("cancel");
     if (cancel) w.removeLast();
     Worktree draft;
     if (sender.player() instanceof ServerPlayer p) {
-      draft = ws().worktree(p.level());
+      draft = ws.worktree(p.level());
       if (draft != null && Workspace.isScratch(draft.branch())) {
         msg().send(s(p), "merge-use-continue");
         return;
       }
-    } else draft = w.size() == 1 && ws().drafts().containsKey(w.getFirst()) ? ws().openBranch(w.getFirst()) : null;
+    } else draft = w.size() == 1 && ws.drafts().containsKey(w.getFirst()) ? ws.openBranch(w.getFirst()) : null;
     if (draft == null || draft.branch().equals(Repository.MAIN)) {
       msg().send(sender, "not-in-draft");
       return;
@@ -1140,9 +1173,9 @@ public final class BgCommand {
       var p = player(sender);
       if (p == null || (scope = selection(p)) == null) return;
     }
-    String targetBranch = ws().source(draft.branch());
-    var target = ws().openBranch(targetBranch);
-    var existing = ws().merges().find(targetBranch, draft.branch());
+    String targetBranch = ws.source(draft.branch());
+    var target = ws.openBranch(targetBranch);
+    var existing = ws.merges().find(targetBranch, draft.branch());
     if (existing != null) {
       msg().send(sender, "merge-existing", "id", existing.id());
       sendButton(sender, "merge-goto-button", "/bg merge view result");
@@ -1160,7 +1193,8 @@ public final class BgCommand {
   }
 
   private void preview(Sender sender, Worktree target, String source, Workspace.Scope scope, boolean selection) {
-    ws().preview(target.branch(), source, scope).whenComplete((preview, error) -> ws().sync(() -> {
+    var ws = target.workspace();
+    ws.preview(target.branch(), source, scope).whenComplete((preview, error) -> ws.sync(() -> {
       done(sender);
       if (error != null) {
         failed(sender, Workspace.unwrap(error));
@@ -1172,7 +1206,7 @@ public final class BgCommand {
       }
       // 草稿裡的其他玩家也看得到同一份預覽，方便一起討論；確認按鈕只給執行的人。
       var viewers = new ArrayList<Sender>(List.of(sender));
-      var draft = ws().worktree(source);
+      var draft = ws.worktree(source);
       if (draft != null)
         for (var world : draft.worlds().values())
           for (var p : world.players())
@@ -1200,7 +1234,8 @@ public final class BgCommand {
 
   /** 合併並寫入目標世界；有衝突時開始衝突整合。{@code draft} 不為 null 時，完成後把在草稿裡的玩家送回目標世界。 */
   private void merge(Sender sender, Worktree target, String source, Workspace.Scope scope, Worktree draft) {
-    ws().merge(target, source, scope, author(sender), applied -> {
+    var ws = target.workspace();
+    ws.merge(target, source, scope, author(sender), applied -> {
       done(sender);
       if (applied.isEmpty()) {
         msg().send(sender, "publish-nothing");
@@ -1210,14 +1245,14 @@ public final class BgCommand {
       msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
           branchLabel(target.branch()));
       if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
-      if (draft != null && sender.player() instanceof ServerPlayer p && !p.hasDisconnected() && ws().worktree(p.level()) == draft) {
-        ws().teleport(p, target);
+      if (draft != null && sender.player() instanceof ServerPlayer p && !p.hasDisconnected() && ws.worktree(p.level()) == draft) {
+        ws.teleport(p, target);
         if (scope == null && draft.branch().equals(source)) sendButton(s(p), "draft-delete-button", "/bg branch delete " + source);
       }
     }, error -> {
       done(sender);
       if (error instanceof Workspace.ConflictException c)
-        startSession(sender, scope == null ? MergeSessions.Kind.MERGE : MergeSessions.Kind.PARTIAL, target.branch(), source, scope, c);
+        startSession(ws, sender, scope == null ? MergeSessions.Kind.MERGE : MergeSessions.Kind.PARTIAL, target.branch(), source, scope, c);
       else {
         bg.platform().log().log(Level.WARNING, "併回失敗", error);
         failed(sender, error);
@@ -1225,20 +1260,20 @@ public final class BgCommand {
     });
   }
 
-  private void startSession(Sender sender, MergeSessions.Kind kind, String target, String source, Workspace.Scope scope,
+  private void startSession(Workspace ws, Sender sender, MergeSessions.Kind kind, String target, String source, Workspace.Scope scope,
       Workspace.ConflictException c) {
     progress(sender, null, "progress-merge-start");
-    ws().merges().start(kind, target, source, scope, c, author(sender), session -> {
+    ws.merges().start(kind, target, source, scope, c, author(sender), session -> {
       done(sender);
       msg().send(sender, "merge-started", "cells", c.result.cellConflicts().size(), "entities", c.result.entityConflicts().size());
       msg().send(sender, "merge-help");
       if (!(sender.player() instanceof ServerPlayer p)) {
-        listConflicts(sender, session);
+        listConflicts(ws, sender, session);
         return;
       }
       try {
         // 外框要等玩家到了整合世界才顯示（換世界時會清掉外框）。
-        ws().teleport(p, ws().openBranch(session.branch())).thenRun(() -> ws().sync(() -> listConflicts(s(p), session)));
+        ws.teleport(p, ws.openBranch(session.branch())).thenRun(() -> ws.sync(() -> listConflicts(ws, s(p), session)));
       } catch (IOException e) {
         failed(s(p), e);
       }
@@ -1253,14 +1288,15 @@ public final class BgCommand {
   /** 版本庫與 BuildGit 建立的世界各占多少磁碟（背景執行緒計算）。 */
   /** {@code /bg genesis upgrade}：把起點世界裡較舊版本存的 chunk 改寫成目前的格式。 */
   private void genesis(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     if (args.length != 1 || !args[0].equals("upgrade")) {
       msg().send(sender, "usage-genesis");
       return;
     }
-    var task = ws().upgradeGenesis();
+    var task = ws.upgradeGenesis();
     msg().send(sender, "genesis-upgrade-started");
     progress(sender, task.progress(), "progress-genesis-upgrade");
-    task.done().thenAccept(count -> ws().sync(() -> {
+    task.done().thenAccept(count -> ws.sync(() -> {
       done(sender);
       msg().send(sender, "genesis-upgrade-done", "files", count[0], "chunks", count[1]);
       if (count[2] > 0) msg().send(sender, "genesis-upgrade-failed", "count", count[2]);
@@ -1269,6 +1305,7 @@ public final class BgCommand {
 
   /** {@code /bg backup [status|now [工作]|list [工作]|restore <工作> [快照]|fetch <分支> [新名稱]]}：備份工作（設計 §2.5～§2.7）。 */
   private void backup(Sender sender, String[] args) {
+    var ws = bg.workspace();
     var backup = bg.backup();
     String action = args.length == 0 ? "status" : args[0];
     int max = switch (action) {
@@ -1316,7 +1353,7 @@ public final class BgCommand {
         for (var job : jobs) {
           if (job.store == null) continue;
           msg().send(sender, "backup-started", "job", job.name);
-          backup.now(job).whenComplete((r, e) -> ws().sync(() -> {
+          backup.now(job).whenComplete((r, e) -> ws.sync(() -> {
             if (e != null) msg().send(sender, "backup-failed", "job", job.name, "error", String.valueOf(Workspace.unwrap(e).getMessage()));
             else if (r.snapshot() == null) msg().send(sender, "backup-unchanged", "job", job.name);
             else if (job.what == Backup.What.HISTORY)
@@ -1331,17 +1368,17 @@ public final class BgCommand {
         String branch = args[1], target = args.length > 2 ? args[2] : args[1];
         try {
           if (!Workspace.BRANCH_NAME.matcher(target).matches() || Workspace.isScratch(target)) throw new Workspace.Refused("名稱只能用小寫英數、底線、連字號：" + target);
-          if (ws().branches().containsKey(target)) throw new Workspace.Refused("已經有分支 " + target + "：請給一個新名稱，例如 /bg backup fetch " + branch + " " + branch + "-backup");
+          if (ws.branches().containsKey(target)) throw new Workspace.Refused("已經有分支 " + target + "：請給一個新名稱，例如 /bg backup fetch " + branch + " " + branch + "-backup");
         } catch (IOException e) {
           msg().send(sender, "backup-fetch-failed", "error", String.valueOf(e.getMessage()));
           return;
         }
         msg().send(sender, "backup-fetch-started", "branch", branch);
-        backup.fetch(branch).whenComplete((r, e) -> ws().sync(() -> {
+        backup.fetch(branch).whenComplete((r, e) -> ws.sync(() -> {
           try {
             if (e != null) throw Workspace.unwrap(e);
-            String from = ws().branches().containsKey(r.source()) ? r.source() : Repository.MAIN;
-            ws().createBranch(target, from, r.head(), false, r.dimension());
+            String from = ws.branches().containsKey(r.source()) ? r.source() : Repository.MAIN;
+            ws.createBranch(target, from, r.head(), false, r.dimension());
             msg().send(sender, "backup-fetch-done", "branch", target, "snapshot", r.snapshot(), "objects", r.objects());
           } catch (Throwable t) {
             msg().send(sender, "backup-fetch-failed", "error", String.valueOf(t.getMessage()));
@@ -1355,7 +1392,7 @@ public final class BgCommand {
         }
         var job = jobs.getFirst();
         msg().send(sender, "backup-restore-started");
-        backup.restore(job, args.length > 2 ? args[2] : null).whenComplete((r, e) -> ws().sync(() -> {
+        backup.restore(job, args.length > 2 ? args[2] : null).whenComplete((r, e) -> ws.sync(() -> {
           if (e != null) {
             msg().send(sender, "backup-restore-failed", "error", String.valueOf(Workspace.unwrap(e).getMessage()));
             return;
@@ -1368,7 +1405,7 @@ public final class BgCommand {
       default -> {
         for (var job : jobs) {
           if (job.store == null) continue;
-          backup.snapshots(job).whenComplete((names, e) -> ws().sync(() -> {
+          backup.snapshots(job).whenComplete((names, e) -> ws.sync(() -> {
             if (e != null) {
               msg().send(sender, "backup-failed", "job", job.name, "error", String.valueOf(Workspace.unwrap(e).getMessage()));
               return;
@@ -1382,30 +1419,34 @@ public final class BgCommand {
   }
 
   private void disk(Sender sender) throws IOException {
-    var dir = ws().dir();
-    var genesisRoot = ws().genesisRoot();
-    var dims = ws().trackedDimensions();
-    var branches = new ArrayList<>(ws().branches().keySet());
+    var ws = ws(sender);
+    var dir = ws.dir();
+    var objectsDir = ws.objectsDir();
+    var genesisRoot = ws.genesisRoot();
+    var dims = ws.trackedDimensions();
+    var branches = new ArrayList<>(ws.branches().keySet());
     branches.remove(Repository.MAIN);
     var platform = bg.platform();
     platform.async(() -> {
       try {
-        long objects = folderSize(dir.resolve("objects"));
+        long objects = folderSize(objectsDir);
         long genesis = folderSize(genesisRoot);
-        long total = folderSize(dir) + (genesisRoot.toAbsolutePath().normalize().startsWith(dir.toAbsolutePath().normalize()) ? 0 : genesis);
+        var root = dir.toAbsolutePath().normalize();
+        long total = folderSize(dir) + (genesisRoot.toAbsolutePath().normalize().startsWith(root) ? 0 : genesis)
+            + (objectsDir.toAbsolutePath().normalize().startsWith(root) ? 0 : objects);
         var lines = new ArrayList<Component>();
         lines.add(msg().get("disk-entry", "name", msg().get("disk-objects"), "size", megabytes(objects)));
         lines.add(msg().get("disk-entry", "name", msg().get("disk-genesis"), "size", megabytes(genesis)));
         lines.add(msg().get("disk-entry", "name", msg().get("disk-other"), "size", megabytes(total - objects - genesis)));
         for (var branch : branches) {
           long size = 0;
-          for (var dim : dims) size += folderSize(platform.levelFolder(Workspace.worldName(branch, dim)));
+          for (var dim : dims) size += folderSize(platform.levelFolder(ws.worldName(branch, dim)));
           total += size;
           lines.add(msg().get("disk-entry", "name", branchLabel(branch), "size", megabytes(size)));
         }
         long views = 0;
         for (var name : platform.levelFolders())
-          if (name.startsWith(Workspace.VIEW_PREFIX)) views += folderSize(platform.levelFolder(name));
+          if (name.startsWith(ws.viewPrefix())) views += folderSize(platform.levelFolder(name));
         total += views;
         if (views > 0) lines.add(msg().get("disk-entry", "name", msg().get("disk-views"), "size", megabytes(views)));
         msg().send(sender, "disk-header", "size", megabytes(total));
@@ -1440,6 +1481,7 @@ public final class BgCommand {
   }
 
   private void branch(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var w = words(args);
     var what = w.isEmpty() ? "list" : w.getFirst().toLowerCase(Locale.ROOT);
     switch (what) {
@@ -1449,15 +1491,15 @@ public final class BgCommand {
           return;
         }
         var dim = flags(args).contains("--all") ? null : here(sender);
-        for (var e : ws().drafts().entrySet()) {
-          if (dim != null && !ws().covers(e.getKey(), dim)) continue;
-          var wt = ws().worktree(e.getKey());
+        for (var e : ws.drafts().entrySet()) {
+          if (dim != null && !ws.covers(e.getKey(), dim)) continue;
+          var wt = ws.worktree(e.getKey());
           int players = 0;
           if (wt != null) for (var world : wt.worlds().values()) players += world.players().size();
           msg().send(sender, "branch-entry", "branch", branchLabel(e.getKey()), "head", e.getValue().abbrev(),
-              "time", TIME.format(Instant.ofEpochMilli(ws().repo().commit(e.getValue()).time())), "players", players);
+              "time", TIME.format(Instant.ofEpochMilli(ws.repo().commit(e.getValue()).time())), "players", players);
         }
-        for (var s : ws().merges().all())
+        for (var s : ws.merges().all())
           msg().send(sender, "merge-entry", "id", s.id(), "source", s.source() == null ? s.base().abbrev() : s.source(), "target", s.target());
       }
       case "create" -> {
@@ -1477,7 +1519,7 @@ public final class BgCommand {
         }
         String dimension = draftWorld(sender, from);
         if (dimension == null) return;
-        ws().createBranch(name, from, dimension);
+        ws.createBranch(name, from, dimension);
         msg().send(sender, "branch-created", "name", name, "from", branchLabel(from));
       }
       case "delete" -> {
@@ -1485,11 +1527,11 @@ public final class BgCommand {
           msg().send(sender, "no-permission");
           return;
         }
-        if (w.size() < 2 || w.get(1).equals(Repository.MAIN) || !ws().drafts().containsKey(w.get(1))) {
+        if (w.size() < 2 || w.get(1).equals(Repository.MAIN) || !ws.drafts().containsKey(w.get(1))) {
           msg().send(sender, "branch-unknown", "name", w.size() < 2 ? "" : w.get(1));
           return;
         }
-        ws().deleteBranch(w.get(1), flags(args).contains("--force"));
+        ws.deleteBranch(w.get(1), flags(args).contains("--force"));
         msg().send(sender, "branch-deleted", "name", w.get(1));
       }
       default -> msg().send(sender, "usage-branch");
@@ -1499,7 +1541,8 @@ public final class BgCommand {
   // ---- 合併與衝突整合（設計 §5.2、§5.3） ----
 
   private MergeSessions.Session session(Sender sender, List<String> w) {
-    var merges = ws().merges();
+    var ws = ws(sender);
+    var merges = ws.merges();
     MergeSessions.Session s = null;
     if (sender.player() instanceof ServerPlayer p) s = merges.of(p.level());
     if (s == null && w.size() > 1) s = merges.get(w.getLast());
@@ -1515,6 +1558,7 @@ public final class BgCommand {
   }
 
   private void merge(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var w = words(args);
     if (w.isEmpty()) {
       msg().send(sender, "usage-merge");
@@ -1524,8 +1568,8 @@ public final class BgCommand {
     switch (what) {
       case "list" -> {
         if (!mayResolve(sender)) return;
-        if (ws().merges().all().isEmpty()) msg().send(sender, "merge-none");
-        for (var s : ws().merges().all())
+        if (ws.merges().all().isEmpty()) msg().send(sender, "merge-none");
+        for (var s : ws.merges().all())
           msg().send(sender, "merge-entry", "id", s.id(), "source", s.source() == null ? s.base().abbrev() : s.source(), "target", s.target());
       }
       case "view" -> {
@@ -1534,11 +1578,11 @@ public final class BgCommand {
         var s = session(s(p), w);
         if (s == null) return;
         var side = w.size() > 1 ? w.get(1) : "result";
-        var dim = ws().logicalDimension(p.level());
+        var dim = ws.logicalDimension(p.level());
         switch (side) {
-          case "ours" -> ws().teleport(p, ws().openView(s.ours(), dim));
-          case "theirs" -> ws().teleport(p, ws().openView(s.theirs(), dim));
-          default -> ws().teleport(p, ws().openBranch(s.branch()));
+          case "ours" -> ws.teleport(p, ws.openView(s.ours(), dim));
+          case "theirs" -> ws.teleport(p, ws.openView(s.theirs(), dim));
+          default -> ws.teleport(p, ws.openBranch(s.branch()));
         }
         msg().send(s(p), "merge-view-" + (side.equals("ours") || side.equals("theirs") ? side : "result"), "target", s.target(), "source",
             String.valueOf(s.source()));
@@ -1546,7 +1590,7 @@ public final class BgCommand {
       case "conflicts" -> {
         if (!mayResolve(sender)) return;
         var s = session(sender, w);
-        if (s != null) listConflicts(sender, s);
+        if (s != null) listConflicts(ws, sender, s);
       }
       case "goto" -> {
         var p = player(sender);
@@ -1554,7 +1598,7 @@ public final class BgCommand {
         var s = session(s(p), List.of());
         if (s == null) return;
         int n = w.size() > 1 ? parseInt(w.get(1), 1) : 1;
-        ws().merges().result(s).whenComplete((result, error) -> ws().sync(() -> {
+        ws.merges().result(s).whenComplete((result, error) -> ws.sync(() -> {
           if (error != null) {
             failed(s(p), Workspace.unwrap(error));
             return;
@@ -1566,11 +1610,11 @@ public final class BgCommand {
           }
           var c = clusters.get(n - 1);
           try {
-            var world = ws().openBranch(s.branch()).world(c.dimension());
+            var world = ws.openBranch(s.branch()).world(c.dimension());
             if (world == null) return;
             var b = c.box();
             bg.platform().teleport(p, world, (b.minX() + b.maxX()) / 2.0 + .5, b.maxY() + 1, (b.minZ() + b.maxZ()) / 2.0 + .5, p.getYRot(), p.getXRot())
-                .thenRun(() -> ws().sync(() -> showConflicts(p, result, clusters)));
+                .thenRun(() -> ws.sync(() -> showConflicts(p, result, clusters)));
           } catch (IOException e) {
             failed(s(p), e);
           }
@@ -1596,13 +1640,13 @@ public final class BgCommand {
           case "selection" -> selection(p);
           default -> {
             var at = Workspace.pos(p);
-            yield new Workspace.Scope(ws().logicalDimension(p.level()), new Box(at.x() - HERE_RADIUS, at.y() - HERE_RADIUS, at.z() - HERE_RADIUS,
+            yield new Workspace.Scope(ws.logicalDimension(p.level()), new Box(at.x() - HERE_RADIUS, at.y() - HERE_RADIUS, at.z() - HERE_RADIUS,
                 at.x() + HERE_RADIUS, at.y() + HERE_RADIUS, at.z() + HERE_RADIUS));
           }
         };
         if (range.equals("selection") && scope == null) return;
         var side = w.get(1).equals("ours") ? MergeSessions.Side.OURS : MergeSessions.Side.THEIRS;
-        ws().merges().take(s, side, scope, author(sender), n -> msg().send(sender, "merge-taken", "count", n, "side", w.get(1)),
+        ws.merges().take(s, side, scope, author(sender), n -> msg().send(sender, "merge-taken", "count", n, "side", w.get(1)),
             e -> failed(sender, e));
       }
       case "continue" -> {
@@ -1610,8 +1654,8 @@ public final class BgCommand {
         var s = session(sender, w);
         if (s == null) return;
         msg().send(sender, "merge-finishing");
-        progress(sender, ws().openBranch(s.target()).progress(), "progress-merge-finish");
-        ws().merges().finish(s, author(sender), applied -> {
+        progress(sender, ws.openBranch(s.target()).progress(), "progress-merge-finish");
+        ws.merges().finish(s, author(sender), applied -> {
           done(sender);
           if (applied.isEmpty()) msg().send(sender, "merge-finished-empty", "target", branchLabel(s.target()));
           else {
@@ -1631,7 +1675,7 @@ public final class BgCommand {
         if (!mayResolve(sender)) return;
         var s = session(sender, w);
         if (s == null) return;
-        ws().merges().discard(s);
+        ws.merges().discard(s);
         msg().send(sender, "merge-aborted");
       }
       default -> {
@@ -1641,15 +1685,15 @@ public final class BgCommand {
           return;
         }
         var target = current(sender);
-        if (Workspace.isScratch(target.branch()) || ws().repo().refs().get(what).isEmpty() || what.equals(target.branch())) {
+        if (Workspace.isScratch(target.branch()) || ws.repo().refs().get(what).isEmpty() || what.equals(target.branch())) {
           msg().send(sender, "branch-unknown", "name", what);
           return;
         }
-        if (ws().merges().find(target.branch(), what) != null) {
-          msg().send(sender, "merge-existing", "id", ws().merges().find(target.branch(), what).id());
+        if (ws.merges().find(target.branch(), what) != null) {
+          msg().send(sender, "merge-existing", "id", ws.merges().find(target.branch(), what).id());
           return;
         }
-        var source = ws().worktree(what);
+        var source = ws.worktree(what);
         msg().send(sender, "publish-start", "name", what, "target", branchLabel(target.branch()));
         Runnable go = () -> autosaveThen(sender, target, () -> merge(sender, target, what, null, null));
         if (source != null) autosaveThen(sender, source, go);
@@ -1658,8 +1702,8 @@ public final class BgCommand {
     }
   }
 
-  private void listConflicts(Sender sender, MergeSessions.Session s) {
-    ws().merges().result(s).whenComplete((result, error) -> ws().sync(() -> {
+  private void listConflicts(Workspace ws, Sender sender, MergeSessions.Session s) {
+    ws.merges().result(s).whenComplete((result, error) -> ws.sync(() -> {
       if (error != null) {
         failed(sender, Workspace.unwrap(error));
         return;
@@ -1685,7 +1729,8 @@ public final class BgCommand {
 
   /** 在玩家目前的世界標出衝突格；太多時改標每一群的包圍盒。 */
   private void showConflicts(ServerPlayer p, dev.twme.buildgit.core.overlay.ThreeWayMerge.Result result, List<MergeSessions.Cluster> clusters) {
-    String dim = ws().logicalDimension(p.level());
+    var ws = bg.workspace(p.level());
+    String dim = ws.logicalDimension(p.level());
     var shapes = new ArrayList<Outlines.Shape>();
     for (var c : result.cellConflicts())
       if (c.dimension().equals(dim)) shapes.add(new Outlines.Shape(new Box(c.pos().x(), c.pos().y(), c.pos().z(), c.pos().x(), c.pos().y(), c.pos().z()), Outlines.CONFLICT));
@@ -1699,12 +1744,13 @@ public final class BgCommand {
   // ---- 還原（設計 §5.4） ----
 
   private void revert(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var w = words(args);
     if (w.size() != 1) {
       msg().send(sender, "usage-revert");
       return;
     }
-    var id = resolve(w.getFirst());
+    var id = resolve(ws, w.getFirst());
     if (id == null) {
       msg().send(sender, "unknown-commit", "id", w.getFirst());
       return;
@@ -1715,7 +1761,7 @@ public final class BgCommand {
       return;
     }
     progress(sender, wt.progress(), "progress-revert");
-    autosaveThen(sender, wt, () -> ws().revert(wt, id, author(sender), applied -> {
+    autosaveThen(sender, wt, () -> ws.revert(wt, id, author(sender), applied -> {
       done(sender);
       if (applied.isEmpty()) msg().send(sender, "revert-nothing");
       else {
@@ -1725,19 +1771,20 @@ public final class BgCommand {
       }
     }, e -> {
       done(sender);
-      if (e instanceof Workspace.ConflictException c) startSession(sender, MergeSessions.Kind.REVERT, wt.branch(), null, null, c);
+      if (e instanceof Workspace.ConflictException c) startSession(ws, sender, MergeSessions.Kind.REVERT, wt.branch(), null, null, c);
       else failed(sender, e);
     }));
   }
 
   private void restore(Sender sender, String[] args) throws IOException {
+    var ws = ws(sender);
     var w = words(args);
     var flags = flags(args);
     if (w.size() != 1) {
       msg().send(sender, "usage-restore");
       return;
     }
-    var id = resolve(w.getFirst());
+    var id = resolve(ws, w.getFirst());
     if (id == null) {
       msg().send(sender, "unknown-commit", "id", w.getFirst());
       return;
@@ -1759,7 +1806,7 @@ public final class BgCommand {
     }
     var finalScope = scope;
     progress(sender, wt.progress(), "progress-restore");
-    autosaveThen(sender, wt, () -> ws().restore(wt, id, finalScope, author(sender), applied -> {
+    autosaveThen(sender, wt, () -> ws.restore(wt, id, finalScope, author(sender), applied -> {
       done(sender);
       if (applied.isEmpty()) msg().send(sender, "restore-nothing");
       else {
@@ -1770,4 +1817,97 @@ public final class BgCommand {
     }, e -> failed(sender, e)));
   }
 
+  // ---- 建築世界（03-worlds） ----
+
+  private List<String> worldNames() {
+    var names = new ArrayList<String>();
+    names.add(bg.worlds().serverWorldName());
+    for (var ws : bg.worlds().buildWorlds()) names.add(ws.label());
+    return names;
+  }
+
+  /** {@code new <名稱>}：建立自己的建築世界並進去。 */
+  private void newWorld(Sender sender, String[] args) throws IOException {
+    var p = player(sender);
+    if (p == null) return;
+    var w = words(args);
+    if (w.size() != 1) {
+      msg().send(sender, "usage-new");
+      return;
+    }
+    var ws = bg.worlds().create(w.getFirst().toLowerCase(Locale.ROOT), p);
+    msg().send(sender, "world-created", "world", ws.label(), "folder", ws.buildWorld().folder());
+    enter(p, ws);
+  }
+
+  /** {@code open <世界>}：自己的寫名稱，別人的寫「擁有者/名稱」，伺服器世界寫它的名稱。 */
+  private void openWorld(Sender sender, String[] args) throws IOException {
+    var p = player(sender);
+    if (p == null) return;
+    var w = words(args);
+    if (w.size() != 1) {
+      msg().send(sender, "usage-open");
+      return;
+    }
+    var ws = bg.worlds().find(w.getFirst(), p.getUUID());
+    if (ws == null) {
+      msg().send(sender, "world-unknown", "world", w.getFirst());
+      return;
+    }
+    if (ws.buildWorld() == null) {
+      home(sender);
+      return;
+    }
+    if (!ws.isOpen()) throw new Workspace.Refused("這個建築世界的版本庫無法開啟，請管理員看主控台");
+    enter(p, ws);
+  }
+
+  /** 傳送到建築世界：主世界 (0, 0) 最高的方塊上。從伺服器世界進來時記下位置給 {@code home}。 */
+  private void enter(ServerPlayer p, Workspace ws) throws IOException {
+    if (bg.workspace(p.level()).buildWorld() == null)
+      homes.put(p.getUUID(), new Location(p.level(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()));
+    var level = ws.openMain();
+    bg.platform().loadChunk(level, 0, 0).thenAccept(chunk -> ws.sync(() -> {
+      int y = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0);
+      bg.platform().teleport(p, level, 0.5, y, 0.5, p.getYRot(), p.getXRot());
+      msg().send(s(p), "world-entered", "world", ws.label());
+    }));
+  }
+
+  /** {@code home}：回到進入建築世界之前的位置；不知道時到伺服器主世界的 (0, 0)。 */
+  private void home(Sender sender) {
+    var p = player(sender);
+    if (p == null) return;
+    var saved = homes.remove(p.getUUID());
+    if (saved != null && bg.workspace().loaded(saved.level()))
+      bg.platform().teleport(p, saved.level(), saved.x(), saved.y(), saved.z(), saved.yaw(), saved.pitch());
+    else {
+      var level = bg.platform().server().overworld();
+      bg.platform().loadChunk(level, 0, 0).thenAccept(chunk -> bg.workspace().sync(() -> bg.platform().teleport(p, level, 0.5,
+          level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0), 0.5, p.getYRot(), p.getXRot())));
+    }
+    msg().send(sender, "world-home", "world", bg.worlds().serverWorldName());
+  }
+
+  /** {@code worlds}：所有建築世界，點一下就進去。 */
+  private void worlds(Sender sender) {
+    var all = bg.worlds().buildWorlds();
+    if (all.isEmpty()) {
+      msg().send(sender, "worlds-none");
+      return;
+    }
+    msg().send(sender, "worlds-header", "count", all.size());
+    for (var ws : all) {
+      int players = 0;
+      boolean loaded = false;
+      for (var wt : ws.worktrees())
+        for (var level : wt.worlds().values()) {
+          loaded = true;
+          players += level.players().size();
+        }
+      var line = msg().prefixed(msg().get("worlds-entry", "world", ws.label(), "folder", ws.buildWorld().folder(), "state",
+          msg().get(!ws.isOpen() ? "worlds-broken" : loaded ? "worlds-loaded" : "worlds-unloaded"), "players", players));
+      sender.send(sender.isPlayer() ? line.clickEvent(ClickEvent.runCommand("/bg open " + ws.label())) : line);
+    }
+  }
 }

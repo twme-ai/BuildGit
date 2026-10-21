@@ -66,6 +66,11 @@ public final class Worktree {
     return branch;
   }
 
+  /** 所屬的版本庫。 */
+  Workspace workspace() {
+    return ws;
+  }
+
   public MarkTable table() {
     return table;
   }

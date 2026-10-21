@@ -34,9 +34,9 @@ public final class Repository {
   private final RefStore refs;
   private final ReentrantLock lock = new ReentrantLock();
 
-  private Repository(Path dir, Upgrader upgrader) throws IOException {
+  private Repository(Path dir, Path objectsDir, Upgrader upgrader) throws IOException {
     this.dir = dir;
-    objects = new ObjectStore(dir.resolve("objects"));
+    objects = new ObjectStore(objectsDir);
     overlays = new OverlayStore(objects, upgrader, upgrader == Upgrader.NONE ? 0 : dataVersions(dir, upgrader.current()));
     refs = new RefStore(dir.resolve("refs").resolve("branches"));
   }
@@ -87,8 +87,13 @@ public final class Repository {
 
   /** @param upgrader 伺服器的資料版本與升級方式（見 {@link Upgrader}） */
   public static Repository init(Path dir, Author author, long time, Upgrader upgrader) throws IOException {
+    return init(dir, dir.resolve("objects"), author, time, upgrader);
+  }
+
+  /** @param objectsDir 物件目錄；多個儲存庫可以共用（物件以內容命名，不會互相覆寫） */
+  public static Repository init(Path dir, Path objectsDir, Author author, long time, Upgrader upgrader) throws IOException {
     if (exists(dir)) throw new IOException("儲存庫已存在：" + dir);
-    var repo = new Repository(dir, upgrader);
+    var repo = new Repository(dir, objectsDir, upgrader);
     var tree = repo.overlays.putRoot(Tree.EMPTY);
     var changeset = repo.put(new Changeset(List.of(), List.of(), List.of()));
     var commit = repo.put(new Commit(tree, List.of(), changeset, author, time, "init", 0, new TreeMap<>()));
@@ -101,8 +106,12 @@ public final class Repository {
   }
 
   public static Repository open(Path dir, Upgrader upgrader) throws IOException {
+    return open(dir, dir.resolve("objects"), upgrader);
+  }
+
+  public static Repository open(Path dir, Path objectsDir, Upgrader upgrader) throws IOException {
     if (!exists(dir)) throw new IOException("找不到儲存庫：" + dir);
-    return new Repository(dir, upgrader);
+    return new Repository(dir, objectsDir, upgrader);
   }
 
   public Path dir() {

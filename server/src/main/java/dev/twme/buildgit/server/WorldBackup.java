@@ -91,7 +91,8 @@ final class WorldBackup {
         if (r != null) roots.add(r);
       }
       var excluded = new HashSet<Path>();
-      for (var name : platform.levelFolders()) if (Workspace.ownWorldName(name)) excluded.add(platform.levelFolder(name).toAbsolutePath().normalize());
+      for (var name : platform.levelFolders())
+        if (Workspace.ownWorldName(name) || bg.worlds().isDraftFolder(name)) excluded.add(platform.levelFolder(name).toAbsolutePath().normalize());
       excluded.add(Restore.staging(platform.repoDir()).toAbsolutePath().normalize());
       boolean announce = job.announce && !platform.server().getPlayerList().getPlayers().isEmpty();
       if (announce) broadcast(bg, "backup-world-started");

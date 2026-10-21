@@ -65,6 +65,27 @@ worlds:
   # 有人再進去（go、try、併回等）時自動重新載入。最少 30 秒；-1 表示一直留在記憶體。
   unload-idle-seconds: 60
 
+# 建築世界：一個世界一個版本庫（docs/03-worlds.md）。目前由管理員用 /bg new 建立。
+player-worlds:
+  # 伺服器世界在 /bg open 等指令裡的名稱；空白時用 server.properties 的 level-name（預設 world）。
+  server-world-name: ""
+  # 世界資料夾的名稱。{name} 是建築世界的名稱（必須有），{owner-name} 是擁有者的玩家名稱（小寫），
+  # {owner} 是擁有者的 UUID，{id} 是建築世界的 id。可以沒有前綴，例如 "{name}"：這時名稱在整台伺服器唯一。
+  # 草稿的資料夾是 <世界資料夾>-<草稿>。只影響之後建立的世界。
+  world-name: "bw_{owner-name}_{name}"
+  # 每個建築世界的資料放在哪裡（相對於伺服器目錄，或絕對路徑）。只影響之後建立的世界：
+  # 建立時記在 buildgit/worlds.yml，之後改設定，舊的世界照舊找得到。
+  # 佔位符：{server} 伺服器目錄、{buildgit} 伺服器的 buildgit/、{id} 建築世界的 id、{owner} 擁有者的 UUID、
+  # {world-folder} 這個世界的世界資料夾、{repo} 下面 repo 算出來的位置。
+  # 例如整個建築世界都放進世界資料夾（壓縮一個資料夾就帶走歷史）：repo 設 "{world-folder}/buildgit"、objects 設 "{repo}/objects"。
+  paths:
+    # 版本庫：分支、存檔紀錄、工作區
+    repo: "{buildgit}/worlds/{id}"
+    # 物件：預設所有建築世界與伺服器世界共用
+    objects: "{buildgit}/objects"
+    # 起點世界
+    genesis: "{repo}/genesis"
+
 init:
   # 世界的存檔（region 與 entities）超過這個大小（MB）時，/bg init 不複製整個世界，改成延遲複製：
   # 每個 chunk 第一次載入時才把它的原樣複製進起點世界，沒載入過的直接讀世界自己的存檔。

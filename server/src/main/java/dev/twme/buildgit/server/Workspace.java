@@ -39,7 +39,11 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.chunk.LevelChunk;
 
 /**
- * 伺服器上的版本庫（設計 §2.1）：{@code <伺服器根目錄>/buildgit/}，以及每個分支的工作區與世界。
+ * 一個版本庫（設計 §2.1）與每個分支的工作區與世界。伺服器世界的版本庫是 {@code <伺服器根目錄>/buildgit/}；
+ * 每個建築世界（03-worlds）也各有一個，由 {@link BuildWorlds} 建立。
+ *
+ * <p>建築世界只有一個維度，在版本裡固定叫 {@code minecraft:overworld}；它的主世界也由 BuildGit 建立，
+ * 世界資料夾不見時照樣以起點世界＋最新存檔合成。草稿是 {@code <世界資料夾>-<分支>}，檢視是 {@code bgview_<世界資料夾>_<版本>}。
  *
  * <p>BuildGit 建立的世界都以「起點世界＋某個覆寫表」在第一次開啟 region 檔時合成（§4.2）：
  * <ul>
@@ -63,7 +67,13 @@ public final class Workspace {
   /** 舊版 Minecraft 寫下的歷史與起點世界在讀取時升級（設計 §4.6）。 */
   private final DataUpgrader upgrader;
   private final Path dir;
+  private final Path objectsDir;
   private final Path genesisRoot;
+  /** 建築世界；伺服器世界的版本庫為 null。 */
+  private final BuildWorlds.Entry world;
+  private final BuildWorlds registry;
+  /** 建築世界在版本中唯一的維度。 */
+  static final String OVERWORLD = "minecraft:overworld";
   private static final String GENESIS_POINTER = "genesis-dir";
   private Repository repo;
   private AnvilSource genesis;
@@ -96,13 +106,45 @@ public final class Workspace {
 
   public record View(ObjectId commit, String dimension) {}
 
-  public Workspace(Platform platform, Tracker tracker) {
+  /** 伺服器世界的版本庫。 */
+  Workspace(Platform platform, Tracker tracker, BuildWorlds registry) {
     this.platform = platform;
     this.tracker = tracker;
+    this.registry = registry;
+    this.world = null;
     this.upgrader = new DataUpgrader(platform::server, platform::dataFixDimension);
     this.ticked = new TickWrites(platform, tracker);
     this.dir = platform.repoDir();
+    this.objectsDir = dir.resolve("objects");
     this.genesisRoot = locateGenesis();
+  }
+
+  /** 建築世界的版本庫；路徑由登記表算好。 */
+  Workspace(Platform platform, Tracker tracker, BuildWorlds registry, BuildWorlds.Entry world, Path dir, Path objectsDir, Path genesisRoot) {
+    this.platform = platform;
+    this.tracker = tracker;
+    this.registry = registry;
+    this.world = world;
+    this.upgrader = new DataUpgrader(platform::server, platform::dataFixDimension);
+    this.ticked = new TickWrites(platform, tracker);
+    this.dir = dir;
+    this.objectsDir = objectsDir;
+    this.genesisRoot = genesisRoot;
+  }
+
+  /** 建築世界；伺服器世界的版本庫為 null。 */
+  public BuildWorlds.Entry buildWorld() {
+    return world;
+  }
+
+  /** 給玩家看的名稱：建築世界是「擁有者/名稱」，伺服器世界是它的名稱。 */
+  public String label() {
+    return world != null ? world.label() : registry.serverWorldName();
+  }
+
+  /** 主分支的世界在版本中的維度：建築世界固定是主世界，伺服器的世界是它本身的維度。 */
+  private String mainDimension(ServerLevel level) {
+    return world != null ? OVERWORLD : Tracker.dimensionId(level);
   }
 
   /**
@@ -138,6 +180,15 @@ public final class Workspace {
 
   Path genesisRoot() {
     return genesisRoot;
+  }
+
+  Path objectsDir() {
+    return objectsDir;
+  }
+
+  /** 這個版本庫的檢視世界名稱的開頭。 */
+  String viewPrefix() {
+    return world != null ? VIEW_PREFIX + world.folder() + "_" : VIEW_PREFIX;
   }
 
   Path dir() {
@@ -245,6 +296,10 @@ public final class Workspace {
    * （設計 §2.4）。預設世界在最前面。
    */
   public List<ServerLevel> mainWorlds() {
+    if (world != null) {
+      var level = main() == null ? null : main().world(OVERWORLD);
+      return level == null ? List.of() : List.of(level);
+    }
     var result = new ArrayList<ServerLevel>();
     var seen = new HashSet<String>();
     for (var w : platform.server().getAllLevels())
@@ -260,12 +315,22 @@ public final class Workspace {
   /** BuildGit 建立的世界（分支、檢視）。 */
   public boolean ownWorld(ServerLevel world) {
     String name = platform.levelName(world);
-    return sources.containsKey(world) || name.startsWith(WORLD_PREFIX) || name.startsWith(VIEW_PREFIX);
+    return sources.containsKey(world) || name.startsWith(WORLD_PREFIX) || name.startsWith(VIEW_PREFIX) || registry.claims(name);
   }
 
-  /** 受版本控制：不是 BuildGit 建立的世界，而且這個維度已經初始化過（有起點世界）。 */
-  public boolean tracked(ServerLevel world) {
-    return repo != null && !ownWorld(world) && Files.isDirectory(genesisDir(Tracker.dimensionId(world)));
+  /**
+   * 受版本控制：伺服器世界的版本庫是不是 BuildGit 建立、而且這個維度已經初始化過（有起點世界）的世界；
+   * 建築世界是它的世界資料夾。
+   */
+  public boolean tracked(ServerLevel level) {
+    if (repo == null) return false;
+    if (world != null) return platform.levelName(level).equals(world.folder());
+    return !ownWorld(level) && Files.isDirectory(genesisDir(Tracker.dimensionId(level)));
+  }
+
+  /** 這個版本庫的世界：主世界、草稿、整合、檢視世界。 */
+  boolean owns(ServerLevel level) {
+    return owners.containsKey(level) || views.containsKey(level);
   }
 
   /**
@@ -274,12 +339,14 @@ public final class Workspace {
    */
   public void worldLoaded(ServerLevel world) {
     if (owners.containsKey(world) || !tracked(world)) return;
-    String dim = Tracker.dimensionId(world);
+    String dim = mainDimension(world);
     if (main().world(dim) != null) return;
     main().addWorld(dim, world);
     owners.put(world, main());
-    resumeCopy(world);
-    copyLoaded(world);
+    if (this.world == null) {
+      resumeCopy(world);
+      copyLoaded(world);
+    }
     if (!copying(dim)) openBranchWorlds(world);
   }
 
@@ -340,7 +407,7 @@ public final class Workspace {
 
   /** 已開啟的草稿補上這個主世界維度的世界。 */
   private void openBranchWorlds(ServerLevel world) {
-    String dim = Tracker.dimensionId(world);
+    String dim = mainDimension(world);
     try {
       for (var wt : worktrees())
         if (wt != main() && wt.world(dim) == null && covers(wt.branch(), dim)) {
@@ -365,7 +432,7 @@ public final class Workspace {
    */
   public boolean mayUnload(ServerLevel world) {
     if (!isMainWorld(world)) return true;
-    String dim = Tracker.dimensionId(world);
+    String dim = mainDimension(world);
     if (copying(dim) || main().isCommitting()) return false;
     for (var wt : worktrees()) {
       var w = wt.world(dim);
@@ -378,8 +445,9 @@ public final class Workspace {
   public void worldUnloaded(ServerLevel world) {
     if (!isMainWorld(world)) return;
     owners.remove(world);
+    sources.remove(world);
     main().removeWorld(world);
-    log().info("受版本控制的世界 " + platform.levelName(world) + " 已卸載；再次載入前，不能併回、撤銷或還原到主世界");
+    if (this.world == null) log().info("受版本控制的世界 " + platform.levelName(world) + " 已卸載；再次載入前，不能併回、撤銷或還原到主世界");
   }
 
   /** 已初始化（有起點世界）的維度。 */
@@ -397,7 +465,7 @@ public final class Workspace {
   }
 
   private ServerLevel mainWorld(String dimension) {
-    for (var w : mainWorlds()) if (Tracker.dimensionId(w).equals(dimension)) return w;
+    for (var w : mainWorlds()) if (mainDimension(w).equals(dimension)) return w;
     return null;
   }
 
@@ -411,7 +479,7 @@ public final class Workspace {
   /** 版本庫已存在時開啟並開始追蹤。 */
   public void open() throws IOException {
     if (!Repository.exists(dir)) return;
-    repo = Repository.open(dir, upgrader);
+    repo = Repository.open(dir, objectsDir, upgrader);
     genesis = new AnvilSource(d -> {
       var p = genesisDir(d);
       return Files.isDirectory(p) ? p : null;
@@ -420,14 +488,54 @@ public final class Workspace {
     var main = new Worktree(this, Repository.MAIN);
     worktrees.put(Repository.MAIN, main);
     for (var w : mainWorlds()) {
-      main.addWorld(Tracker.dimensionId(w), w);
+      main.addWorld(mainDimension(w), w);
       owners.put(w, main);
       resumeCopy(w);
       copyLoaded(w);
     }
+    if (world != null) {
+      // 主世界不在 server 的世界清單裡（BuildGit 建立的）；上次沒卸載就關服時，伺服器不會自動載入
+      var level = platform.findLevel(world.folder());
+      if (level != null) attachMain(level);
+    }
     deleteStaleViews();
     merges = new MergeSessions(this);
     merges.load();
+  }
+
+  /**
+   * 建立建築世界的版本庫（主執行緒）：空的起點世界與第一個存檔，再開啟。起點世界在 chunk 第一次生成時補上（設計 §2.3），
+   * 所以建立是立刻的。
+   */
+  void create(Author author) throws IOException {
+    Files.createDirectories(genesisDir(OVERWORLD).resolve("region"));
+    Files.createDirectories(genesisDir(OVERWORLD).resolve("entities"));
+    Repository.init(dir, objectsDir, author, System.currentTimeMillis(), upgrader);
+    open();
+  }
+
+  /**
+   * 建築世界：載入它的主世界（主執行緒）。產生器、種子、維度類型照伺服器的主世界；世界資料夾不在時以起點世界＋最新存檔合成，
+   * 和草稿一樣。剛建立的世界把已經生成的 chunk 補進起點世界：它們在掛上追蹤之前生成，沒有經過 {@link #newChunk}。
+   */
+  ServerLevel openMain() throws IOException {
+    var level = main().world(OVERWORLD);
+    if (level != null) return level;
+    // 還沒有 region 就是剛建立（版本庫放在世界資料夾裡時，資料夾在建立前就有了）
+    boolean fresh = !Files.isDirectory(platform.levelFolder(world.folder()).resolve("region"));
+    level = createWorld(world.folder(), platform.server().overworld(), new Pending(OVERWORLD, () -> repo.commit(repo.head(Repository.MAIN)).tree()));
+    attachMain(level);
+    if (fresh)
+      for (long key : platform.loadedChunks(level)) {
+        var chunk = level.getChunkSource().getChunkNow((int) (key >> 32), (int) key);
+        if (chunk != null) genesisRecorder.record(OVERWORLD, level, chunk);
+      }
+    return level;
+  }
+
+  private void attachMain(ServerLevel level) {
+    sources.putIfAbsent(level, new Pending(OVERWORLD, () -> repo.commit(repo.head(Repository.MAIN)).tree()));
+    worldLoaded(level);
   }
 
   public void close() {
@@ -469,7 +577,8 @@ public final class Workspace {
     long now = platform.tick();
     idleSince.keySet().retainAll(worktrees.keySet());
     for (var wt : worktrees()) {
-      if (wt.branch().equals(Repository.MAIN)) continue;
+      if (wt.branch().equals(Repository.MAIN)
+          && (world == null || worktrees.size() > 1 || !views.isEmpty() || wt.worlds().isEmpty() || !wt.table().isEmpty())) continue;
       boolean occupied = wt.worlds().values().stream().anyMatch(w -> !w.players().isEmpty());
       if (occupied || wt.isCommitting()) {
         idleSince.remove(wt.branch());
@@ -480,18 +589,32 @@ public final class Workspace {
     }
   }
 
-  /** 卸載分支的世界並關閉工作區（主執行緒）。正在存檔或併回時不動。 */
+  /**
+   * 卸載分支的世界並關閉工作區（主執行緒）。正在存檔或併回時不動。建築世界的主世界也可以卸載：工作區留著（沒有世界），
+   * 之後 {@link #openBranch} 再載入。
+   */
   boolean unload(Worktree wt) {
-    if (wt.branch().equals(Repository.MAIN) || !wt.lock()) return false;
+    boolean main = wt.branch().equals(Repository.MAIN);
+    if (main && world == null || !wt.lock()) return false;
     try {
       for (var world : List.copyOf(wt.worlds().values())) {
+        // 先拿掉：卸載事件會問 mayUnload，主世界在存檔鎖之下會被擋下
+        String dim = logicalDimension(world);
+        owners.remove(world);
+        var source = sources.remove(world);
+        wt.removeWorld(world);
         if (!platform.unloadLevel(world, true)) {
           log().warning("無法卸載世界 " + platform.levelName(world) + "，" + wt.branch() + " 保持載入");
+          wt.addWorld(dim, world);
+          owners.put(world, wt);
+          if (source != null) sources.put(world, source);
           return false;
         }
-        owners.remove(world);
-        sources.remove(world);
-        wt.removeWorld(world);
+      }
+      if (main) {
+        idleSince.remove(wt.branch());
+        log().info("已卸載沒有玩家的建築世界：" + label());
+        return true;
       }
       worktrees.remove(wt.branch());
       idleSince.remove(wt.branch());
@@ -565,6 +688,7 @@ public final class Workspace {
    * @return 背景複製；完成時的值是起點世界大小（位元組）。延遲複製時為 null：不必等待
    */
   public GenesisCopy init(Author author, ServerLevel world) throws IOException {
+    if (this.world != null) throw new Refused("建築世界建立時就受版本控制了");
     if (ownWorld(world)) throw new Refused("這是 BuildGit 建立的世界；請在要版本控制的世界裡執行");
     if (tracked(world)) throw new Refused("這個世界已經受版本控制");
     if (repo == null && Repository.exists(dir)) throw new Refused("版本庫存在但無法開啟");
@@ -655,7 +779,7 @@ public final class Workspace {
 
   /** 新生成的 chunk 以外的 chunk 載入了（主執行緒）：起點世界還在複製時，或延遲複製時，趁它被改之前先複製。 */
   public void chunkLoaded(ServerLevel world, int chunkX, int chunkZ) {
-    if (owners.get(world) != main()) return;
+    if (this.world != null || owners.get(world) != main()) return;
     String dim = Tracker.dimensionId(world);
     var copy = copies.get(dim);
     if (copy != null) copy.chunkLoaded(chunkX, chunkZ);
@@ -837,8 +961,8 @@ public final class Workspace {
       wt.close();
       for (var world : List.copyOf(wt.worlds().values())) discardWorld(world, fallback);
     }
-    for (var w : mainWorlds()) {
-      var world = worldName(name, Tracker.dimensionId(w));
+    for (var dim : trackedDimensions()) {
+      var world = worldName(name, dim);
       if (platform.findLevel(world) == null) deleteLater(platform.levelFolder(world));
     }
     deleteLater(dir.resolve("worktree").resolve(name));
@@ -848,8 +972,8 @@ public final class Workspace {
   }
 
   /** 草稿某維度的世界名稱。 */
-  static String worldName(String branch, String dimension) {
-    return WORLD_PREFIX + branch + suffix(dimension);
+  String worldName(String branch, String dimension) {
+    return world != null ? world.folder() + "-" + branch : WORLD_PREFIX + branch + suffix(dimension);
   }
 
   /** 主世界沒有後綴；地獄、終界沿用原版的後綴；其他世界（多世界插件）加上維度 id。 */
@@ -867,8 +991,9 @@ public final class Workspace {
    * 開啟分支的工作區與世界（主執行緒）。世界不存在時建立：種子與產生器設定照抄主世界，不複製任何 region 檔。
    */
   public Worktree openBranch(String branch) throws IOException {
-    if (branch.equals(Repository.MAIN)) return main();
     idleSince.remove(branch); // 剛被用到（例如傳送還在進行），重新計算閒置時間
+    if (world != null) openMain();
+    if (branch.equals(Repository.MAIN)) return main();
     var existing = worktrees.get(branch);
     if (existing != null) return existing;
     repo.head(branch); // 不存在時丟出例外
@@ -876,7 +1001,7 @@ public final class Workspace {
     worktrees.put(branch, wt);
     try {
       for (var mainWorld : mainWorlds()) {
-        String dim = Tracker.dimensionId(mainWorld);
+        String dim = mainDimension(mainWorld);
         if (!covers(branch, dim)) continue;
         if (copying(dim)) continue; // 複製完成後由 openBranchWorlds 補上
         var world = createWorld(worldName(branch, dim), mainWorld, new Pending(dim, () -> repo.commit(repo.head(branch)).tree()));
@@ -921,12 +1046,13 @@ public final class Workspace {
 
   // ---- 檢視世界（設計 §6.5） ----
 
-  static String viewName(ObjectId commit, String dimension) {
-    return VIEW_PREFIX + commit.hex().substring(0, 10) + suffix(dimension);
+  String viewName(ObjectId commit, String dimension) {
+    return viewPrefix() + commit.hex().substring(0, 10) + (world != null ? "" : suffix(dimension));
   }
 
   /** 開啟某個版本、某個維度的唯讀世界（主執行緒）。 */
   public ServerLevel openView(ObjectId commit, String dimension) throws IOException {
+    if (world != null) openMain();
     var template = mainWorld(dimension);
     if (template == null) throw new IOException("主世界沒有維度 " + dimension);
     if (copying(dimension)) throw new Refused("這個世界的起點世界還在背景複製，請稍後再試");
@@ -1043,7 +1169,7 @@ public final class Workspace {
     var wt = worktree(p.level());
     String key = p.getUUID().toString();
     var yaml = Yaml.load(playersPath());
-    if (wt == null || wt == main()) {
+    if (wt == null || wt == main() && world == null) {
       if (!yaml.contains(key)) return;
       yaml.set(key, null);
     } else {

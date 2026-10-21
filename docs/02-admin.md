@@ -43,7 +43,7 @@ BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE
 | `buildgit.role.viewer` | 訪客、評審 | 選單；看狀態、歷史、存檔內容、方塊是誰改的（`status`、`log`、`graph`、`show`、`diff`、`blame`、`inspect`、`who`、`sel`、`branch list`）；進出草稿、唯讀看舊版本（`go`、`back`、`view`） |
 | `buildgit.role.builder` | 一般建築師 | viewer 全部，加上開草稿（`try`）、存檔（`save`）、帶到單人世界改再送回（`pull`、`push`）。**不能把草稿併回主世界** |
 | `buildgit.role.manager` | 負責審核、維護主世界的人 | builder 全部，加上併回（`publish`）、自訂訊息存檔（`commit`）、處理衝突與底層合併（`merge`）、撤銷（`revert`）、還原（`restore`）、手動補記（`mark`）、建立與刪除草稿（`branch create`、`branch delete`） |
-| `buildgit.admin` | 伺服器管理員 | manager 全部，加上 `init`、`reload`、`disk`、`genesis`、`backup` |
+| `buildgit.admin` | 伺服器管理員 | manager 全部，加上 `init`、`reload`、`disk`、`genesis`、`backup`、建築世界（`new`、`open`、`home`、`worlds`） |
 
 LuckPerms 範例：
 
@@ -106,6 +106,7 @@ LuckPerms 範例：
 | `buildgit.disk` | `disk`：BuildGit 用掉的磁碟空間 |
 | `buildgit.genesis` | `genesis upgrade`：把起點世界改寫成目前版本的格式（§9） |
 | `buildgit.backup` | `backup`：異地備份的狀態、立刻備份、列出快照、取回分支、還原（§8.1） |
+| `buildgit.world.admin` | 建築世界（§7.1）：`new` 建立、`open` 進入、`home` 回伺服器世界、`worlds` 列出 |
 
 注意：
 
@@ -137,6 +138,8 @@ LuckPerms 範例：
 | `init.genesis-dir` | 空白 | 起點世界放在哪個資料夾（相對於伺服器目錄或絕對路徑）；空白為 `buildgit/genesis`。要重新啟動才生效（見 §6） |
 | `init.lazy-copy-above-mb` | -1 | 世界存檔超過這個大小（MB）時 init 改用延遲複製（見 §3）；0 一律延遲複製，-1 一律完整複製 |
 | `integrations.worldedit`／`axiom`／`debugstickpro` | true | 是否記錄 WorldEdit／FAWE、Axiom、DebugStickPro 的編輯 |
+| `player-worlds.world-name` | `bw_{owner-name}_{name}` | 建築世界的資料夾名稱（見 §7.1）；只影響之後建立的世界 |
+| `player-worlds.paths.*` | | 建築世界的版本庫、物件、起點世界放在哪裡（見 §7.1） |
 | `tracking.*` | | 連帶變化的時間窗與距離、哪些實體不記錄；通常不用改 |
 
 ## 6. 資料放在哪裡、占多少空間
@@ -164,7 +167,35 @@ LuckPerms 範例：
 - **草稿世界**：有人需要時才載入（`try`、`go`、併回、玩家重新上線回到草稿）。一個草稿的所有世界都沒人超過 `worlds.unload-idle-seconds` 後，存到磁碟並卸載；下次進去自動載入，內容不會不見。
 - **主世界**（受版本控制的原本世界）：多世界插件要卸載它時，只有在**它和所有草稿裡對應的世界都沒有玩家**、沒有在存檔或併回、起點世界也不在複製中時才放行，否則 BuildGit 會擋下並在主控台說明原因（Fabric 無法擋下）。
 - 主世界卸載後，還沒存的變更會保留，再次載入時接回。
+- **建築世界**（§7.1）：沒人、沒有草稿與檢視、沒有未存的變更時，經過 `worlds.unload-idle-seconds` 後卸載；`/bg open` 或有人上線回到裡面時自動載入。
 - **世界沒載入時不能寫入**：版本是先記錄、再寫進世界的，所以只要分支有任何受版本控制的世界沒載入，併回、撤銷、還原、衝突整合都會被拒絕，並告訴你要先載入哪個世界。用多世界插件把它載回來就能繼續。
+
+### 7.1 建築世界
+
+除了伺服器原本的世界，管理員可以建立**建築世界**：每個建築世界是獨立的版本庫，有自己的歷史與草稿，存檔、併回、撤銷、還原都只影響它自己（規劃見 [03-worlds.md](03-worlds.md)，目前是第一階段）。
+
+| 指令（需要 `buildgit.world.admin`） | 做什麼 |
+|---|---|
+| `/bg new <名稱>` | 建立自己的建築世界並傳送進去。名稱用小寫英文、數字、`_`、`-` |
+| `/bg open <世界>` | 進入建築世界：自己的寫名稱，別人的寫 `擁有者/名稱`；寫伺服器世界的名稱就是回去 |
+| `/bg home` | 回到進入建築世界之前在伺服器世界的位置 |
+| `/bg worlds` | 列出所有建築世界、是否載入、裡面幾個人；點一下進去 |
+
+- 地形照伺服器主世界的生成設定。一個建築世界只有一個維度。
+- **世界資料夾**：名稱由 `player-worlds.world-name` 決定，例如 bob 的 `castle` 是 `bw_bob_castle`（Paper 26.x 在 `world/dimensions/minecraft/` 底下，1.21.11 在伺服器根目錄）。它的草稿是 `bw_bob_castle-<草稿>`。名稱和現有的世界、資料夾、伺服器世界衝突時會拒絕建立。
+- **資料放在哪裡**：預設版本庫在 `buildgit/worlds/<id>/`，物件和伺服器世界共用 `buildgit/objects/`。清單在 `buildgit/worlds.yml`，不要手動改。
+- 想把整個建築世界（含歷史）放進它的世界資料夾，壓縮一個資料夾就帶走：
+
+  ```yaml
+  player-worlds:
+    paths:
+      repo: "{world-folder}/buildgit"
+      objects: "{repo}/objects"
+  ```
+
+  這樣用其他工具刪掉世界資料夾時，歷史也會一起刪掉。
+- `paths` 只影響之後建立的世界；已經建立的照 `buildgit/worlds.yml` 記的位置找。`{server}`、`{buildgit}`、`{world-folder}` 每次啟動時才算，所以整個伺服器資料夾搬家、或 Paper 從 1.21.11 升到 26.x 搬動世界資料夾之後照樣找得到。
+- 目前 `/bg backup` 的版本紀錄備份、還原與 `pull`／`push` 只涵蓋伺服器世界。建築世界的世界資料夾會跟著世界資料夾備份（草稿不帶，可以從版本重建），但它的版本庫在 `buildgit/worlds/` 裡，要自己備份；或照上面放進世界資料夾，就會一起備份。
 
 ## 8. 備份與搬家
 

@@ -18,7 +18,7 @@ public final class BuildGit {
   private Settings settings;
   private Messages messages;
   private Tracker tracker;
-  private Workspace workspace;
+  private final BuildWorlds worlds;
   private CommandHook commands;
   private Outlines outlines;
   private Selections selections;
@@ -37,7 +37,7 @@ public final class BuildGit {
     settings = Settings.load(platform.configDir(), platform.log());
     messages = new Messages(platform.configDir(), settings.language(), platform.log());
     tracker = new Tracker(settings, platform::tick);
-    workspace = new Workspace(platform, tracker);
+    worlds = new BuildWorlds(platform, tracker, () -> settings);
     outlines = new Outlines(platform);
     selections = new Selections(platform);
     hud = new Hud(this);
@@ -64,8 +64,18 @@ public final class BuildGit {
     return tracker;
   }
 
+  /** 伺服器世界的版本庫。玩家所在的版本庫用 {@link #workspace(ServerLevel)}。 */
   public Workspace workspace() {
-    return workspace;
+    return worlds.server();
+  }
+
+  /** 世界所屬的版本庫：建築世界（含它的草稿、檢視世界）各自的，其他都是伺服器世界的。 */
+  public Workspace workspace(ServerLevel level) {
+    return worlds.of(level);
+  }
+
+  public BuildWorlds worlds() {
+    return worlds;
   }
 
   public Outlines outlines() {
@@ -107,7 +117,7 @@ public final class BuildGit {
 
   /** 用戶端送來的 {@code buildgit:sync} 封包（主執行緒）。 */
   public void syncReceived(ServerPlayer player, byte[] data) {
-    if (workspace.isOpen()) sync.receive(player, data);
+    if (workspace().isOpen()) sync.receive(player, data);
   }
 
   /** {@code /bg} 指令樹；平台在註冊指令時取用。 */
@@ -121,12 +131,13 @@ public final class BuildGit {
     commands = new CommandHook(platform.server(), tracker, platform.log());
     commands.ensure();
     try {
-      workspace.open();
+      workspace().open();
     } catch (IOException e) {
       openError = e.getMessage();
       platform.log().log(Level.SEVERE, "無法開啟版本庫，記錄停用", e);
     }
-    if (!workspace.isOpen() && openError == null) platform.log().info("尚未初始化版本控制；用 /bg init 開始");
+    if (!workspace().isOpen() && openError == null) platform.log().info("尚未初始化版本控制；用 /bg init 開始");
+    worlds.open();
     backup.start();
   }
 
@@ -137,14 +148,15 @@ public final class BuildGit {
 
   public void disable() {
     // 關閉時玩家的離線事件可能在停用之後才發生：先記下還在草稿裡的玩家
-    for (var p : platform.server().getPlayerList().getPlayers()) workspace.playerLeft(p);
+    for (var p : platform.server().getPlayerList().getPlayers()) for (var ws : worlds.all()) ws.playerLeft(p);
     if (platform.syncFolder() != null) localSync.packAll(platform.syncFolder());
     backup.stop();
     platform.clearBars();
     outlines.clearAll();
     if (commands != null) commands.unwrap();
     for (var level : platform.server().getAllLevels()) CascadeUpdater.uninstall(platform, level);
-    workspace.close();
+    worlds.close();
+    workspace().close();
   }
 
   void reload() {
@@ -158,16 +170,22 @@ public final class BuildGit {
   public void tick() {
     tracker.tick();
     ticks++;
-    contexts.tick(workspace, platform.server().getPlayerList().getPlayers());
-    if (ticks % settings.journalFlushTicks() == 0) platform.async(workspace::flushJournal);
+    contexts.tick(worlds, platform.server().getPlayerList().getPlayers());
+    if (ticks % settings.journalFlushTicks() == 0) {
+      var all = worlds.all();
+      platform.async(() -> all.forEach(Workspace::flushJournal));
+    }
     if (ticks % 20 != 0) return;
-    workspace.autosaveTick(r -> r.commit().ifPresent(id -> {
-      for (var p : platform.server().getPlayerList().getPlayers())
-        if (platform.hasPermission(p, "buildgit.status")) messages.send(platform.sender(p), "autosave-done", "id", id.abbrev(), "cells", r.cells());
-    }));
+    for (var ws : worlds.all())
+      ws.autosaveTick(r -> r.commit().ifPresent(id -> {
+        // 建築世界的自動存檔只通知在那個世界裡的人
+        for (var p : platform.server().getPlayerList().getPlayers())
+          if ((ws.buildWorld() == null || worlds.of(p.level()) == ws) && platform.hasPermission(p, "buildgit.status"))
+            messages.send(platform.sender(p), "autosave-done", "id", id.abbrev(), "cells", r.cells());
+      }));
     hud.tick();
     sync.tick();
-    workspace.unloadIdleTick(settings.unloadIdleTicks());
+    for (var ws : worlds.all()) ws.unloadIdleTick(settings.unloadIdleTicks());
   }
 
   /** 指令執行前：其他插件或模組晚註冊的指令也包上原因。 */
@@ -179,26 +197,28 @@ public final class BuildGit {
   public void levelLoaded(ServerLevel level) {
     tracker.precise(level, CascadeUpdater.install(platform, level, tracker));
     // 載入事件期間不存檔、不開新世界：下一刻再納入版本控制
-    platform.later(1, () -> workspace.worldLoaded(level));
+    platform.later(1, () -> {
+      for (var ws : worlds.all()) ws.worldLoaded(level);
+    });
   }
 
   /** 世界將被卸載。回傳 false 表示應該擋下（見 {@link Workspace#mayUnload}）；放行或擋不下時之後呼叫 {@link #levelUnloaded}。 */
   public boolean levelUnloading(ServerLevel level) {
-    return workspace.mayUnload(level);
+    return worlds.of(level).mayUnload(level);
   }
 
   public void levelUnloaded(ServerLevel level) {
-    workspace.worldUnloaded(level);
+    worlds.of(level).worldUnloaded(level);
   }
 
   /** 載入一個已存在的 chunk（主執行緒）。 */
   public void chunkLoaded(ServerLevel level, int chunkX, int chunkZ) {
-    workspace.chunkLoaded(level, chunkX, chunkZ);
+    workspace().chunkLoaded(level, chunkX, chunkZ);
   }
 
   /** 剛生成一個 chunk（主執行緒）。 */
   public void newChunk(ServerLevel level, LevelChunk chunk) {
-    workspace.newChunk(level, chunk);
+    worlds.of(level).newChunk(level, chunk);
   }
 
   public void changedWorld(ServerPlayer player, ServerLevel from) {
@@ -208,12 +228,15 @@ public final class BuildGit {
 
   /** 玩家上線（主執行緒）。 */
   public void joined(ServerPlayer player) {
-    workspace.playerJoined(player);
+    // 下一刻再送回草稿或建築世界：Fabric 的上線事件在玩家加進世界之前，這時跨世界傳送會讓玩家同時留在兩個世界
+    platform.later(1, () -> {
+      if (!player.hasDisconnected()) for (var ws : worlds.all()) ws.playerJoined(player);
+    });
     if (platform.syncFolder() != null) localSync.joined(player, platform.syncFolder());
   }
 
   public void quit(ServerPlayer player) {
-    workspace.playerLeft(player);
+    for (var ws : worlds.all()) ws.playerLeft(player);
     outlines.forget(player.getUUID());
     selections.quit(player.getUUID());
     command.quit(player.getUUID());

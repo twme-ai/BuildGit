@@ -36,7 +36,7 @@ final class Contexts {
   }
 
   /** 主執行緒，每刻。 */
-  void tick(Workspace ws, List<ServerPlayer> players) {
+  void tick(BuildWorlds worlds, List<ServerPlayer> players) {
     if (signal == null) return;
     if (current.size() > players.size()) {
       var online = new HashSet<UUID>();
@@ -44,10 +44,11 @@ final class Contexts {
       current.keySet().retainAll(online);
     }
     for (var p : players) {
-      var now = compute(ws, p.level());
+      var now = compute(worlds.of(p.level()), p.level());
       if (!now.equals(current.put(p.getUUID(), now))) signal.accept(p);
     }
     // 分支清單只給補全用，讀檔不必每刻
+    var ws = worlds.server();
     if (ticks++ % 200 == 0 && ws.isOpen()) {
       try {
         var names = ws.branches().keySet();

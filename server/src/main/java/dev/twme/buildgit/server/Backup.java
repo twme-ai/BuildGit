@@ -312,7 +312,7 @@ final class Backup {
   String root(ServerLevel level) {
     return roots.computeIfAbsent(level, l -> {
       var platform = bg.platform();
-      if (Workspace.ownWorldName(platform.levelName(l))) return null;
+      if (Workspace.ownWorldName(platform.levelName(l)) || bg.worlds().isDraftFolder(platform.levelName(l))) return null;
       var dir = platform.levelDirectory(l).toAbsolutePath().normalize();
       for (var d = dir; d != null; d = d.getParent()) {
         if (Files.isRegularFile(d.resolve("level.dat"))) {

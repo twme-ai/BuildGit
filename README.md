@@ -139,6 +139,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg push <名稱> [草稿]   把單人世界改過的範圍送回，存成草稿
 /bg disk                 BuildGit 用掉的磁碟空間（管理員）
 /bg backup [status|now|list|fetch|restore]  備份版本紀錄與世界資料夾到 S3 或本機、取回分支、從備份還原（管理員，見管理員手冊 §8.1）
+/bg new <名稱>、open <世界>、home、worlds  建立、進出、列出建築世界：每個建築世界有自己的歷史與草稿（管理員，見管理員手冊 §7.1）
 /bg log、show、diff、blame、inspect、who、sel
 ```
 

@@ -33,7 +33,7 @@ final class Menu {
 
   void open(ServerPlayer p) {
     var msg = bg.messages();
-    var ws = bg.workspace();
+    var ws = bg.workspace(p.level());
     var platform = bg.platform();
     var wt = ws.worktree(p.level());
     boolean inDraft = wt != null && !wt.branch().equals(Repository.MAIN) && !Workspace.isScratch(wt.branch());
@@ -76,7 +76,7 @@ final class Menu {
         var label = name.equals(Repository.MAIN) ? msg.get("branch-main") : msg.get("menu-draft", "name", name);
         var item = here ? "lime_stained_glass" : name.equals(Repository.MAIN) ? "grass_block" : "paper";
         var action = !here && platform.hasPermission(p, "buildgit.go") ? "go " + name : null;
-        var lore = draftLore(e.getValue());
+        var lore = draftLore(ws, e.getValue());
         lore.add(msg.get(here ? "menu-draft-here" : "menu-draft-go"));
         list.add(new Platform.MenuItem(0, item, label, lore, action));
       }
@@ -101,9 +101,9 @@ final class Menu {
   }
 
   /** 最後編輯時間與最近的里程碑，由新到舊、顏色漸暗。 */
-  private List<Component> draftLore(ObjectId head) throws IOException {
+  private List<Component> draftLore(Workspace ws, ObjectId head) throws IOException {
     var msg = bg.messages();
-    var repo = bg.workspace().repo();
+    var repo = ws.repo();
     var lore = new ArrayList<Component>();
     lore.add(msg.get("menu-draft-time", "time", BgCommand.TIME.format(Instant.ofEpochMilli(repo.commit(head).time()))));
     int n = 0;

@@ -33,6 +33,10 @@ help: |-
   <aqua>/bg genesis upgrade</aqua> <gray>— after upgrading Minecraft, rewrite the starting world in the new format (admin)</gray>
   <aqua>/bg backup [status|now|list|fetch|restore]</aqua> <gray>— backups to S3 or a local folder (admin)</gray>
   <aqua>/bg init</aqua> <gray>/</gray> <aqua>/bg reload</aqua> <gray>— admin</gray>
+  <gray>Build worlds (admin):</gray>
+  <aqua>/bg new <name></aqua> <gray>— create your own build world (one world, one repository) and go there</gray>
+  <aqua>/bg open <world></aqua> <gray>/</gray> <aqua>/bg home</aqua> <gray>— enter a build world (others' as owner/name) / back to the server world</gray>
+  <aqua>/bg worlds</aqua> <gray>— list build worlds</gray>
 no-permission: "<red>You don't have permission.</red>"
 players-only: "<red>Only players can use this command.</red>"
 not-initialized: "<red>Version control has not started. An admin can run <aqua>/bg init</aqua>.</red>"
@@ -305,6 +309,8 @@ params-publish: "--selection|confirm"
 params-branch: "list|create|delete name source|--force"
 params-merge: "branch|list|view|conflicts|goto|take|continue|abort option scope"
 params-revert: "commit"
+params-new: "name"
+params-open: "world"
 params-restore: "commit --selection|confirm"
 axiom-bypass-warning: "<yellow>You have axiomadmin.bypass_region_checks, so Axiom does not tell BuildGit about your block edits and they may not be recorded. Entity spawns, edits and removals are still recorded.</yellow>"
 axiom-bypass-recorded: "<yellow>You have axiomadmin.bypass_region_checks: block and entity edits are still recorded, but Axiom biome brush changes are not.</yellow>"
@@ -320,3 +326,17 @@ progress-merge-start: "<green>Preparing conflict resolution</green>"
 progress-merge-finish: "<green>Finishing the merge</green>"
 progress-revert: "<green>Reverting</green>"
 progress-restore: "<green>Restoring</green>"
+usage-new: "<red>Usage: /bg new <name></red> <gray>(lowercase letters, digits, _ and -, 1-32 characters)</gray>"
+usage-open: "<red>Usage: /bg open <world></red> <gray>(your own by name, others' as owner/name)</gray>"
+world-created: "<green>Created build world</green> <white><world></white> <gray>(world folder <folder>). Saves, drafts and publishes inside it only affect this world.</gray>"
+world-entered: "<gray>Now in build world</gray> <white><world></white> <gray>· /bg home to go back</gray>"
+world-home: "<gray>Back in</gray> <white><world></white>"
+world-unknown: "<red>No build world <world>.</red> <gray>/bg worlds lists them all</gray>"
+worlds-none: "<gray>No build worlds yet. Create one with /bg new <name>.</gray>"
+worlds-header: "<gray>Build worlds (<count>, click to enter):</gray>"
+worlds-entry: "<white><world></white> <gray>· <folder> · <state> · <players> players</gray>"
+worlds-loaded: "<green>loaded</green>"
+worlds-unloaded: "<gray>not loaded</gray>"
+worlds-broken: "<red>repository can't be opened</red>"
+hud-world: "<white><world></white> <gray>· build world · /bg home to go back</gray>"
+hud-world-prefix: "<white><world></white> <gray>·</gray> <text>"

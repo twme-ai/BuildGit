@@ -21,7 +21,7 @@ permissions:
     description: 權限集：builder＋併回、撤銷、還原、處理衝突、建立與刪除草稿、手動補記
     default: op
   buildgit.admin:
-    description: 權限集：manager＋init、reload、disk、genesis、backup
+    description: 權限集：manager＋init、reload、disk、genesis、backup、world.admin
     default: op
   buildgit.menu:
     description: 只輸入 /bg 時打開選單
@@ -118,4 +118,7 @@ permissions:
     default: op
   buildgit.backup:
     description: 異地備份的狀態、立刻備份、列出快照（backup）
+    default: op
+  buildgit.world.admin:
+    description: 建立、進出、列出建築世界（new、open、home、worlds）；之後也能管理所有建築世界
     default: op

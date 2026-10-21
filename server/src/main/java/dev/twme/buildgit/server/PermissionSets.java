@@ -25,7 +25,8 @@ public final class PermissionSets {
       BUILDER, List.of(VIEWER, "buildgit.try", "buildgit.save", "buildgit.pull", "buildgit.push"),
       MANAGER, List.of(BUILDER, "buildgit.publish", "buildgit.commit", "buildgit.merge", "buildgit.merge.resolve", "buildgit.revert",
           "buildgit.restore", "buildgit.mark", "buildgit.branch.create", "buildgit.branch.delete"),
-      ADMIN, List.of(MANAGER, "buildgit.init", "buildgit.reload", "buildgit.disk", "buildgit.genesis", "buildgit.backup"));
+      ADMIN, List.of(MANAGER, "buildgit.init", "buildgit.reload", "buildgit.disk", "buildgit.genesis", "buildgit.backup",
+          "buildgit.world.admin"));
 
   /** 節點 → 有了就算有這個節點的所有節點（含自己），先具體後寬鬆。 */
   private static final Map<String, Set<String>> GRANTED_BY = new HashMap<>();

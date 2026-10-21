@@ -33,6 +33,10 @@ help: |-
   <aqua>/bg genesis upgrade</aqua> <gray>— 升級 Minecraft 後，把起點世界改寫成新版的格式（管理）</gray>
   <aqua>/bg backup [status|now|list|fetch|restore]</aqua> <gray>— 備份到 S3 或本機資料夾（管理）</gray>
   <aqua>/bg init</aqua> <gray>／</gray><aqua>/bg reload</aqua> <gray>— 管理</gray>
+  <gray>建築世界（管理）：</gray>
+  <aqua>/bg new <名稱></aqua> <gray>— 建立自己的建築世界（一個世界一個版本庫）並進去</gray>
+  <aqua>/bg open <世界></aqua> <gray>／</gray><aqua>/bg home</aqua> <gray>— 進入建築世界（別人的寫「擁有者/名稱」）／回伺服器世界</gray>
+  <aqua>/bg worlds</aqua> <gray>— 列出建築世界</gray>
 no-permission: "<red>你沒有權限。</red>"
 players-only: "<red>只有玩家可以使用這個指令。</red>"
 not-initialized: "<red>還沒有開始版本控制。管理員可以執行 <aqua>/bg init</aqua>。</red>"
@@ -305,6 +309,8 @@ params-publish: "--selection|confirm"
 params-branch: "list|create|delete 名稱 來源|--force"
 params-merge: "分支|list|view|conflicts|goto|take|continue|abort 選項 範圍"
 params-revert: "存檔"
+params-new: "名稱"
+params-open: "世界"
 params-restore: "存檔 --selection|confirm"
 axiom-bypass-warning: "<yellow>你有 axiomadmin.bypass_region_checks 權限，Axiom 改方塊時不會通知 BuildGit，這些變更可能不會被記錄。實體的生成、修改、刪除仍會記錄。</yellow>"
 axiom-bypass-recorded: "<yellow>你有 axiomadmin.bypass_region_checks 權限：方塊與實體的編輯照常記錄，但 Axiom 生態域筆刷的變更不會被記錄。</yellow>"
@@ -320,3 +326,17 @@ progress-merge-start: "<green>正在準備衝突整合</green>"
 progress-merge-finish: "<green>正在完成整合</green>"
 progress-revert: "<green>正在撤銷</green>"
 progress-restore: "<green>正在還原</green>"
+usage-new: "<red>用法：/bg new <名稱></red> <gray>（小寫英文、數字、_、-，1～32 字）</gray>"
+usage-open: "<red>用法：/bg open <世界></red> <gray>（自己的寫名稱，別人的寫「擁有者/名稱」）</gray>"
+world-created: "<green>建立了建築世界</green> <white><world></white> <gray>（世界資料夾 <folder>）。在裡面存檔、開草稿、併回都只影響這個世界。</gray>"
+world-entered: "<gray>已到建築世界</gray> <white><world></white> <gray>· /bg home 回伺服器世界</gray>"
+world-home: "<gray>已回到</gray> <white><world></white>"
+world-unknown: "<red>找不到建築世界 <world>。</red> <gray>/bg worlds 列出所有建築世界</gray>"
+worlds-none: "<gray>還沒有建築世界。用 /bg new <名稱> 建立。</gray>"
+worlds-header: "<gray>建築世界（<count> 個，點一下進去）：</gray>"
+worlds-entry: "<white><world></white> <gray>· <folder> · <state> · <players> 位玩家</gray>"
+worlds-loaded: "<green>已載入</green>"
+worlds-unloaded: "<gray>未載入</gray>"
+worlds-broken: "<red>版本庫無法開啟</red>"
+hud-world: "<white><world></white> <gray>· 建築世界 · /bg home 回去</gray>"
+hud-world-prefix: "<white><world></white> <gray>·</gray> <text>"
