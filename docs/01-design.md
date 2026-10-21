@@ -1,6 +1,6 @@
 # BuildGit 設計（2026-10-14 草案）
 
-需求見 [00-requirements.md](00-requirements.md)。本文件說明怎麼做，最後列出要先用原型驗證的風險。
+需求見 [00-requirements.md](00-requirements.md)。本文件說明怎麼做，最後列出要先用原型驗證的風險。玩家自己建立的建築世界（一個世界一個 repo）另見 [03-worlds.md](03-worlds.md)。
 
 ## 1. 核心概念：起點世界＋覆寫表
 
