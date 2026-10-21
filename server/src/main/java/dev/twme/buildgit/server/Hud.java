@@ -76,7 +76,8 @@ public final class Hud {
       } else if (wt != null && !wt.branch().equals(Repository.MAIN)) {
         text = msg.get("hud-draft", "name", wt.branch(), "cells", wt.table().cellCount(), "entities", wt.table().entityCount());
         color = COLORS[Math.floorMod(wt.branch().hashCode(), COLORS.length)];
-      } else if (wt != null && ws.buildWorld() != null) text = msg.get("hud-world", "world", ws.label());
+      } else if (wt != null && ws.buildWorld() != null)
+        text = msg.get(ws.role(p.getUUID()) == WorldConfig.Role.VISITOR ? "hud-world-visitor" : "hud-world", "world", ws.label());
       if (text != null && ws.buildWorld() != null && wt != null && !wt.branch().equals(Repository.MAIN))
         text = msg.get("hud-world-prefix", "world", ws.label(), "text", text);
     }
@@ -84,16 +85,20 @@ public final class Hud {
   }
 
   /**
-   * 玩家在檢視世界裡想改東西：回傳 true 表示要取消，並（每 3 秒最多一次）提醒玩家。
+   * 玩家在檢視世界裡想改東西、或建築世界的訪客想改東西（03-worlds §4.1）：回傳 true 表示要取消，並（每 3 秒最多一次）提醒玩家。
    * 平台在放置、破壞、互動、桶子、實體互動與攻擊的掛點呼叫。
    */
   public boolean readOnly(ServerPlayer p) {
     var ws = ws(p.level());
-    if (!ws.isOpen() || ws.view(p.level()) == null) return false;
+    if (!ws.isOpen()) return false;
+    String key;
+    if (ws.view(p.level()) != null) key = "view-readonly";
+    else if (ws.buildWorld() != null && ws.role(p.getUUID()) == WorldConfig.Role.VISITOR && !bg.realms().admin(p)) key = "visitor-readonly";
+    else return false;
     long now = System.currentTimeMillis();
     if (now - warned.getOrDefault(p.getUUID(), 0L) > 3000) {
       warned.put(p.getUUID(), now);
-      bg.messages().send(bg.platform().sender(p), "view-readonly");
+      bg.messages().send(bg.platform().sender(p), key);
     }
     return true;
   }

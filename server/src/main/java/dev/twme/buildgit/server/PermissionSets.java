@@ -5,7 +5,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
+import net.minecraft.server.level.ServerPlayer;
 
 /**
  * 權限節點之間的包含關係（設計 §8）。兩個平台都在這裡判斷，不靠 Paper 的 {@code children}：
@@ -28,6 +30,16 @@ public final class PermissionSets {
       ADMIN, List.of(MANAGER, "buildgit.init", "buildgit.reload", "buildgit.disk", "buildgit.genesis", "buildgit.backup",
           "buildgit.world.admin"));
 
+  /** 建築世界的訪客能用的：只能看（03-worlds §4），不能進草稿、不能檢視舊版本。 */
+  private static final Set<String> VISITOR = Set.of("buildgit.menu", "buildgit.status", "buildgit.log", "buildgit.graph", "buildgit.show",
+      "buildgit.diff", "buildgit.blame", "buildgit.inspect", "buildgit.who", "buildgit.sel", "buildgit.branch.list");
+
+  /**
+   * 玩家在建築世界裡的角色（由 BuildGit 設定）；在伺服器世界時為 null。不能進去的人當成訪客（很快就會被送回去）。
+   * 不能在這裡檢查權限：LuckPerms 也會透過情境問角色，會無限循環。
+   */
+  static volatile Function<ServerPlayer, WorldConfig.Role> roles = p -> null;
+
   /** 節點 → 有了就算有這個節點的所有節點（含自己），先具體後寬鬆。 */
   private static final Map<String, Set<String>> GRANTED_BY = new HashMap<>();
 
@@ -43,6 +55,26 @@ public final class PermissionSets {
   }
 
   private PermissionSets() {}
+
+  /**
+   * 玩家的權限：在建築世界裡，權限集包含的節點改由那個世界的角色決定（擁有者與管理者是 manager、建造者是 builder，
+   * 訪客只能看），不看伺服器給的節點；{@code buildgit.world.admin} 都可以。其他節點與伺服器世界照 {@code has}。
+   */
+  public static boolean check(ServerPlayer player, Predicate<String> has, String permission) {
+    var role = player == null ? null : roles.apply(player);
+    // 只有 manager 權限集以內的節點看角色；init、reload、backup 等伺服器管理照舊
+    if (role == null || !grants(MANAGER, permission)) return check(has, permission);
+    boolean granted = switch (role) {
+      case OWNER, MANAGER -> grants(MANAGER, permission);
+      case BUILDER -> grants(BUILDER, permission);
+      case VISITOR -> VISITOR.contains(permission);
+    };
+    return granted || check(has, "buildgit.world.admin");
+  }
+
+  private static boolean grants(String set, String permission) {
+    return set.equals(permission) || GRANTED_BY.getOrDefault(permission, Set.of()).contains(set);
+  }
 
   /** {@code has} 是平台的單一節點判斷。 */
   public static boolean check(Predicate<String> has, String permission) {

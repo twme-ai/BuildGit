@@ -32,12 +32,12 @@ public final class LuckPermsContexts<T> implements ContextCalculator<T> {
     var calculator = new LuckPermsContexts<>(bg.contexts(), id);
     manager.registerCalculator(calculator);
     bg.contexts().signal(p -> manager.signalContextUpdate(subject.apply(p)));
-    bg.platform().log().info("已向 LuckPerms 提供情境 " + Contexts.LOCATION + "、" + Contexts.BRANCH);
+    bg.platform().log().info("已向 LuckPerms 提供情境 " + Contexts.LOCATION + "、" + Contexts.BRANCH + "、" + Contexts.WORLD + "、" + Contexts.ROLE);
   }
 
   @Override
   public void calculate(T target, ContextConsumer consumer) {
-    contexts.of(id.apply(target)).forEach(consumer::accept);
+    contexts.of(id.apply(target)).forEach((key, values) -> values.forEach(v -> consumer.accept(key, v)));
   }
 
   @Override
@@ -45,6 +45,8 @@ public final class LuckPermsContexts<T> implements ContextCalculator<T> {
     var builder = ImmutableContextSet.builder();
     for (var l : Contexts.LOCATIONS) builder.add(Contexts.LOCATION, l);
     for (var b : contexts.branches()) builder.add(Contexts.BRANCH, b);
+    for (var w : contexts.worlds()) builder.add(Contexts.WORLD, w);
+    for (var r : Contexts.ROLES) builder.add(Contexts.ROLE, r);
     return builder.build();
   }
 }

@@ -145,6 +145,18 @@ public final class Workspace {
     return config;
   }
 
+  /**
+   * 玩家在這個建築世界的角色（03-worlds §4）：擁有者、成員名單上的角色，公開的世界其他人是訪客；
+   * 私人世界的非成員、或伺服器世界的版本庫為 null。只看名單，不檢查權限。
+   */
+  public WorldConfig.Role role(UUID player) {
+    if (world == null || config == null) return null;
+    if (world.owner().equals(player)) return WorldConfig.Role.OWNER;
+    var member = config.members.get(player);
+    if (member != null) return member.role();
+    return config.open ? WorldConfig.Role.VISITOR : null;
+  }
+
   /** 改過設定後寫回 {@code repo.yml}（主執行緒）。 */
   void saveConfig() throws IOException {
     config.save(dir, upgrader.current());

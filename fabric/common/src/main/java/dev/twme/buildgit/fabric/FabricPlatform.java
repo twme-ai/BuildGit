@@ -388,7 +388,7 @@ final class FabricPlatform implements Platform {
 
       @Override
       public boolean hasPermission(String permission) {
-        return PermissionSets.check(p -> Permissions.check(source, p, 2), permission);
+        return PermissionSets.check(source.getPlayer(), p -> Permissions.check(source, p, 2), permission);
       }
 
       @Override
@@ -436,7 +436,7 @@ final class FabricPlatform implements Platform {
 
   @Override
   public boolean hasPermission(ServerPlayer player, String permission) {
-    return PermissionSets.check(p -> Permissions.check(player, p, 2), permission);
+    return PermissionSets.check(player, p -> Permissions.check(player, p, 2), permission);
   }
 
   @Override

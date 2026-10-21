@@ -29,6 +29,7 @@ public final class BuildGit {
   private LocalSync localSync;
   private final Backup backup;
   private final Contexts contexts = new Contexts();
+  private final Realms realms = new Realms(this);
   private long ticks;
   private String openError;
 
@@ -46,6 +47,12 @@ public final class BuildGit {
     localSync = new LocalSync(this);
     backup = new Backup(this);
     command = new BgCommand(this);
+    PermissionSets.roles = p -> {
+      var ws = worlds.of(p.level());
+      if (ws.buildWorld() == null) return null;
+      var role = ws.role(p.getUUID());
+      return role != null ? role : WorldConfig.Role.VISITOR;
+    };
   }
 
   public Platform platform() {
@@ -113,6 +120,10 @@ public final class BuildGit {
 
   Contexts contexts() {
     return contexts;
+  }
+
+  Realms realms() {
+    return realms;
   }
 
   /** 用戶端送來的 {@code buildgit:sync} 封包（主執行緒）。 */
@@ -224,13 +235,17 @@ public final class BuildGit {
   public void changedWorld(ServerPlayer player, ServerLevel from) {
     outlines.forget(player.getUUID());
     hud.changedWorld(player, from);
+    // 在建築世界裡權限由角色決定：換世界後重送指令清單，補全與能不能打指令跟著變
+    if (worlds.of(player.level()) != worlds.of(from)) platform.server().getCommands().sendCommands(player);
   }
 
   /** 玩家上線（主執行緒）。 */
   public void joined(ServerPlayer player) {
     // 下一刻再送回草稿或建築世界：Fabric 的上線事件在玩家加進世界之前，這時跨世界傳送會讓玩家同時留在兩個世界
     platform.later(1, () -> {
-      if (!player.hasDisconnected()) for (var ws : worlds.all()) ws.playerJoined(player);
+      if (player.hasDisconnected()) return;
+      for (var ws : worlds.all()) ws.playerJoined(player);
+      realms.joined(player);
     });
     if (platform.syncFolder() != null) localSync.joined(player, platform.syncFolder());
   }

@@ -323,7 +323,7 @@ final class PaperPlatform implements Platform, Listener {
 
       @Override
       public boolean hasPermission(String permission) {
-        return PermissionSets.check(sender::hasPermission, permission);
+        return PermissionSets.check(sender instanceof CraftPlayer p ? p.getHandle() : null, sender::hasPermission, permission);
       }
 
       @Override
@@ -345,7 +345,7 @@ final class PaperPlatform implements Platform, Listener {
 
   @Override
   public boolean hasPermission(ServerPlayer player, String permission) {
-    return PermissionSets.check(bukkit(player)::hasPermission, permission);
+    return PermissionSets.check(player, bukkit(player)::hasPermission, permission);
   }
 
   @Override

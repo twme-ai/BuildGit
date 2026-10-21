@@ -12,11 +12,14 @@ import net.minecraft.server.level.ServerPlayer;
  * 玩家目前的位置、存成一份對照表，變了才通知 LuckPerms 丟掉快取；計算時只讀這份表。
  */
 final class Contexts {
-  static final String LOCATION = "buildgit:location", BRANCH = "buildgit:branch";
+  static final String LOCATION = "buildgit:location", BRANCH = "buildgit:branch", WORLD = "buildgit:world", ROLE = "buildgit:role";
   static final List<String> LOCATIONS = List.of("main", "draft", "view", "resolve");
+  static final List<String> ROLES = List.of("owner", "manager", "builder", "visitor");
 
-  private final Map<UUID, Map<String, String>> current = new ConcurrentHashMap<>();
+  /** 玩家 → 情境（同一個鍵可以有多個值：角色往下包含）。 */
+  private final Map<UUID, Map<String, List<String>>> current = new ConcurrentHashMap<>();
   private volatile Set<String> branches = Set.of();
+  private volatile Set<String> worlds = Set.of();
   /** 通知 LuckPerms 某個玩家的情境變了；沒裝 LuckPerms 時為 null，什麼都不做。 */
   private Consumer<ServerPlayer> signal;
   private int ticks;
@@ -26,13 +29,18 @@ final class Contexts {
   }
 
   /** 任何執行緒：玩家目前的情境。 */
-  Map<String, String> of(UUID player) {
+  Map<String, List<String>> of(UUID player) {
     return current.getOrDefault(player, Map.of());
   }
 
   /** 任何執行緒：目前的分支名稱（給 LuckPerms 的補全與網頁編輯器）。 */
   Set<String> branches() {
     return branches;
+  }
+
+  /** 任何執行緒：伺服器世界與所有建築世界的名稱（同上）。 */
+  Set<String> worlds() {
+    return worlds;
   }
 
   /** 主執行緒，每刻。 */
@@ -44,11 +52,16 @@ final class Contexts {
       current.keySet().retainAll(online);
     }
     for (var p : players) {
-      var now = compute(worlds.of(p.level()), p.level());
+      var now = compute(worlds.of(p.level()), p);
       if (!now.equals(current.put(p.getUUID(), now))) signal.accept(p);
     }
-    // 分支清單只給補全用，讀檔不必每刻
+    // 分支與世界清單只給補全用，讀檔不必每刻
     var ws = worlds.server();
+    if (ticks % 200 == 0) {
+      var labels = new HashSet<String>();
+      for (var w : worlds.all()) labels.add(w.label());
+      if (!labels.equals(this.worlds)) this.worlds = Set.copyOf(labels);
+    }
     if (ticks++ % 200 == 0 && ws.isOpen()) {
       try {
         var names = ws.branches().keySet();
@@ -59,13 +72,29 @@ final class Contexts {
     }
   }
 
-  private static Map<String, String> compute(Workspace ws, ServerLevel level) {
-    if (!ws.isOpen()) return Map.of();
+  /** 世界一律有；角色只在建築世界、只依成員名單（03-worlds §4）；位置與分支在受版本控制的世界。 */
+  private static Map<String, List<String>> compute(Workspace ws, ServerPlayer p) {
+    var level = p.level();
+    var result = new HashMap<String, List<String>>();
+    result.put(WORLD, List.of(ws.label()));
+    var role = ws.role(p.getUUID());
+    if (role != null)
+      result.put(ROLE, switch (role) {
+        case OWNER -> List.of("owner", "manager", "builder");
+        case MANAGER -> List.of("manager", "builder");
+        case BUILDER -> List.of("builder");
+        case VISITOR -> List.of("visitor");
+      });
+    if (!ws.isOpen()) return result;
     var session = ws.merges().of(level);
-    if (session != null) return Map.of(LOCATION, "resolve", BRANCH, session.target());
     var wt = ws.worktree(level);
-    if (wt != null) return Map.of(LOCATION, wt.branch().equals(Repository.MAIN) ? "main" : "draft", BRANCH, wt.branch());
-    if (ws.view(level) != null) return Map.of(LOCATION, "view");
-    return Map.of();
+    if (session != null) {
+      result.put(LOCATION, List.of("resolve"));
+      result.put(BRANCH, List.of(session.target()));
+    } else if (wt != null) {
+      result.put(LOCATION, List.of(wt.branch().equals(Repository.MAIN) ? "main" : "draft"));
+      result.put(BRANCH, List.of(wt.branch()));
+    } else if (ws.view(level) != null) result.put(LOCATION, List.of("view"));
+    return result;
   }
 }

@@ -52,18 +52,22 @@ LuckPerms 範例：
 /lp group staff permission set buildgit.role.manager true
 ```
 
-**依玩家在哪裡給權限**：裝了 LuckPerms 時，BuildGit 提供兩個情境（設計 §8.1），任何插件的權限都可以設成只在某處生效：
+**依玩家在哪裡給權限**：裝了 LuckPerms 時，BuildGit 提供這些情境（設計 §8.1），任何插件的權限都可以設成只在某處生效：
 
 | 情境 | 值 |
 |---|---|
 | `buildgit:location` | `main`（主世界）、`draft`（草稿）、`view`（檢視過去的版本）、`resolve`（衝突整合） |
 | `buildgit:branch` | 分支名稱，主世界是 `main`；整合時是要併入的分支 |
+| `buildgit:world` | 伺服器世界的名稱（通常是 `world`），或建築世界的 `擁有者/名稱` |
+| `buildgit:role` | 在建築世界裡的角色 `owner`、`manager`、`builder`、`visitor`；往下包含，擁有者同時是 `manager`、`builder` |
 
 ```
 # 只在草稿裡能用 WorldEdit，主世界不行
 /lp group builder permission set worldedit.* true buildgit:location=draft
 # 只有 house 這個草稿能併回
 /lp group builder permission set buildgit.publish true buildgit:branch=house
+# 能在建築世界裡建造的人都能用 WorldEdit
+/lp group default permission set worldedit.* true buildgit:role=builder
 # 看某位玩家現在的情境
 /lp user <玩家> info
 ```
@@ -182,9 +186,13 @@ LuckPerms 範例：
 | `/bg new [名稱] [選項]` | 打開建立選單：選世界類型（主世界、地獄、終界）、地形（一般、大型生態域、巨型化、超平坦、虛空）、規則（建築用、原版），按「建立」後傳送進去。名稱用小寫英文、數字、`_`、`-`，沒給就自動編號。選單裡改不了的用選項寫：`seed=…`、`layers=…`（超平坦的層，寫法和原版超平坦的預設代碼相同）、`block=…`（虛空腳下的方塊）；加上 `confirm` 不開選單直接建立 |
 | `/bg open <世界>` | 進入建築世界：自己的寫名稱，別人的寫 `擁有者/名稱`；寫伺服器世界的名稱就是回去 |
 | `/bg home` | 回到進入建築世界之前在伺服器世界的位置 |
-| `/bg worlds` | 列出所有建築世界、是否載入、裡面幾個人；點一下進去 |
+| `/bg worlds` | 列出自己進得去的建築世界（自己的、受邀的、公開的）、是否載入、裡面幾個人；點一下進去 |
+| `/bg world members [list\|add <玩家> [builder\|manager]\|remove <玩家>]` | 在建築世界裡管理成員：擁有者可以加、移除建造者與管理者；管理者只能加、移除建造者。邀請時對方要在線上 |
+| `/bg world visibility public\|private` | 擁有者把世界改成公開（所有人都能進來參觀）或私人（只有成員，預設） |
 
-- **誰能建立**：有 `buildgit.world.admin` 的人隨時可以；一般玩家要 `player-worlds.enabled: true` 並給 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）。`open`、`worlds` 目前仍只有管理員能用。
+- **誰能建立**：有 `buildgit.world.admin` 的人隨時可以；一般玩家要 `player-worlds.enabled: true` 並給 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）。`open`、`home`、`worlds` 所有人都能用，能進哪些世界看成員名單與可見性。
+- **角色**：在建築世界裡，BuildGit 的指令權限由那個世界的角色決定，不看你給的 `buildgit.role.*`：擁有者與管理者等於 manager，建造者等於 builder，訪客只能看（`status`、`log`、`diff`、`blame` 等），不能改方塊、不能進草稿或檢視舊版本。有 `buildgit.world.admin` 的人在任何世界都能做所有事。`init`、`reload`、`backup` 等伺服器管理照舊看權限節點。
+- 成員被移除或世界改成私人時，裡面沒資格的人會被送回伺服器世界；離線期間被移除的，上線時送回。
 - **建築用規則**：固定正午與晴天、和平、不生成生物、隨機刻 0（作物不長、冰不融化）、火不蔓延、生物不破壞方塊。建築世界一律關掉「旁觀者生成地形」與地獄門，終界類型沒有終界龍。
 - 類型、地形、種子建立後不能改。一個建築世界只有一個維度。設定記在它版本庫裡的 `repo.yml`。
 - **世界資料夾**：名稱由 `player-worlds.world-name` 決定，例如 bob 的 `castle` 是 `bw_bob_castle`（Paper 26.x 在 `world/dimensions/minecraft/` 底下，1.21.11 在伺服器根目錄）。它的草稿是 `bw_bob_castle-<草稿>`。名稱和現有的世界、資料夾、伺服器世界衝突時會拒絕建立。

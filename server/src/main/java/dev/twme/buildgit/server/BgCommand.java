@@ -49,7 +49,7 @@ public final class BgCommand {
   private static final int OUTLINE_SECONDS = 60;
   private static final int HERE_RADIUS = 8;
   /** 不需要版本庫已經開啟的子指令。 */
-  private static final Set<String> WORLDLESS = Set.of("init", "reload", "help", "load", "new", "open", "home", "worlds");
+  private static final Set<String> WORLDLESS = Set.of("init", "reload", "help", "load", "new", "open", "home", "worlds", "world");
 
   private interface Handler {
     void run(Sender sender, String[] args) throws IOException;
@@ -67,8 +67,6 @@ public final class BgCommand {
   private final Set<UUID> inspecting = new HashSet<>();
   /** 進入檢視世界之前的位置，{@code back} 回到這裡。 */
   private final Map<UUID, Location> returnTo = new HashMap<>();
-  /** 進入建築世界之前在伺服器世界的位置，{@code home} 回到這裡。 */
-  private final Map<UUID, Location> homes = new HashMap<>();
   private final List<Sub> subs = new ArrayList<>();
 
   BgCommand(BuildGit bg) {
@@ -114,13 +112,19 @@ public final class BgCommand {
         : b.size() == 2 && b.getFirst().equals("take") ? List.of("here", "selection", "all") : List.of());
     sub("revert", "buildgit.revert", this::revert, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("restore", "buildgit.restore", this::restore, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--selection", "confirm"));
-    // 建築世界（03-worlds）：第一階段只有管理員能建立與進出
+    // 建築世界（03-worlds）：進出、列出所有人都能用，能不能進去看成員名單與可見性
     sub("new", "buildgit.world.create|buildgit.world.admin", this::newWorld, (s, b) -> List.of("type=overworld", "type=nether", "type=end",
         "terrain=normal", "terrain=large-biomes", "terrain=amplified", "terrain=flat", "terrain=void", "rules=build", "rules=vanilla",
         "seed=", "layers=", "block=", "confirm"));
-    sub("open", "buildgit.world.admin", this::openWorld, (s, b) -> b.isEmpty() ? worldNames() : List.of());
-    sub("home", "buildgit.world.create|buildgit.world.admin", (s, a) -> home(s), null);
-    sub("worlds", "buildgit.world.admin", (s, a) -> worlds(s), null);
+    sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
+    sub("home", null, (s, a) -> home(s), null);
+    sub("worlds", null, (s, a) -> worlds(s), null);
+    sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("members", "visibility")
+        : b.size() == 1 && b.getFirst().equals("members") ? List.of("list", "add", "remove")
+        : b.size() == 1 && b.getFirst().equals("visibility") ? List.of("public", "private")
+        : b.size() == 2 && b.get(1).equals("add") ? onlineNames()
+        : b.size() == 2 && b.get(1).equals("remove") ? memberNames(s)
+        : b.size() == 3 && b.get(1).equals("add") ? List.of("builder", "manager") : List.of());
   }
 
   /** {@code permissions}：以 {@code |} 分隔，有其中一個就能用（子指令各有權限時）。 */
@@ -1821,11 +1825,27 @@ public final class BgCommand {
 
   // ---- 建築世界（03-worlds） ----
 
-  private List<String> worldNames() {
+  /** 這個人進得去的世界（主控台是全部）。 */
+  private List<String> worldNames(Sender sender) {
     var names = new ArrayList<String>();
     names.add(bg.worlds().serverWorldName());
-    for (var ws : bg.worlds().buildWorlds()) names.add(ws.label());
+    for (var ws : visibleWorlds(sender)) names.add(ws.label());
     return names;
+  }
+
+  private List<Workspace> visibleWorlds(Sender sender) {
+    var all = bg.worlds().buildWorlds();
+    if (!(sender.player() instanceof ServerPlayer p)) return List.copyOf(all);
+    return all.stream().filter(ws -> bg.realms().canEnter(p, ws)).toList();
+  }
+
+  private List<String> onlineNames() {
+    return bg.platform().server().getPlayerList().getPlayers().stream().map(ServerPlayer::getScoreboardName).toList();
+  }
+
+  private List<String> memberNames(Sender sender) {
+    var config = ws(sender).config();
+    return config == null ? List.of() : config.members.values().stream().map(WorldConfig.Member::name).toList();
   }
 
   /** {@code new <名稱>}：建立自己的建築世界並進去。 */
@@ -1844,7 +1864,7 @@ public final class BgCommand {
     }
     var ws = bg.worlds().create(o.name(), p, newConfig(o), sender.hasPermission("buildgit.world.admin"));
     msg().send(sender, "world-created", "world", ws.label(), "folder", ws.buildWorld().folder());
-    enter(p, ws);
+    bg.realms().enter(p, ws);
   }
 
   /** {@code new} 的選項；種子、層、方塊照輸入的樣子保留，選單點選時原樣帶著走。 */
@@ -1977,43 +1997,113 @@ public final class BgCommand {
       return;
     }
     if (!ws.isOpen()) throw new Workspace.Refused("這個建築世界的版本庫無法開啟，請管理員看主控台");
-    enter(p, ws);
-  }
-
-  /** 傳送到建築世界的出生點（第一次有人進來時才決定）。從伺服器世界進來時記下位置給 {@code home}。 */
-  private void enter(ServerPlayer p, Workspace ws) throws IOException {
-    if (bg.workspace(p.level()).buildWorld() == null)
-      homes.put(p.getUUID(), new Location(p.level(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()));
-    var level = ws.openMain();
-    ws.spawn(bg.tracker().author(p), msg().raw("world-first-commit")).whenComplete((spawn, e) -> ws.sync(() -> {
-      if (e != null) {
-        bg.platform().log().log(Level.WARNING, "無法決定建築世界 " + ws.label() + " 的出生點", e);
-        failed(s(p), Workspace.unwrap(e));
-        return;
-      }
-      bg.platform().teleport(p, level, spawn.x(), spawn.y(), spawn.z(), spawn.yaw(), spawn.pitch());
-      msg().send(s(p), "world-entered", "world", ws.label());
-    }));
+    // 私人世界對不是成員的人當作不存在
+    if (!bg.realms().canEnter(p, ws)) {
+      msg().send(sender, "world-unknown", "world", w.getFirst());
+      return;
+    }
+    bg.realms().enter(p, ws);
   }
 
   /** {@code home}：回到進入建築世界之前的位置；不知道時到伺服器主世界的 (0, 0)。 */
   private void home(Sender sender) {
     var p = player(sender);
     if (p == null) return;
-    var saved = homes.remove(p.getUUID());
-    if (saved != null && bg.workspace().loaded(saved.level()))
-      bg.platform().teleport(p, saved.level(), saved.x(), saved.y(), saved.z(), saved.yaw(), saved.pitch());
-    else {
-      var level = bg.platform().server().overworld();
-      bg.platform().loadChunk(level, 0, 0).thenAccept(chunk -> bg.workspace().sync(() -> bg.platform().teleport(p, level, 0.5,
-          level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0), 0.5, p.getYRot(), p.getXRot())));
-    }
+    bg.realms().home(p);
     msg().send(sender, "world-home", "world", bg.worlds().serverWorldName());
   }
 
-  /** {@code worlds}：所有建築世界，點一下就進去。 */
+  private enum Visibility { PUBLIC, PRIVATE }
+
+  /**
+   * {@code world members [list|add <玩家> [builder|manager]|remove <玩家>]}、{@code world visibility public|private}：
+   * 管理自己所在的建築世界（03-worlds §4）。擁有者全部可以；管理者只能加、移除建造者；管理員都可以。
+   */
+  private void world(Sender sender, String[] args) throws IOException {
+    var p = player(sender);
+    if (p == null) return;
+    var ws = bg.workspace(p.level());
+    if (ws.buildWorld() == null || ws.config() == null) throw new Workspace.Refused("要在建築世界裡才能管理它（伺服器世界的成員還沒有）");
+    var w = words(args);
+    var role = ws.role(p.getUUID());
+    boolean owner = role == WorldConfig.Role.OWNER || bg.realms().admin(p);
+    boolean manager = owner || role == WorldConfig.Role.MANAGER;
+    var config = ws.config();
+    var what = w.isEmpty() ? "" : w.getFirst();
+    if (what.equals("visibility")) {
+      var v = w.size() == 2 ? WorldConfig.parse(Visibility.class, w.get(1)) : null;
+      if (v == null) {
+        msg().send(sender, "usage-world");
+        return;
+      }
+      if (!owner) throw new Workspace.Refused("只有擁有者能改可見性");
+      config.open = v == Visibility.PUBLIC;
+      ws.saveConfig();
+      msg().send(sender, config.open ? "world-public" : "world-private", "world", ws.label());
+      roleChanged(ws);
+      return;
+    }
+    if (!what.equals("members")) {
+      msg().send(sender, "usage-world");
+      return;
+    }
+    switch (w.size() < 2 ? "list" : w.get(1)) {
+      case "list" -> {
+        msg().send(sender, "members-header", "world", ws.label(), "owner", ws.buildWorld().ownerName(),
+            "visibility", msg().get(config.open ? "visibility-public" : "visibility-private"));
+        for (var m : config.members.values()) msg().send(sender, "members-entry", "name", m.name(), "role", roleName(m.role()));
+      }
+      case "add" -> {
+        var newRole = w.size() == 4 ? WorldConfig.parse(WorldConfig.Role.class, w.get(3)) : WorldConfig.Role.BUILDER;
+        if (w.size() < 3 || w.size() > 4 || newRole != WorldConfig.Role.BUILDER && newRole != WorldConfig.Role.MANAGER) {
+          msg().send(sender, "usage-world");
+          return;
+        }
+        if (!manager) throw new Workspace.Refused("只有擁有者與管理者能邀人");
+        var target = bg.platform().server().getPlayerList().getPlayerByName(w.get(2));
+        if (target == null) throw new Workspace.Refused("找不到線上玩家 " + w.get(2) + "（邀請時對方要在線上）");
+        if (ws.buildWorld().owner().equals(target.getUUID())) throw new Workspace.Refused(target.getScoreboardName() + " 是擁有者");
+        var old = config.members.get(target.getUUID());
+        if (!owner && (newRole == WorldConfig.Role.MANAGER || old != null && old.role() == WorldConfig.Role.MANAGER))
+          throw new Workspace.Refused("管理者只能邀請或移除建造者");
+        config.members.put(target.getUUID(), new WorldConfig.Member(target.getScoreboardName(), newRole));
+        ws.saveConfig();
+        msg().send(sender, "members-added", "name", target.getScoreboardName(), "role", roleName(newRole));
+        if (target != p) msg().send(bg.platform().sender(target), "members-invited", "world", ws.label(), "role", roleName(newRole));
+        roleChanged(ws);
+      }
+      case "remove" -> {
+        if (w.size() != 3) {
+          msg().send(sender, "usage-world");
+          return;
+        }
+        if (!manager) throw new Workspace.Refused("只有擁有者與管理者能移除成員");
+        var entry = config.members.entrySet().stream().filter(e -> e.getValue().name().equalsIgnoreCase(w.get(2))).findFirst().orElse(null);
+        if (entry == null) throw new Workspace.Refused(w.get(2) + " 不是這個世界的成員");
+        if (!owner && entry.getValue().role() == WorldConfig.Role.MANAGER) throw new Workspace.Refused("管理者只能邀請或移除建造者");
+        config.members.remove(entry.getKey());
+        ws.saveConfig();
+        msg().send(sender, "members-removed", "name", entry.getValue().name());
+        roleChanged(ws);
+      }
+      default -> msg().send(sender, "usage-world");
+    }
+  }
+
+  private net.kyori.adventure.text.Component roleName(WorldConfig.Role role) {
+    return msg().get("role-" + WorldConfig.key(role));
+  }
+
+  /** 成員或可見性變了：沒資格的人送回去，留下的人重送指令清單（權限跟著角色變）。 */
+  private void roleChanged(Workspace ws) {
+    bg.realms().evict(ws);
+    for (var p : bg.platform().server().getPlayerList().getPlayers())
+      if (bg.workspace(p.level()) == ws) bg.platform().server().getCommands().sendCommands(p);
+  }
+
+  /** {@code worlds}：這個人進得去的建築世界（自己的、受邀的、公開的），點一下就進去。 */
   private void worlds(Sender sender) {
-    var all = bg.worlds().buildWorlds();
+    var all = visibleWorlds(sender);
     if (all.isEmpty()) {
       msg().send(sender, "worlds-none");
       return;

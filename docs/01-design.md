@@ -822,8 +822,8 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 |---|---|---|
 | `buildgit:location` | `main`（主世界）、`draft`（草稿）、`view`（檢視過去的版本）、`resolve`（衝突整合） | 在受版本控制的世界或它的草稿、檢視、整合世界裡 |
 | `buildgit:branch` | 分支名稱（主世界是 `main`） | 在主世界或草稿、整合世界裡 |
-| `buildgit:world` | 伺服器世界的名稱（預設是 `level-name`，通常是 `world`），或建築世界的「擁有者/名稱」 | 建築世界（[03-worlds.md](03-worlds.md)）做好後 |
-| `buildgit:role` | `owner`、`manager`、`builder`、`visitor` | 建築世界做好後；只依那個世界的成員名單 |
+| `buildgit:world` | 伺服器世界的名稱（預設是 `level-name`，通常是 `world`），或建築世界的「擁有者/名稱」 | 一律有（[03-worlds.md](03-worlds.md)） |
+| `buildgit:role` | `owner`、`manager`、`builder`、`visitor` | 在建築世界裡；只依那個世界的成員名單，私人世界的非成員沒有 |
 
 - **角色往下包含**：擁有者同時帶 `owner`、`manager`、`builder` 三個值，管理者帶 `manager`、`builder`。所以設在 `buildgit:role=builder` 的權限，所有能建造的人都適用。
 - **角色只看成員名單，不看權限節點**：LuckPerms 是在檢查權限時向 BuildGit 要情境的，若算情境時又去檢查權限，會無限循環。所以伺服器世界只靠權限節點時，沒有 `buildgit:role`。
