@@ -89,7 +89,8 @@ public final class BgCommand {
     sub("who", "buildgit.who", (s, a) -> who(s), null);
     sub("disk", "buildgit.disk", (s, a) -> disk(s), null);
     sub("genesis", "buildgit.genesis", this::genesis, (s, b) -> b.isEmpty() ? List.of("upgrade") : List.of());
-    sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list", "restore", "fetch") : List.of());
+    sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list", "restore", "fetch")
+        : b.size() == 1 && List.of("now", "list", "restore").contains(b.getFirst()) ? bg.backup().jobs().stream().map(j -> j.name).toList() : List.of());
     sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("back", "buildgit.back", (s, a) -> back(s), null);
@@ -1266,40 +1267,65 @@ public final class BgCommand {
     }));
   }
 
-  /** {@code /bg backup status|now|list}：異地備份（設計 §2.5）。 */
+  /** {@code /bg backup [status|now [工作]|list [工作]|restore <工作> [快照]|fetch <分支> [新名稱]]}：備份工作（設計 §2.5～§2.7）。 */
   private void backup(Sender sender, String[] args) {
     var backup = bg.backup();
     String action = args.length == 0 ? "status" : args[0];
     int max = switch (action) {
-      case "restore" -> 2;
-      case "fetch" -> 3;
+      case "restore", "fetch" -> 3;
+      case "now", "list" -> 2;
       default -> 1;
     };
-    if (args.length > max || !List.of("status", "now", "list", "restore", "fetch").contains(action) || (action.equals("fetch") && args.length < 2)) {
+    if (args.length > max || !List.of("status", "now", "list", "restore", "fetch").contains(action)
+        || List.of("restore", "fetch").contains(action) && args.length < 2) {
       msg().send(sender, "usage-backup");
       return;
     }
-    if (!backup.running()) {
+    if (backup.jobs().isEmpty()) {
       msg().send(sender, "backup-disabled", "file", Backup.FILE);
       return;
     }
+    var jobs = backup.jobs();
+    if (List.of("now", "list", "restore").contains(action) && args.length > 1) {
+      var job = backup.job(args[1]);
+      if (job == null) {
+        msg().send(sender, "backup-unknown-job", "job", args[1], "jobs", String.join(", ", jobs.stream().map(j -> j.name).toList()));
+        return;
+      }
+      jobs = List.of(job);
+    }
     switch (action) {
       case "status" -> {
-        msg().send(sender, "backup-status", "target", backup.config().target(), "interval", backup.config().intervalMinutes(), "keep", backup.config().keep());
-        long last = backup.lastTime();
-        if (last > 0) msg().send(sender, "backup-last", "time", TIME.format(java.time.Instant.ofEpochMilli(last)));
-        else msg().send(sender, "backup-never");
-        if (backup.lastError() != null) msg().send(sender, "backup-last-error", "error", backup.lastError());
-        if (!backup.incomplete().isEmpty()) msg().send(sender, "backup-incomplete", "dims", String.join(", ", backup.incomplete()));
+        for (var job : jobs) {
+          if (job.store == null) {
+            msg().send(sender, "backup-status-unset", "job", job.name, "problem", job.problem);
+            continue;
+          }
+          String when = (job.schedule == null ? "" : job.schedule.toString())
+              + (job.idleMinutes == 0 ? "" : (job.schedule == null ? "" : " + ") + "idle " + job.idleMinutes + "m");
+          msg().send(sender, job.what == Backup.What.HISTORY ? "backup-status-history" : "backup-status-world", "job", job.name,
+              "target", job.target + "/" + job.prefix, "when", when, "keep", job.keep);
+          long last = job.lastSuccess();
+          if (last > 0) msg().send(sender, "backup-last", "time", TIME.format(java.time.Instant.ofEpochMilli(last)));
+          else msg().send(sender, "backup-never");
+          if (job.lastError != null) msg().send(sender, "backup-last-error", "error", job.lastError);
+          if (!job.incomplete.isEmpty()) msg().send(sender, "backup-incomplete", "dims", String.join(", ", job.incomplete));
+        }
       }
       case "now" -> {
-        msg().send(sender, "backup-started");
-        backup.now().whenComplete((r, e) -> ws().sync(() -> {
-          if (e != null) msg().send(sender, "backup-failed", "error", String.valueOf(Workspace.unwrap(e).getMessage()));
-          else if (r.snapshot() == null) msg().send(sender, "backup-unchanged");
-          else msg().send(sender, "backup-done", "snapshot", r.snapshot(), "objects", r.objects(), "files", r.files());
-          if (e == null && !backup.incomplete().isEmpty()) msg().send(sender, "backup-incomplete", "dims", String.join(", ", backup.incomplete()));
-        }));
+        for (var job : jobs) {
+          if (job.store == null) continue;
+          msg().send(sender, "backup-started", "job", job.name);
+          backup.now(job).whenComplete((r, e) -> ws().sync(() -> {
+            if (e != null) msg().send(sender, "backup-failed", "job", job.name, "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+            else if (r.snapshot() == null) msg().send(sender, "backup-unchanged", "job", job.name);
+            else if (job.what == Backup.What.HISTORY)
+              msg().send(sender, "backup-done", "job", job.name, "snapshot", r.snapshot(), "objects", r.objects(), "files", r.files());
+            else msg().send(sender, "backup-world-done", "job", job.name, "snapshot", r.snapshot(), "files", r.files(), "kept", r.kept(),
+                "skipped", r.skipped().size());
+            if (e == null && !job.incomplete.isEmpty()) msg().send(sender, "backup-incomplete", "dims", String.join(", ", job.incomplete));
+          }));
+        }
       }
       case "fetch" -> {
         String branch = args[1], target = args.length > 2 ? args[2] : args[1];
@@ -1327,25 +1353,31 @@ public final class BgCommand {
           msg().send(sender, "backup-restore-console");
           return;
         }
+        var job = jobs.getFirst();
         msg().send(sender, "backup-restore-started");
-        backup.restore(args.length > 1 ? args[1] : null).whenComplete((r, e) -> ws().sync(() -> {
+        backup.restore(job, args.length > 2 ? args[2] : null).whenComplete((r, e) -> ws().sync(() -> {
           if (e != null) {
             msg().send(sender, "backup-restore-failed", "error", String.valueOf(Workspace.unwrap(e).getMessage()));
             return;
           }
           for (var w : r.warnings()) msg().send(sender, "backup-restore-warning", "warning", w);
-          msg().send(sender, "backup-restore-ready", "snapshot", r.snapshot(), "objects", r.objects(), "files", r.files(),
-              "folder", Restore.staging(ws().dir()).getFileName().toString());
+          msg().send(sender, job.what == Backup.What.HISTORY ? "backup-restore-ready" : "backup-restore-world-ready", "snapshot", r.snapshot(),
+              "objects", r.objects(), "files", r.files(), "folder", Restore.staging(bg.platform().repoDir()).getFileName().toString());
         }));
       }
-      default -> backup.snapshots().whenComplete((names, e) -> ws().sync(() -> {
-        if (e != null) {
-          msg().send(sender, "backup-failed", "error", String.valueOf(Workspace.unwrap(e).getMessage()));
-          return;
+      default -> {
+        for (var job : jobs) {
+          if (job.store == null) continue;
+          backup.snapshots(job).whenComplete((names, e) -> ws().sync(() -> {
+            if (e != null) {
+              msg().send(sender, "backup-failed", "job", job.name, "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+              return;
+            }
+            msg().send(sender, "backup-list-header", "job", job.name, "count", names.size());
+            for (var n : names.subList(Math.max(0, names.size() - 10), names.size())) msg().send(sender, "backup-list-entry", "snapshot", n);
+          }));
         }
-        msg().send(sender, "backup-list-header", "count", names.size());
-        for (var n : names.subList(Math.max(0, names.size() - 10), names.size())) msg().send(sender, "backup-list-entry", "snapshot", n);
-      }));
+      }
     }
   }
 

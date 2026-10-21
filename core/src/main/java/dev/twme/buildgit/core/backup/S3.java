@@ -6,6 +6,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.time.Duration;
@@ -18,10 +20,10 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * S3 相容物件儲存的最小用戶端（設計 §2.5）：PUT、GET、HEAD、DELETE、ListObjectsV2，以 SigV4 簽名。
+ * S3 相容物件儲存的最小用戶端（設計 §2.5）：PUT、GET、HEAD、DELETE、ListObjectsV2、伺服器端複製與版本，以 SigV4 簽名。
  * 用 Java 內建的 HttpClient，不帶 AWS SDK。
  */
-public final class S3 {
+public final class S3 implements BackupStore {
   /**
    * @param endpoint 例如 {@code https://s3.us-east-1.amazonaws.com}、{@code http://127.0.0.1:9000}
    * @param pathStyle bucket 放在路徑（{@code endpoint/bucket/key}）而不是主機名稱；MinIO 等需要
@@ -39,13 +41,28 @@ public final class S3 {
     this.config = config;
   }
 
+  @Override
   public void put(String key, byte[] data) throws IOException {
     send("PUT", key, Map.of(), data);
   }
 
+  /** 從檔案上傳（不整個讀進記憶體）。 */
+  @Override
+  public String putFile(String key, Path file) throws IOException {
+    var r = request("PUT", key, Map.of(), Map.of(), file);
+    check(r);
+    return r.headers().firstValue("x-amz-version-id").filter(v -> !v.equals("null")).orElse(null);
+  }
+
   /** @return 不存在時為 null */
+  @Override
   public byte[] get(String key) throws IOException {
-    var r = request("GET", key, Map.of(), null);
+    return getVersion(key, null);
+  }
+
+  /** 物件的某個版本；{@code version} 為 null 時是最新的。不存在時為 null。 */
+  public byte[] getVersion(String key, String version) throws IOException {
+    var r = request("GET", key, version == null ? Map.of() : Map.of("versionId", version), null);
     if (r.statusCode() == 404) return null;
     check(r);
     return r.body();
@@ -58,11 +75,59 @@ public final class S3 {
     return true;
   }
 
+  @Override
   public void delete(String key) throws IOException {
     send("DELETE", key, Map.of(), null);
   }
 
+  /** 刪掉物件的某個版本（bucket 開了版本控制時，一般的刪除只會加上刪除標記）。 */
+  public void deleteVersion(String key, String version) throws IOException {
+    send("DELETE", key, Map.of("versionId", version), null);
+  }
+
+  @Override
+  public void copy(String from, String to) throws IOException {
+    var r = request("PUT", to, Map.of(), Map.of("x-amz-copy-source", "/" + encode(config.bucket(), false) + "/" + encode(from, true)), null);
+    check(r);
+    // 伺服器端複製可能回 200 但內容是錯誤
+    if (r.body() != null && new String(r.body(), StandardCharsets.UTF_8).contains("<Error>")) {
+      var text = new String(r.body(), StandardCharsets.UTF_8);
+      var code = Pattern.compile("<Code>(.*?)</Code>").matcher(text);
+      throw new IOException("S3 複製失敗" + (code.find() ? "：" + code.group(1) : ""));
+    }
+  }
+
+  private Boolean versioning;
+
+  /** bucket 是否開了版本控制（查一次就記住）。 */
+  public boolean versioning() throws IOException {
+    if (versioning == null) {
+      var r = request("GET", "", Map.of("versioning", ""), null);
+      check(r);
+      versioning = new String(r.body(), StandardCharsets.UTF_8).contains("<Status>Enabled</Status>");
+    }
+    return versioning;
+  }
+
+  private static final Pattern VERSION = Pattern.compile("<(Version|DeleteMarker)>(.*?)</\\1>", Pattern.DOTALL),
+      VERSION_ID = Pattern.compile("<VersionId>(.*?)</VersionId>");
+
+  /** 永久刪掉：bucket 開了版本控制時，連同這個鍵的所有版本與刪除標記一起刪；沒開時就是一般的刪除。 */
+  public void purge(String key) throws IOException {
+    delete(key);
+    if (!versioning()) return;
+    var r = request("GET", "", Map.of("versions", "", "prefix", key), null);
+    check(r);
+    var m = VERSION.matcher(new String(r.body(), StandardCharsets.UTF_8));
+    while (m.find()) {
+      var k = KEY.matcher(m.group(2));
+      var v = VERSION_ID.matcher(m.group(2));
+      if (k.find() && unescape(k.group(1)).equals(key) && v.find()) deleteVersion(key, unescape(v.group(1)));
+    }
+  }
+
   /** 以 {@code prefix} 開頭的所有鍵，依字典順序。 */
+  @Override
   public List<String> list(String prefix) throws IOException {
     var keys = new ArrayList<String>();
     String token = null;
@@ -93,11 +158,20 @@ public final class S3 {
     throw new IOException("S3 回應 " + r.statusCode() + (code.find() ? " " + code.group(1) : ""));
   }
 
-  /** 連線失敗、伺服器錯誤（5xx）或要求放慢（429）時，隔一下再試，最多三次。 */
   private HttpResponse<byte[]> request(String method, String key, Map<String, String> query, byte[] body) throws IOException {
+    return request(method, key, query, Map.of(), body);
+  }
+
+  /**
+   * 連線失敗、伺服器錯誤（5xx）或要求放慢（429）時，隔一下再試，最多三次。
+   *
+   * @param body {@code byte[]}、檔案（{@link Path}）或 null
+   */
+  private HttpResponse<byte[]> request(String method, String key, Map<String, String> query, Map<String, String> headers, Object body)
+      throws IOException {
     for (int attempt = 1; ; attempt++) {
       try {
-        var r = attempt(method, key, query, body);
+        var r = attempt(method, key, query, headers, body);
         if (attempt < RETRIES && (r.statusCode() >= 500 || r.statusCode() == 429)) {
           pause(attempt);
           continue;
@@ -122,24 +196,28 @@ public final class S3 {
   }
 
   /** 一次請求；每次重新簽名（簽名帶時間）。 */
-  private HttpResponse<byte[]> attempt(String method, String key, Map<String, String> query, byte[] body) throws IOException {
+  private HttpResponse<byte[]> attempt(String method, String key, Map<String, String> query, Map<String, String> extra, Object body)
+      throws IOException {
     var base = URI.create(config.endpoint().replaceAll("/+$", ""));
     String host = (config.pathStyle() ? "" : config.bucket() + ".") + base.getHost()
         + (base.getPort() == -1 || base.getPort() == (base.getScheme().equals("https") ? 443 : 80) ? "" : ":" + base.getPort());
     String path = (config.pathStyle() ? "/" + encode(config.bucket(), false) : "") + "/" + encode(key, true);
     String q = canonicalQuery(query);
-    String payload = hex(sha256(body == null ? new byte[0] : body));
+    String payload = body instanceof Path file ? hex(sha256(file)) : hex(sha256(body == null ? new byte[0] : (byte[]) body));
     String date = AMZ_DATE.format(ZonedDateTime.now(ZoneOffset.UTC));
     var headers = new TreeMap<String, String>();
     headers.put("host", host);
     headers.put("x-amz-content-sha256", payload);
     headers.put("x-amz-date", date);
+    headers.putAll(extra);
     var builder = HttpRequest.newBuilder(URI.create(base.getScheme() + "://" + host + path + (q.isEmpty() ? "" : "?" + q)))
         .timeout(Duration.ofMinutes(5))
-        .header("x-amz-content-sha256", payload)
-        .header("x-amz-date", date)
         .header("Authorization", authorization(config, method, path, q, headers, payload, date))
-        .method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body));
+        .method(method, body == null ? HttpRequest.BodyPublishers.noBody()
+            : body instanceof Path file ? HttpRequest.BodyPublishers.ofFile(file) : HttpRequest.BodyPublishers.ofByteArray((byte[]) body));
+    headers.forEach((k, v) -> {
+      if (!k.equals("host")) builder.header(k, v);
+    });
     try {
       return http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
     } catch (InterruptedException e) {
@@ -193,6 +271,18 @@ public final class S3 {
     }
   }
 
+  /** 檔案的 SHA-256，不整個讀進記憶體。 */
+  public static byte[] sha256(Path file) throws IOException {
+    try (var in = Files.newInputStream(file)) {
+      var md = MessageDigest.getInstance("SHA-256");
+      var buf = new byte[1 << 16];
+      for (int n; (n = in.read(buf)) > 0; ) md.update(buf, 0, n);
+      return md.digest();
+    } catch (GeneralSecurityException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
   private static byte[] hmac(byte[] key, String data) {
     try {
       var mac = Mac.getInstance("HmacSHA256");
@@ -205,5 +295,10 @@ public final class S3 {
 
   public static String hex(byte[] bytes) {
     return HexFormat.of().formatHex(bytes);
+  }
+
+  @Override
+  public String toString() {
+    return config.endpoint() + " " + config.bucket();
   }
 }

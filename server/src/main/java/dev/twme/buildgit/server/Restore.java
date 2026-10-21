@@ -1,6 +1,7 @@
 package dev.twme.buildgit.server;
 
 import dev.twme.buildgit.core.anvil.RegionSynthesizer;
+import dev.twme.buildgit.core.backup.BackupStore;
 import dev.twme.buildgit.core.backup.ObjectFetch;
 import dev.twme.buildgit.core.backup.ObjectWalk;
 import dev.twme.buildgit.core.backup.S3;
@@ -23,7 +24,7 @@ import java.util.concurrent.Future;
 import java.util.logging.Logger;
 
 /**
- * 從異地備份還原（設計 §2.5）。分兩步：
+ * 從備份還原（設計 §2.5、§2.6）。分兩步：
  * <ol>
  *   <li>{@link #download}：伺服器照常執行，把快照下載到 {@code buildgit-restore/}，主世界的 region 檔也先合成好，
  *       最後寫下 {@code restore.yml}（要換掉哪些資料夾）。
@@ -45,8 +46,10 @@ final class Restore {
 
   // ---- 下載（備份的背景執行緒） ----
 
-  /** @param name 快照名稱；null 為最新的一份 */
-  static Result download(BuildGit bg, S3 s3, String prefix, ExecutorService pool, String name) throws Exception {
+  /** 還原版本紀錄。@param name 快照名稱；null 為最新的一份 */
+  static Result download(BuildGit bg, Backup.Job job, ExecutorService pool, String name) throws Exception {
+    var s3 = job.store;
+    var prefix = job.prefix;
     var ws = bg.workspace();
     var platform = bg.platform();
     var upgrader = ws.upgrader();
@@ -95,7 +98,7 @@ final class Restore {
     var mainTree = repo.commit(main).tree();
 
     // 起點世界的檔案
-    var state = staging.resolve("backup");
+    var state = staging.resolve("backup").resolve(job.name);
     Files.createDirectories(state);
     var index = new Properties();
     int files = 0;
@@ -179,7 +182,7 @@ final class Restore {
 
     // 草稿與檢視世界：由新的版本重建
     for (var world : platform.levelFolders())
-      if (Workspace.ownWorldName(world)) plan.add(move(platform.levelFolder(world).toAbsolutePath().normalize(), null));
+      if (Workspace.ownWorldName(world) && !world.contains(".before-restore-")) plan.add(move(platform.levelFolder(world).toAbsolutePath().normalize(), null));
     if (!genesisInside) plan.add(move(genesisRoot.toAbsolutePath().normalize(), genesisStaging.toAbsolutePath().normalize()));
 
     // 本機的上傳紀錄：還原之後的第一次備份不必重傳、也不必重算雜湊
@@ -200,6 +203,89 @@ final class Restore {
     return new Result(name, objects, files, warnings);
   }
 
+  /**
+   * 還原世界資料夾（設計 §2.6）：世界資料夾整個換成快照裡的，版本庫的分支指向、還沒存檔的標記也回到同一個時間點。
+   * 版本庫沿用本機的（物件只增不減）；快照指向的存檔本機沒有時，從版本紀錄的備份補。
+   *
+   * @param history 版本紀錄的工作，補物件用；沒有時為 null
+   */
+  static Result downloadWorld(BuildGit bg, Backup.Job job, Backup.Job history, ExecutorService pool, String name) throws Exception {
+    var store = job.store;
+    var prefix = job.prefix;
+    var ws = bg.workspace();
+    var platform = bg.platform();
+    var warnings = new ArrayList<String>();
+    var names = snapshots(store, prefix);
+    if (names.isEmpty()) throw new Workspace.Refused("遠端沒有快照");
+    if (name == null) name = names.getLast();
+    else if (!names.contains(name)) throw new Workspace.Refused("沒有快照 " + name);
+    var bytes = store.get(prefix + "snapshots/" + name + ".yml");
+    if (bytes == null) throw new IOException("讀不到快照 " + name);
+    var manifest = Yaml.load(new ByteArrayInputStream(bytes));
+    int version = manifest.getInt("minecraft-data-version", 0), current = ws.upgrader().current();
+    if (version > current)
+      throw new Workspace.Refused("這份備份來自較新的 Minecraft（資料版本 " + version + "），目前伺服器是 " + current + "；Minecraft 不能降級");
+    if (version < current) warnings.add("備份來自較舊的 Minecraft（資料版本 " + version + "）：換上後由 Minecraft 照一般的流程升級世界");
+
+    // 版本庫：分支指向的存檔要在本機
+    var repoRel = manifest.getString("repo", null);
+    var heads = new ArrayList<ObjectId>();
+    if (manifest.get("refs") instanceof Map<?, ?> refs) for (var v : refs.values()) heads.add(ObjectId.parse(String.valueOf(v)));
+    if (!heads.isEmpty()) {
+      if (!ws.isOpen()) throw new Workspace.Refused("這份備份有版本紀錄，但這台伺服器還沒有版本庫：請先還原版本紀錄的備份、重新啟動，再還原世界資料夾");
+      var objects = ws.repo().overlays().objects();
+      var missing = heads.stream().filter(id -> !Files.exists(objects.file(id))).toList();
+      if (!missing.isEmpty()) {
+        if (history == null) throw new Workspace.Refused("本機沒有這份備份用到的存檔，也沒有設定版本紀錄的備份工作可以補");
+        ObjectFetch.fetch(objects, missing, false, source(history.store, history.prefix), pool);
+      }
+    }
+
+    var server = platform.server().getServerDirectory().toAbsolutePath().normalize();
+    var repoDir = platform.repoDir().toAbsolutePath().normalize();
+    var staging = staging(repoDir);
+    delete(staging);
+    var files = staging.resolve("files");
+    Files.createDirectories(files);
+    String storage = manifest.getString("storage", "hashed"), snapshot = name;
+    var downloads = new ArrayList<Future<?>>();
+    for (var e : WorldBackup.entries(manifest)) {
+      var target = files.resolve(e.path()).normalize();
+      if (!target.startsWith(files)) throw new IOException("快照裡的路徑不對：" + e.path());
+      downloads.add(pool.submit(() -> {
+        var key = WorldBackup.key(prefix, storage, snapshot, e);
+        var data = e.version() != null && store instanceof S3 s3 ? s3.getVersion(key, e.version()) : store.get(key);
+        if (data == null) throw new IOException("備份缺少檔案 " + e.path());
+        if (!S3.hex(S3.sha256(data)).equals(e.sha())) throw new IOException("檔案雜湊不符：" + e.path());
+        Files.createDirectories(target.getParent());
+        Files.write(target, data);
+        return null;
+      }));
+    }
+    for (var f : downloads) f.get();
+
+    var plan = new ArrayList<Map<String, Object>>();
+    // 草稿與檢視世界：分支指向回到備份的時間，由版本重建
+    for (var world : platform.levelFolders())
+      if (Workspace.ownWorldName(world) && !world.contains(".before-restore-")) plan.add(move(platform.levelFolder(world).toAbsolutePath().normalize(), null));
+    for (var world : manifest.getStringList("worlds")) {
+      var source = files.resolve(world);
+      if (Files.isDirectory(source)) plan.add(move(server.resolve(world).normalize(), source));
+    }
+    for (var skipped : manifest.getStringList("skipped")) warnings.add(skipped + " 從來沒有玩家進去過，沒有備份，不換");
+    if (repoRel != null && Files.isDirectory(files.resolve(repoRel))) {
+      var from = files.resolve(repoRel);
+      for (var item : List.of("refs", "branches.yml", "data-version", "worktree", "players.yml"))
+        if (Files.exists(from.resolve(item))) plan.add(move(repoDir.resolve(item), from.resolve(item)));
+    }
+    var y = new Yaml();
+    y.set("snapshot", job.name + "/" + name);
+    y.set("replace", plan);
+    y.save(staging.resolve(PLAN + ".tmp"));
+    Files.move(staging.resolve(PLAN + ".tmp"), staging.resolve(PLAN), StandardCopyOption.ATOMIC_MOVE);
+    return new Result(name, 0, downloads.size(), warnings);
+  }
+
   /** 取回分支的結果：用的快照、分支指向的提交、下載的物件數、分支在 branches.yml 的設定（來源、所屬世界）。 */
   record Fetched(String snapshot, ObjectId head, int objects, String source, String dimension) {}
 
@@ -207,7 +293,9 @@ final class Restore {
    * 從最新一份有這個分支的快照取回它的物件（不重新啟動、不動其他分支）。物件寫進目前的版本庫；
    * 建立分支由呼叫端在主執行緒做。
    */
-  static Fetched fetchBranch(BuildGit bg, S3 s3, String prefix, ExecutorService pool, String branch) throws Exception {
+  static Fetched fetchBranch(BuildGit bg, Backup.Job job, ExecutorService pool, String branch) throws Exception {
+    var s3 = job.store;
+    var prefix = job.prefix;
     var ws = bg.workspace();
     if (!ws.isOpen()) throw new Workspace.Refused("還沒有開始版本控制");
     var names = snapshots(s3, prefix);
@@ -219,7 +307,7 @@ final class Restore {
       checkVersion(snapshot.getString("data-version", ""), ws.upgrader().current());
       var head = ObjectId.parse(String.valueOf(refs.get(branch)));
       // 上次補到一半中斷時，已有的物件底下可能還缺：這次全部檢查
-      var marker = ws.dir().resolve("backup").resolve("fetching");
+      var marker = job.state.resolve("fetching");
       boolean check = Files.exists(marker);
       Files.createDirectories(marker.getParent());
       Files.writeString(marker, branch);
@@ -231,14 +319,14 @@ final class Restore {
     throw new Workspace.Refused("遠端的快照裡都沒有分支 " + branch);
   }
 
-  static List<String> snapshots(S3 s3, String prefix) throws IOException {
+  static List<String> snapshots(BackupStore s3, String prefix) throws IOException {
     var names = new ArrayList<String>();
     for (var k : s3.list(prefix + "snapshots/")) if (k.endsWith(".yml")) names.add(k.substring(k.lastIndexOf('/') + 1, k.length() - 4));
     Collections.sort(names);
     return names;
   }
 
-  private static ObjectFetch.Source source(S3 s3, String prefix) {
+  private static ObjectFetch.Source source(BackupStore s3, String prefix) {
     return id -> s3.get(prefix + "objects/" + id.hex().substring(0, 2) + "/" + id.hex().substring(2));
   }
 
@@ -251,7 +339,7 @@ final class Restore {
       throw new Workspace.Refused("這份備份曾由較新的 Minecraft（資料版本 " + newest + "）寫入，目前伺服器是 " + current + "；請用相同或更新的版本");
   }
 
-  private static void fetch(S3 s3, String prefix, String hash, Path target) throws IOException {
+  private static void fetch(BackupStore s3, String prefix, String hash, Path target) throws IOException {
     var bytes = s3.get(prefix + "files/" + hash);
     if (bytes == null) throw new IOException("備份缺少檔案 " + hash);
     if (!S3.hex(S3.sha256(bytes)).equals(hash)) throw new IOException("檔案雜湊不符：" + hash);
@@ -303,7 +391,7 @@ final class Restore {
     if (!Files.exists(planFile)) return;
     var y = Yaml.load(planFile);
     String suffix = ".before-restore-" + STAMP.format(Instant.now());
-    log.info("從異地備份還原：" + y.getString("snapshot", "?"));
+    log.info("從備份還原：" + y.getString("snapshot", "?"));
     try {
       // 中途當機時重來：已經換上的（來源不在了）略過
       for (var m : list(y.get("replace"))) {
@@ -320,16 +408,22 @@ final class Restore {
           Files.move(source, target);
         }
       }
-      Files.move(repoDir.resolve(PLAN), repoDir.resolve("restored.yml"), StandardCopyOption.REPLACE_EXISTING);
-      delete(repoDir.resolve("worlds"));
-      delete(repoDir.resolve("level"));
+      if (Files.exists(repoDir.resolve(PLAN))) { // 換上了整個版本庫（版本紀錄的還原）
+        Files.move(repoDir.resolve(PLAN), repoDir.resolve("restored.yml"), StandardCopyOption.REPLACE_EXISTING);
+        delete(repoDir.resolve("worlds"));
+        delete(repoDir.resolve("level"));
+      } else { // 世界資料夾的還原：版本庫留著，只換了裡面的幾個檔案
+        Files.createDirectories(repoDir);
+        Files.move(planFile, repoDir.resolve("restored.yml"), StandardCopyOption.REPLACE_EXISTING);
+        delete(staging);
+      }
       log.info("還原完成。確認沒問題後，可以刪掉名稱含 " + suffix + " 的資料夾");
     } catch (IOException e) {
       throw new IllegalStateException("還原失敗：" + e.getMessage() + "；修正後重新啟動會從中斷的地方繼續", e);
     }
   }
 
-  private static void delete(Path dir) throws IOException {
+  static void delete(Path dir) throws IOException {
     if (!Files.exists(dir)) return;
     try (var s = Files.walk(dir)) {
       for (var p : s.sorted(Comparator.reverseOrder()).toList()) Files.delete(p);

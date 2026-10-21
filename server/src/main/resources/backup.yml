@@ -1,0 +1,51 @@
+# BuildGit 備份工作：每個工作自己決定備份什麼、送到哪裡、何時、留幾份。
+# S3 的連線（網址、金鑰）在 s3.yml；這個檔案沒有金鑰。外掛更新時不會改動這個檔案。
+# 改完用 /bg reload 生效；/bg backup status 看狀態，/bg backup now [工作] 立刻執行。
+#
+# 每個工作的設定：
+#   what          history：版本紀錄（存檔、分支、起點世界）；world：世界資料夾（玩家資料、地圖畫、沒存檔的變更…）
+#   target        s3:<s3.yml 裡的連線名稱>，或 local:<資料夾>（相對伺服器根目錄或絕對路徑）
+#   path          在目的地裡的位置（S3 的 prefix）；同一個目的地有多台伺服器或多個工作時，每個用不同的名稱
+#   schedule      cron 排程「分 時 日 月 星期」，例如 "0 * * * *" 每小時整點、"0 4 * * *" 每天 4 點、"*/30 * * * *" 每 30 分鐘
+#   idle-minutes  伺服器沒有玩家滿幾分鐘後備份一次（上次備份之後有玩家上線過才會）；0 為不用
+#                 schedule 與 idle-minutes 可以只設一個，也可以都設
+#   keep          保留幾份快照
+#   enabled       false 暫停這個工作
+# 世界資料夾的工作另有：
+#   storage       auto：本機用 folders；S3 的 bucket 有開版本控制時用 versioned，沒有時用 hashed
+#                 folders：每份快照一個完整的資料夾，任何工具都能直接取用（本機用硬連結，不佔空間）
+#                 versioned：只有 S3，用 bucket 的版本控制，只多存變動的檔案
+#                 hashed：檔案以內容的雜湊命名，一樣的內容只存一份；要用 BuildGit 還原
+#   announce      開始與結束時在聊天室提示玩家（沒有玩家時不提示）
+#   exclude       額外不備份的路徑（相對伺服器根目錄，* 萬用字元），例如 "world/stats/*"
+# 世界資料夾只處理上次備份之後有玩家進去過的世界；從來沒有玩家進去過的世界不備份。
+# 放在同一顆硬碟的本機備份只防得了誤刪與損毀，防不了硬碟壞掉。
+
+# cron 用的時區，例如 Asia/Taipei；空白用伺服器的時區
+timezone: ""
+
+jobs:
+  history-s3:
+    what: history
+    target: s3:default
+    path: buildgit
+    schedule: "0 * * * *"
+    keep: 48
+    enabled: true
+  world-s3:
+    what: world
+    target: s3:default
+    path: buildgit-world
+    schedule: "0 4 * * *"
+    idle-minutes: 10
+    keep: 14
+    storage: auto
+    announce: true
+    exclude: []
+    enabled: true
+  # 範例：每 6 小時在本機另一顆硬碟留 4 份世界資料夾
+  # world-local:
+  #   what: world
+  #   target: local:/mnt/backup/minecraft
+  #   schedule: "0 */6 * * *"
+  #   keep: 4
