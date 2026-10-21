@@ -808,7 +808,7 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 
 包含關係是程式判斷，所以權限集裡的單一節點設成 false 不會拿掉它；要少給某一項時逐項給節點。
 
-### 8.1 LuckPerms 情境（規劃，尚未實作）
+### 8.1 LuckPerms 情境（第一步已實作）
 
 裝了 LuckPerms 時，BuildGit 提供「玩家現在在 BuildGit 的哪裡」當作情境（context），管理員可以讓任何插件的權限依此生效，不必知道內部的世界名稱（`bg_d1`、`bgw_<id>` 等）。例如只在草稿裡能用 WorldEdit：
 
@@ -843,15 +843,17 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 **做法**：
 - 選用相依：Paper 在 `plugin.yml` 加 `softdepend: [LuckPerms]`，Fabric 看 `luckperms` 模組有沒有載入；沒有時完全不載入相關類別。LuckPerms API（`net.luckperms:api`）只在編譯時使用，不打包。
 - 向 `ContextManager` 註冊一個 `ContextCalculator`（Paper 的對象是 `Player`，Fabric 是 `ServerPlayer`），並提供 `estimatePotentialContexts()`，讓 LuckPerms 的網頁編輯器與補全列出可用的鍵與值（分支名稱、`location` 的四個值）。
-- **執行緒**：LuckPerms 可能在任何執行緒計算情境，不能讀 `Workspace` 的內部狀態。主執行緒在玩家換世界、上線、分支刪除或改名、成員或角色變動時，更新一份「玩家 → 目前的情境」對照表（`ConcurrentHashMap`），計算時只讀這份表；更新後呼叫 `signalContextUpdate(玩家)`，讓 LuckPerms 丟掉快取。
+- **執行緒**：LuckPerms 可能在任何執行緒計算情境，不能讀 `Workspace` 的內部狀態。主執行緒每刻比對每位玩家目前的情境，存成一份「玩家 → 目前的情境」對照表（`ConcurrentHashMap`），計算時只讀這份表；有變才呼叫 `signalContextUpdate(玩家)`，讓 LuckPerms 丟掉快取。比對只是查幾個表，不必另外掛換世界、分支刪除等事件，也不會漏。補全用的分支清單每 10 秒更新一次。
 - 設定：`integrations.luckperms-contexts: true`（預設開，裝了 LuckPerms 才有作用）。
 - 跨版本：LuckPerms API 和 Minecraft 版本無關，程式放在共用的模組；Fabric 只要那個 Minecraft 版本有 LuckPerms 就能用（各版本要確認有沒有發佈）。情境的鍵與值是 BuildGit 自己定的，不隨 Minecraft 版本改變。
 
 **分兩步**：
-1. 現在就能做：`buildgit:location`、`buildgit:branch`（主世界、草稿、檢視、整合都已經有）。
+1. **已實作**：`buildgit:location`、`buildgit:branch`（`server` 模組的 `Contexts`、`LuckPermsContexts`）。整合世界與兩邊的檢視世界都是 `resolve`，`buildgit:branch` 是要併入的目標分支。
 2. 建築世界做好後：`buildgit:world`、`buildgit:role`。建築世界改名時，舊名稱的情境設定會失效，所以改名時提示擁有者，並在管理員手冊說明；需要長期穩定時可以用世界的 id（`buildgit:world-id`，之後有需要再加）。
 
 驗收：Paper 與 Fabric 各裝 LuckPerms，在 `buildgit:location=draft` 給 `worldedit.*`：玩家在主世界不能用 WorldEdit，`/bg try` 進草稿後立刻可以，`/bg back` 回去後立刻不行；`/lp user <玩家> permission checkcontexts`（或 `/lp verbose`）看得到目前的情境；沒裝 LuckPerms 時照常啟動。
+
+已在 Paper 26.3 與 Fabric 26.3（LuckPerms 5.5.88）實測：主世界 `buildgit:location=main`、`buildgit:branch=main`，權限未設定；`/bg try lpt` 後 `draft`、`lpt`，權限生效；`/bg back` 後回到 `main`，權限又不生效。沒裝 LuckPerms 時 Paper 26.3、Fabric 1.21.11 照常啟動。檢視與整合世界的值還沒實測。LuckPerms 5.5.88 的 Fabric 版只支援 Minecraft 26.1 以後，Fabric 1.21.11 要用支援它的舊版 LuckPerms（未實測）。
 
 ## 9. 專案結構
 

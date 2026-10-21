@@ -28,6 +28,7 @@ public final class BuildGit {
   private Sync sync;
   private LocalSync localSync;
   private final Backup backup;
+  private final Contexts contexts = new Contexts();
   private long ticks;
   private String openError;
 
@@ -100,6 +101,10 @@ public final class BuildGit {
     return backup;
   }
 
+  Contexts contexts() {
+    return contexts;
+  }
+
   /** 用戶端送來的 {@code buildgit:sync} 封包（主執行緒）。 */
   public void syncReceived(ServerPlayer player, byte[] data) {
     if (workspace.isOpen()) sync.receive(player, data);
@@ -153,6 +158,7 @@ public final class BuildGit {
   public void tick() {
     tracker.tick();
     ticks++;
+    contexts.tick(workspace, platform.server().getPlayerList().getPlayers());
     if (ticks % settings.journalFlushTicks() == 0) platform.async(workspace::flushJournal);
     if (ticks % 20 != 0) return;
     workspace.autosaveTick(r -> r.commit().ifPresent(id -> {

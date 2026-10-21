@@ -91,3 +91,7 @@ integrations:
   axiom: true
   # 記錄 DebugStickPro 的經典、複製模式；凍結模式暫時換成屏障的方塊不存進版本。
   debugstickpro: true
+  # 裝了 LuckPerms 時提供情境 buildgit:location（main／draft／view／resolve）與 buildgit:branch，
+  # 讓任何插件的權限依玩家在 BuildGit 的哪裡生效，例如只在草稿裡能用 WorldEdit：
+  #   /lp group builder permission set worldedit.* true buildgit:location=draft
+  luckperms-contexts: true

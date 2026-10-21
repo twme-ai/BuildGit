@@ -6,6 +6,8 @@ import dev.twme.buildgit.fabric.worldedit.WorldEditHook;
 import java.util.logging.Level;
 import net.fabricmc.loader.api.FabricLoader;
 import dev.twme.buildgit.server.BuildGit;
+import dev.twme.buildgit.server.LuckPermsContexts;
+import net.minecraft.server.level.ServerPlayer;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
@@ -36,6 +38,14 @@ public final class BuildGitMod implements ModInitializer {
     ServerLifecycleEvents.SERVER_STARTING.register(this::starting);
     ServerLifecycleEvents.SERVER_STARTED.register(server -> {
       if (bg != null) bg.enable();
+      // LuckPerms 在伺服器啟動時才準備好 API
+      if (bg != null && bg.settings().luckPermsContexts() && FabricLoader.getInstance().isModLoaded("luckperms")) {
+        try {
+          LuckPermsContexts.<ServerPlayer>register(bg, ServerPlayer::getUUID, p -> p);
+        } catch (LinkageError | IllegalStateException e) {
+          platform.log().log(Level.WARNING, "無法向 LuckPerms 提供情境（版本不相容？）", e);
+        }
+      }
     });
     ServerLifecycleEvents.SERVER_STOPPING.register(server -> stop());
     ServerTickEvents.START_SERVER_TICK.register(server -> {

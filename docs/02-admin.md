@@ -52,6 +52,24 @@ LuckPerms 範例：
 /lp group staff permission set buildgit.role.manager true
 ```
 
+**依玩家在哪裡給權限**：裝了 LuckPerms 時，BuildGit 提供兩個情境（設計 §8.1），任何插件的權限都可以設成只在某處生效：
+
+| 情境 | 值 |
+|---|---|
+| `buildgit:location` | `main`（主世界）、`draft`（草稿）、`view`（檢視過去的版本）、`resolve`（衝突整合） |
+| `buildgit:branch` | 分支名稱，主世界是 `main`；整合時是要併入的分支 |
+
+```
+# 只在草稿裡能用 WorldEdit，主世界不行
+/lp group builder permission set worldedit.* true buildgit:location=draft
+# 只有 house 這個草稿能併回
+/lp group builder permission set buildgit.publish true buildgit:branch=house
+# 看某位玩家現在的情境
+/lp user <玩家> info
+```
+
+玩家換世界後一刻內就會生效。不在 BuildGit 管的世界時兩個情境都不帶。不想提供時在 `config.yml` 設 `integrations.luckperms-contexts: false`。
+
 也可以逐項給：**每個指令都有自己的節點，彼此不包含**，例如只給 `buildgit.publish` 就只能併回，不能開草稿。
 
 | 節點 | 內容 |

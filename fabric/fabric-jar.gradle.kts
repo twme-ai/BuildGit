@@ -18,6 +18,7 @@ dependencies {
         "include"(dep)
     "implementation"(project(":core"))
     "include"(project(":core"))
+    "compileOnly"(catalog.findLibrary("luckperms-api").get().get())
 }
 
 tasks.named<ProcessResources>("processResources") {

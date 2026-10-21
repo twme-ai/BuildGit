@@ -14,3 +14,5 @@ adventure-api = { module = "net.kyori:adventure-api", version.ref = "adventure" 
 adventure-minimessage = { module = "net.kyori:adventure-text-minimessage", version.ref = "adventure" }
 adventure-gson = { module = "net.kyori:adventure-text-serializer-gson", version.ref = "adventure" }
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
+# 只在編譯時使用；執行期由 LuckPerms 本身提供
+luckperms-api = { module = "net.luckperms:api", version = "5.4" }

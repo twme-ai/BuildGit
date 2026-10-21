@@ -9,6 +9,7 @@ import dev.twme.buildgit.paper.track.EntityListener;
 import dev.twme.buildgit.paper.worldedit.WorldEditHook;
 import dev.twme.buildgit.core.sync.Frame;
 import dev.twme.buildgit.server.BuildGit;
+import dev.twme.buildgit.server.LuckPermsContexts;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import org.bukkit.event.player.PlayerArmorStandManipulateEvent;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
@@ -127,6 +128,13 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
       } catch (LinkageError e) {
         bg.tracker().setHeld(null);
         getLogger().log(Level.WARNING, "無法掛上 DebugStickPro（版本不相容？）", e);
+      }
+    }
+    if (settings.luckPermsContexts() && pm.getPlugin("LuckPerms") != null) {
+      try {
+        LuckPermsContexts.<Player>register(bg, Player::getUniqueId, p -> p.getBukkitEntity());
+      } catch (LinkageError | IllegalStateException e) {
+        getLogger().log(Level.WARNING, "無法向 LuckPerms 提供情境（版本不相容？）", e);
       }
     }
     getServer().getServicesManager().register(BuildGitApi.class, new ApiImpl(tracker), this, ServicePriority.Normal);
