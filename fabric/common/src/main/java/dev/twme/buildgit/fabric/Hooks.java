@@ -126,6 +126,14 @@ public final class Hooks {
 
   // ---- 檢查模式與唯讀 ----
 
+  /** 建築世界裡的傳送門一律不能用（03-worlds §2.2），不然會被送到伺服器的地獄、終界。 */
+  public static boolean portalBlocked(Entity entity) {
+    var b = bg;
+    if (b == null || !(entity.level() instanceof ServerLevel level) || b.workspace(level).buildWorld() == null) return false;
+    if (entity instanceof ServerPlayer p) b.portalRefused(p);
+    return true;
+  }
+
   /** 檢視世界裡不能改東西。 */
   public static boolean readOnly(ServerPlayer player) {
     var b = bg;

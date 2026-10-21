@@ -3,10 +3,13 @@ package dev.twme.buildgit.fabric.worldedit;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.event.extent.EditSessionEvent;
+import com.sk89q.worldedit.extent.NullExtent;
 import com.sk89q.worldedit.util.eventbus.Subscribe;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.fabric.mc.worldedit.WorldEditWorlds;
 import dev.twme.buildgit.server.track.Tracker;
+import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.logging.Logger;
 
 /**
@@ -18,10 +21,13 @@ import java.util.logging.Logger;
 public final class WorldEditHook {
   private final Tracker tracker;
   private final Logger log;
+  /** 這個玩家現在不能改世界（檢視世界、建築世界的訪客）；會提醒玩家。 */
+  private final Predicate<UUID> readOnly;
 
-  public WorldEditHook(Tracker tracker, Logger log) {
+  public WorldEditHook(Tracker tracker, Logger log, Predicate<UUID> readOnly) {
     this.tracker = tracker;
     this.log = log;
+    this.readOnly = readOnly;
   }
 
   public void register() {
@@ -41,6 +47,11 @@ public final class WorldEditHook {
     if (dimension == null) return;
     Author author;
     var actor = event.getActor();
+    if (actor != null && actor.isPlayer() && readOnly.test(actor.getUniqueId())) {
+      // 訪客也能下 WorldEdit 指令（03-worlds §4.1）：整個編輯丟掉
+      event.setExtent(new NullExtent());
+      return;
+    }
     if (actor != null && actor.isPlayer()) author = tracker.author(actor.getUniqueId(), actor.getName());
     else author = tracker.cause();
     if (author == null) return;

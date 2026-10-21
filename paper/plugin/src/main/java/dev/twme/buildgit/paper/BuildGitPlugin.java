@@ -20,6 +20,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import org.bukkit.Bukkit;
 import org.bukkit.craftbukkit.block.CraftBlock;
+import org.bukkit.craftbukkit.CraftWorld;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Cancellable;
@@ -30,6 +31,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityPortalEvent;
 import org.bukkit.event.hanging.HangingBreakByEntityEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
@@ -38,6 +40,7 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.event.server.ServerLoadEvent;
@@ -105,7 +108,10 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     var settings = bg.settings();
     if (settings.worldEdit() && (pm.getPlugin("FastAsyncWorldEdit") != null || pm.getPlugin("WorldEdit") != null)) {
       try {
-        worldEdit = new WorldEditHook(tracker, getLogger());
+        worldEdit = new WorldEditHook(tracker, getLogger(), id -> {
+          var p = getServer().getPlayer(id);
+          return p != null && bg.hud().readOnly(handle(p));
+        });
         worldEdit.register();
         getLogger().info("已掛上 WorldEdit/FAWE 記錄");
       } catch (LinkageError e) {
@@ -116,7 +122,8 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     if (settings.axiom() && pm.getPlugin("AxiomPaper") != null) {
       try {
         axiom = new AxiomHook(tracker, (p, recorded) ->
-            bg.messages().send(platform.sender(((CraftPlayer) p).getHandle()), recorded ? "axiom-bypass-recorded" : "axiom-bypass-warning"));
+            bg.messages().send(platform.sender(((CraftPlayer) p).getHandle()), recorded ? "axiom-bypass-recorded" : "axiom-bypass-warning"),
+            p -> bg.hud().readOnly(handle(p)));
         axiom.register(this, getLogger());
       } catch (LinkageError e) {
         getLogger().log(Level.WARNING, "無法掛上 AxiomPaper（版本不相容？）", e);
@@ -238,6 +245,20 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
 
   private void readOnly(Player p, Cancellable e) {
     if (bg.hud().readOnly(handle(p))) e.setCancelled(true);
+  }
+
+  // ---- 建築世界的傳送門（03-worlds §2.2）：會被送到伺服器的地獄、終界，一律不能用 ----
+
+  @EventHandler(ignoreCancelled = true)
+  public void onPortal(PlayerPortalEvent e) {
+    if (bg.workspace(((CraftWorld) e.getFrom().getWorld()).getHandle()).buildWorld() == null) return;
+    e.setCancelled(true);
+    bg.portalRefused(handle(e.getPlayer()));
+  }
+
+  @EventHandler(ignoreCancelled = true)
+  public void onEntityPortal(EntityPortalEvent e) {
+    if (bg.workspace(((CraftWorld) e.getFrom().getWorld()).getHandle()).buildWorld() != null) e.setCancelled(true);
   }
 
   @EventHandler(ignoreCancelled = true)

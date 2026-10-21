@@ -1072,6 +1072,10 @@ public final class Workspace {
     platform.gameRule(level, GameRules.SPECTATORS_GENERATE_CHUNKS, false);
     platform.gameRule(level, GameRules.ALLOW_ENTERING_NETHER_USING_PORTALS, false);
     level.setDragonFight(null);
+    // 世界邊界也是訪客能去的範圍（03-worlds §4.1）；每次載入都設定，Fabric 的世界不記
+    var border = level.getWorldBorder();
+    border.setCenter(0, 0);
+    border.setSize(tracker.settings().playerWorlds().border());
     if (config.rules != WorldConfig.Rules.BUILD) return;
     for (var rule : List.of(GameRules.ADVANCE_TIME, GameRules.ADVANCE_WEATHER, GameRules.SPAWN_MOBS, GameRules.SPAWN_MONSTERS,
         GameRules.SPAWN_PATROLS, GameRules.SPAWN_PHANTOMS, GameRules.SPAWN_WANDERING_TRADERS, GameRules.SPAWN_WARDENS, GameRules.MOB_GRIEFING,

@@ -5,9 +5,12 @@ import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.event.extent.EditSessionEvent;
 import com.sk89q.worldedit.extent.AbstractDelegateExtent;
 import com.sk89q.worldedit.extent.Extent;
+import com.sk89q.worldedit.extent.NullExtent;
 import com.sk89q.worldedit.util.eventbus.Subscribe;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.paper.track.BukkitTracker;
+import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.logging.Logger;
 import org.bukkit.Bukkit;
 
@@ -28,10 +31,13 @@ public final class WorldEditHook {
   private final BukkitTracker tracker;
   private final Logger log;
   private final boolean fawe;
+  /** 這個玩家現在不能改世界（檢視世界、建築世界的訪客）；會提醒玩家。 */
+  private final Predicate<UUID> readOnly;
 
-  public WorldEditHook(BukkitTracker tracker, Logger log) {
+  public WorldEditHook(BukkitTracker tracker, Logger log, Predicate<UUID> readOnly) {
     this.tracker = tracker;
     this.log = log;
+    this.readOnly = readOnly;
     this.fawe = Bukkit.getPluginManager().getPlugin("FastAsyncWorldEdit") != null;
   }
 
@@ -53,6 +59,11 @@ public final class WorldEditHook {
     if (dimension == null) return;
     Author author;
     var actor = event.getActor();
+    if (actor != null && actor.isPlayer() && readOnly.test(actor.getUniqueId())) {
+      // 訪客也能下 WorldEdit 指令（03-worlds §4.1）：整個編輯丟掉
+      event.setExtent(new NullExtent());
+      return;
+    }
     if (actor != null && actor.isPlayer()) author = tracker.author(actor.getUniqueId(), actor.getName());
     else author = tracker.cause();
     if (author == null) return;

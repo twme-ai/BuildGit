@@ -2094,9 +2094,9 @@ public final class BgCommand {
     return msg().get("role-" + WorldConfig.key(role));
   }
 
-  /** 成員或可見性變了：沒資格的人送回去，留下的人重送指令清單（權限跟著角色變）。 */
+  /** 成員或可見性變了：沒資格的人送回去，留下的人換遊戲模式、重送指令清單（權限跟著角色變）。 */
   private void roleChanged(Workspace ws) {
-    bg.realms().evict(ws);
+    bg.realms().roleChanged(ws);
     for (var p : bg.platform().server().getPlayerList().getPlayers())
       if (bg.workspace(p.level()) == ws) bg.platform().server().getCommands().sendCommands(p);
   }

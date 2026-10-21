@@ -36,8 +36,8 @@ public record Settings(
    * @param serverWorldName 伺服器世界在指令裡的名稱；空白時用 {@code level-name}
    * @param worldName 世界資料夾名稱的範本
    */
-  /** @param enabled 一般玩家能不能建立建築世界；@param maxPerPlayer 每人最多擁有幾個 */
-  public record PlayerWorlds(boolean enabled, int maxPerPlayer, String serverWorldName, String worldName, String repo, String objects, String genesis) {}
+  /** @param enabled 一般玩家能不能建立建築世界；@param maxPerPlayer 每人最多擁有幾個；@param border 世界邊界的邊長 */
+  public record PlayerWorlds(boolean enabled, int maxPerPlayer, int border, String serverWorldName, String worldName, String repo, String objects, String genesis) {}
 
   /** 讀取 {@code dir/config.yml}；不存在時先寫入內建的預設檔，缺少新版本的設定時補上。 */
   public static Settings load(Path dir, Logger log) {
@@ -95,6 +95,7 @@ public record Settings(
         c.getLong("init.lazy-copy-above-mb", -1),
         c.getString("init.genesis-dir", ""),
         new PlayerWorlds(c.getBoolean("player-worlds.enabled", false), Math.max(0, c.getInt("player-worlds.max-per-player", 3)),
+            Math.clamp(c.getInt("player-worlds.border", 1024), 16, 59_999_968),
             c.getString("player-worlds.server-world-name", "").strip(),
             c.getString("player-worlds.world-name", "bw_{owner-name}_{name}").strip(),
             c.getString("player-worlds.paths.repo", "{buildgit}/worlds/{id}").strip(),

@@ -126,6 +126,11 @@ public final class BuildGit {
     return realms;
   }
 
+  /** 平台擋下建築世界裡的傳送門時呼叫：提醒玩家（有節制）。 */
+  public void portalRefused(ServerPlayer player) {
+    realms.portalRefused(player);
+  }
+
   /** 用戶端送來的 {@code buildgit:sync} 封包（主執行緒）。 */
   public void syncReceived(ServerPlayer player, byte[] data) {
     if (workspace().isOpen()) sync.receive(player, data);
@@ -195,6 +200,7 @@ public final class BuildGit {
             messages.send(platform.sender(p), "autosave-done", "id", id.abbrev(), "cells", r.cells());
       }));
     hud.tick();
+    realms.tick();
     sync.tick();
     for (var ws : worlds.all()) ws.unloadIdleTick(settings.unloadIdleTicks());
   }
@@ -236,7 +242,10 @@ public final class BuildGit {
     outlines.forget(player.getUUID());
     hud.changedWorld(player, from);
     // 在建築世界裡權限由角色決定：換世界後重送指令清單，補全與能不能打指令跟著變
-    if (worlds.of(player.level()) != worlds.of(from)) platform.server().getCommands().sendCommands(player);
+    if (worlds.of(player.level()) != worlds.of(from)) {
+      platform.server().getCommands().sendCommands(player);
+      realms.apply(player);
+    }
   }
 
   /** 玩家上線（主執行緒）。 */
@@ -257,5 +266,6 @@ public final class BuildGit {
     command.quit(player.getUUID());
     sync.quit(player.getUUID());
     hud.quit(player);
+    realms.quit(player);
   }
 }

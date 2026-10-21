@@ -83,7 +83,10 @@ public final class BuildGitMod implements ModInitializer {
     register(server.getCommands().getDispatcher());
     if (bg.settings().worldEdit() && FabricLoader.getInstance().isModLoaded("worldedit")) {
       try {
-        worldEdit = new WorldEditHook(bg.tracker(), platform.log());
+        worldEdit = new WorldEditHook(bg.tracker(), platform.log(), id -> {
+          var p = server.getPlayerList().getPlayer(id);
+          return p != null && Hooks.readOnly(p);
+        });
         worldEdit.register();
       } catch (LinkageError e) {
         worldEdit = null;

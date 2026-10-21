@@ -3,6 +3,7 @@ package dev.twme.buildgit.paper.axiom;
 import com.moulberry.axiom.event.AxiomAfterManipulateEntityEvent;
 import com.moulberry.axiom.event.AxiomHandshakeEvent;
 import com.moulberry.axiom.event.AxiomManipulateEntityEvent;
+import com.moulberry.axiom.event.AxiomModifyWorldEvent;
 import com.moulberry.axiom.event.AxiomRemoveEntityEvent;
 import com.moulberry.axiom.event.AxiomSpawnEntityEvent;
 import com.moulberry.axiom.integration.Integration;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 import java.util.logging.Logger;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -58,9 +60,13 @@ public final class AxiomHook implements Listener {
   /** 修改前的整串實體，修改後一起記下（被趕下來的乘客修改後就不在串裡了）。 */
   private final Map<UUID, List<Entity>> beforeManipulate = new HashMap<>();
 
-  public AxiomHook(BukkitTracker tracker, BiConsumer<Player, Boolean> warnBypass) {
+  /** 這個玩家現在不能改世界（檢視世界、建築世界的訪客）；會提醒玩家。 */
+  private final Predicate<Player> readOnly;
+
+  public AxiomHook(BukkitTracker tracker, BiConsumer<Player, Boolean> warnBypass, Predicate<Player> readOnly) {
     this.tracker = tracker;
     this.warnBypass = warnBypass;
+    this.readOnly = readOnly;
   }
 
   public void register(Plugin plugin, Logger log) {
@@ -93,6 +99,12 @@ public final class AxiomHook implements Listener {
       tracker.markSection(world, x, y, z, FULL, tracker.author(player));
       return SectionPermissionChecker.ALL_ALLOWED;
     }
+  }
+
+  /** 訪客也能用 Axiom（03-worlds §4.1）：不能改世界的人整個擋下。 */
+  @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+  public void onModify(AxiomModifyWorldEvent e) {
+    if (readOnly.test(e.getPlayer())) e.setCancelled(true);
   }
 
   @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
