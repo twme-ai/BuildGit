@@ -1,4 +1,4 @@
-# 建築世界：一個世界一個 repo（2026-10-21 規劃，第一階段已實作）
+# 建築世界：一個世界一個 repo（2026-10-21 規劃，第一階段已實作，第二階段實作中）
 
 需求見 [00-requirements.md](00-requirements.md)，底層設計見 [01-design.md](01-design.md)。本文件規劃讓玩家自己建立「建築世界」：每個建築世界是一個獨立的 repo，有自己的起點、歷史、草稿與成員，可以設成私人或公開。
 
@@ -196,9 +196,9 @@ player-worlds:
     objects: "{buildgit}/objects"
     # 起點世界
     genesis: "{repo}/genesis"
-    # 生成設定（類型、地形、種子、超平坦的層）：預設放在世界資料夾裡，壓縮世界資料夾時一起帶走
-    generation: "{world-folder}/buildgit-world.yml"
 ```
+
+生成設定（類型、地形、種子、超平坦的層）記在版本庫的 `repo.yml`，不另外設定位置：世界資料夾不見時要靠它重建世界，所以跟著版本庫走（實作時改的，原本規劃放在世界資料夾）。
 
 **佔位符**：
 
@@ -209,7 +209,7 @@ player-worlds:
 | `{world-folder}` | 這個建築世界的世界資料夾（名稱見下面的 `world-name`，位置由 Minecraft 決定，例如 Paper 1.21.11 的 `bw_alice_castle/`、26.x 的 `world/dimensions/minecraft/bw_alice_castle/`） |
 | `{id}` | 建築世界的 id（建立時產生的短亂數，之後不變） |
 | `{owner}` | 擁有者的 UUID（轉讓也不變，記建立時的擁有者） |
-| `{repo}` | 上面 `repo` 算出來的位置（`objects`、`genesis`、`generation` 可以用） |
+| `{repo}` | 上面 `repo` 算出來的位置（`objects`、`genesis` 可以用） |
 
 不提供名稱類的佔位符（建築世界名稱、玩家名稱）：改名後路徑就對不上了。
 
@@ -226,7 +226,7 @@ player-worlds:
 - **設定只影響之後建立的世界。** 建立時只把 `{id}`、`{owner}` 代進去，其他佔位符原樣記在索引 `buildgit/worlds.yml`。之後改設定，舊世界照索引找，資料不會「消失」。
 - **`{server}`、`{buildgit}` 也是每次執行時才算**：整個伺服器資料夾搬到別處（換機器、換路徑）後照樣找得到。
 - **`{world-folder}` 每次執行時才算**：Paper 從 1.21.11 升到 26.x 時，新建的世界資料夾會從伺服器根目錄搬到 `world/dimensions/minecraft/` 底下；放在世界資料夾裡的資料跟著搬，BuildGit 每次從資料夾目前的位置找，升級後照樣找得到。
-- **不能撞在一起**：`repo`、`genesis`、`generation` 必須每個世界不同（範本要含 `{id}` 或 `{world-folder}`，或含 `{repo}`），否則拒絕建立並在主控台說明。`objects` 可以共用。
+- **不能撞在一起**：`repo`、`genesis` 必須每個世界不同（範本要含 `{id}` 或 `{world-folder}`，或含 `{repo}`），否則拒絕建立並在主控台說明。`objects` 可以共用。
 - 索引 `buildgit/worlds.yml` 的位置固定：它只記「有哪些建築世界、在哪裡、誰的」，讓清單和沒載入的世界查得到。
 - 搬動已經存在的世界之後再說（例如 `/bg world move`）；現在要搬就關服後手動搬，再改索引。
 
@@ -253,7 +253,7 @@ player-worlds:
   - 改名後，LuckPerms 原生的 `world` 情境與 BuildGit 的 `buildgit:world` 情境都會換成新名稱（設計 §8.1），改名時提示擁有者。
 - 檢視與整合世界的資料夾照舊另外放，隨時可以從版本重建。
 - 玩家資料：`buildgit/players/<uuid>.yml`（各建築世界上次的位置；離開時要恢復的遊戲模式；打開背包隔離時，收起來的原本背包）；每個世界各自的背包在 `buildgit/players/<uuid>/<世界 id>.dat`。
-- 一個建築世界只有一個維度：在它的 tree 裡固定叫 `minecraft:overworld`（地獄、終界類型也一樣），這樣 fork、範本、單人世界整合都不必轉換維度路徑；實際的維度類型記在生成設定裡。
+- 一個建築世界只有一個維度：在它的 tree 裡固定叫 `minecraft:overworld`（地獄、終界類型也一樣），這樣 fork、範本、單人世界整合都不必轉換維度路徑；實際的維度類型記在 `repo.yml` 的生成設定裡。
 
 ### 6.2 程式
 
@@ -292,6 +292,12 @@ player-worlds:
      - 沒人、沒有草稿、沒有檢視、沒有未存的變更時，經過 `worlds.unload-idle-seconds` 後卸載；有人上線回到這個世界時自動載入。
      - 異地備份、還原、`pull`／`push` 還只涵蓋伺服器世界；在建築世界裡 `pull` 會被拒絕。世界資料夾備份不帶建築世界的草稿（可以從版本重建）。
 2. **玩家建築世界**：`new`（建立選單、三種類型、三種地形、規則預設）、`open`、`home`、`worlds`、成員與角色、私人與公開、進出時切遊戲模式（與選用的背包分開）、訪客的旁觀者限制、傳送門關閉。
+   - 已實作：建立（`/bg new`）。
+     - 選單是一個畫面：三排分別選類型、地形（一般、大型生態域、巨型化、超平坦、虛空）、規則，按「建立」。名稱、種子、超平坦的層、虛空腳下的方塊用指令選項寫（`/bg new castle type=nether terrain=flat layers=bedrock,3*netherrack;minecraft:crimson_forest`），選單會帶著這些選項。
+     - 一般玩家要 `player-worlds.enabled: true` 加上 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）；`buildgit.world.admin` 不受限制。
+     - Fabric 用原版的世界預設與超平坦設定；Paper 的一般地形用 `WorldCreator`，超平坦與虛空用 BuildGit 自己的產生器（Paper 只能讓主世界類型用原版超平坦）。超平坦不生成結構，範本是第三階段。
+     - 建築用規則：遊戲規則每次載入都設定（Fabric 的世界不記），時間停在正午（26.x 是暫停的時鐘；地獄類型沒有時鐘）、和平。所有建築世界都關掉旁觀者生成地形與地獄門。終界類型沒有終界龍。
+     - 出生點在第一次有人進去時決定：(0, 0) 那一柱站得住的地方（地獄類型從下往上找），虛空在 (0, 63, 0) 放方塊並存成第一個存檔「建立」。
 3. **管理**：設定選單、改名、轉讓、刪除與回收區、上限、fork 與範本、提出併回、管理員下架、伺服器世界的成員與私人（含大廳）、持續載入、異地備份涵蓋所有建築世界。
 4. **之後再看**：把單人世界直接上傳成新的建築世界、收藏、回收沒人用的物件。
 
@@ -310,4 +316,4 @@ player-worlds:
 | 提出併回 | 第 3 階段做：fork 的世界 `/bg submit`，來源多一個 `submit/` 分支，審查後用現有的併回流程 |
 | 世界資料夾名稱 | 照玩家取的名稱，格式 `world-name` 可設定（預設 `bw_{owner-name}_{name}`，可以沒有前綴）；改名、轉讓時資料夾跟著改，內部以 id 識別 |
 | 背包 | 預設所有世界共通；擁有者可以為自己的世界打開背包隔離，隔離後才能設定成員、訪客的起始物品；管理員可以強制隔離或不允許 |
-| 存放位置 | 版本庫、物件、起點世界、生成設定各自用路徑範本設定；預設版本庫在 `buildgit/worlds/<id>`、物件共用、生成設定在世界資料夾裡；改成 `{world-folder}/buildgit` 就是整個建築世界都在世界資料夾裡 |
+| 存放位置 | 版本庫、物件、起點世界各自用路徑範本設定；預設版本庫在 `buildgit/worlds/<id>`、物件共用，生成設定在版本庫的 `repo.yml`；改成 `{world-folder}/buildgit` 就是整個建築世界都在世界資料夾裡 |

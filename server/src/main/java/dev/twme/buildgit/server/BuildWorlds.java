@@ -174,11 +174,23 @@ public final class BuildWorlds {
   // ---- 建立 ----
 
   /**
-   * 建立建築世界（主執行緒）：登記、建立版本庫與空的起點世界。世界本身由呼叫的人 {@link Workspace#openMain} 載入。
-   * 名稱或算出來的資料夾、路徑有衝突時以 {@link Workspace.Refused} 拒絕。
+   * 建立建築世界（主執行緒）：登記、建立版本庫、{@code repo.yml} 與空的起點世界。世界本身由呼叫的人 {@link Workspace#openMain} 載入。
+   * 沒給名稱時自動編號（{@code world-1}、{@code world-2}…）。沒開放、超過上限（管理員除外），或名稱、算出來的資料夾、
+   * 路徑有衝突時以 {@link Workspace.Refused} 拒絕。
    */
-  Workspace create(String name, ServerPlayer owner) throws IOException {
+  Workspace create(String name, ServerPlayer owner, WorldConfig config, boolean admin) throws IOException {
     var pw = settings.get().playerWorlds();
+    if (!admin) {
+      if (!pw.enabled()) throw new Workspace.Refused("這台伺服器沒有開放玩家建立建築世界");
+      long owned = worlds.values().stream().filter(ws -> ws.buildWorld().owner().equals(owner.getUUID())).count();
+      if (owned >= pw.maxPerPlayer()) throw new Workspace.Refused("每人最多 " + pw.maxPerPlayer() + " 個建築世界");
+    }
+    if (name == null)
+      for (int i = 1; name == null; i++) {
+        var candidate = "world-" + i;
+        if (worlds.values().stream().noneMatch(ws -> ws.buildWorld().owner().equals(owner.getUUID()) && ws.buildWorld().name().equals(candidate)))
+          name = candidate;
+      }
     if (!Workspace.BRANCH_NAME.matcher(name).matches()) throw new Workspace.Refused("名稱只能用小寫英文、數字、底線、連字號（1～32 字）：" + name);
     if (name.equalsIgnoreCase(serverWorldName())) throw new Workspace.Refused("這是伺服器世界的名稱");
     var ownerName = owner.getScoreboardName().toLowerCase(Locale.ROOT);
@@ -205,7 +217,7 @@ public final class BuildWorlds {
     var ws = workspace(e);
     if (Repository.exists(ws.dir()) || Files.exists(ws.genesisRoot()))
       throw new Workspace.Refused("這個建築世界的資料夾已經存在（" + ws.dir() + "）");
-    ws.create(tracker.author(owner));
+    ws.create(tracker.author(owner), config);
     worlds.put(id, ws);
     save();
     platform.log().info(owner.getScoreboardName() + " 建立了建築世界 " + e.label() + "（" + folder + "）");

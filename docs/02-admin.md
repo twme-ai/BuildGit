@@ -106,7 +106,8 @@ LuckPerms 範例：
 | `buildgit.disk` | `disk`：BuildGit 用掉的磁碟空間 |
 | `buildgit.genesis` | `genesis upgrade`：把起點世界改寫成目前版本的格式（§9） |
 | `buildgit.backup` | `backup`：異地備份的狀態、立刻備份、列出快照、取回分支、還原（§8.1） |
-| `buildgit.world.admin` | 建築世界（§7.1）：`new` 建立、`open` 進入、`home` 回伺服器世界、`worlds` 列出 |
+| `buildgit.world.create` | 建立自己的建築世界（§7.1，要 `player-worlds.enabled: true`）、`home` |
+| `buildgit.world.admin` | 建築世界（§7.1）：不受上限建立、`open` 進入、`home` 回伺服器世界、`worlds` 列出 |
 
 注意：
 
@@ -138,6 +139,8 @@ LuckPerms 範例：
 | `init.genesis-dir` | 空白 | 起點世界放在哪個資料夾（相對於伺服器目錄或絕對路徑）；空白為 `buildgit/genesis`。要重新啟動才生效（見 §6） |
 | `init.lazy-copy-above-mb` | -1 | 世界存檔超過這個大小（MB）時 init 改用延遲複製（見 §3）；0 一律延遲複製，-1 一律完整複製 |
 | `integrations.worldedit`／`axiom`／`debugstickpro` | true | 是否記錄 WorldEdit／FAWE、Axiom、DebugStickPro 的編輯 |
+| `player-worlds.enabled` | `false` | 一般玩家（有 `buildgit.world.create`）能不能建立建築世界 |
+| `player-worlds.max-per-player` | 3 | 每人最多擁有幾個建築世界 |
 | `player-worlds.world-name` | `bw_{owner-name}_{name}` | 建築世界的資料夾名稱（見 §7.1）；只影響之後建立的世界 |
 | `player-worlds.paths.*` | | 建築世界的版本庫、物件、起點世界放在哪裡（見 §7.1） |
 | `tracking.*` | | 連帶變化的時間窗與距離、哪些實體不記錄；通常不用改 |
@@ -174,14 +177,16 @@ LuckPerms 範例：
 
 除了伺服器原本的世界，管理員可以建立**建築世界**：每個建築世界是獨立的版本庫，有自己的歷史與草稿，存檔、併回、撤銷、還原都只影響它自己（規劃見 [03-worlds.md](03-worlds.md)，目前是第一階段）。
 
-| 指令（需要 `buildgit.world.admin`） | 做什麼 |
+| 指令 | 做什麼 |
 |---|---|
-| `/bg new <名稱>` | 建立自己的建築世界並傳送進去。名稱用小寫英文、數字、`_`、`-` |
+| `/bg new [名稱] [選項]` | 打開建立選單：選世界類型（主世界、地獄、終界）、地形（一般、大型生態域、巨型化、超平坦、虛空）、規則（建築用、原版），按「建立」後傳送進去。名稱用小寫英文、數字、`_`、`-`，沒給就自動編號。選單裡改不了的用選項寫：`seed=…`、`layers=…`（超平坦的層，寫法和原版超平坦的預設代碼相同）、`block=…`（虛空腳下的方塊）；加上 `confirm` 不開選單直接建立 |
 | `/bg open <世界>` | 進入建築世界：自己的寫名稱，別人的寫 `擁有者/名稱`；寫伺服器世界的名稱就是回去 |
 | `/bg home` | 回到進入建築世界之前在伺服器世界的位置 |
 | `/bg worlds` | 列出所有建築世界、是否載入、裡面幾個人；點一下進去 |
 
-- 地形照伺服器主世界的生成設定。一個建築世界只有一個維度。
+- **誰能建立**：有 `buildgit.world.admin` 的人隨時可以；一般玩家要 `player-worlds.enabled: true` 並給 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）。`open`、`worlds` 目前仍只有管理員能用。
+- **建築用規則**：固定正午與晴天、和平、不生成生物、隨機刻 0（作物不長、冰不融化）、火不蔓延、生物不破壞方塊。建築世界一律關掉「旁觀者生成地形」與地獄門，終界類型沒有終界龍。
+- 類型、地形、種子建立後不能改。一個建築世界只有一個維度。設定記在它版本庫裡的 `repo.yml`。
 - **世界資料夾**：名稱由 `player-worlds.world-name` 決定，例如 bob 的 `castle` 是 `bw_bob_castle`（Paper 26.x 在 `world/dimensions/minecraft/` 底下，1.21.11 在伺服器根目錄）。它的草稿是 `bw_bob_castle-<草稿>`。名稱和現有的世界、資料夾、伺服器世界衝突時會拒絕建立。
 - **資料放在哪裡**：預設版本庫在 `buildgit/worlds/<id>/`，物件和伺服器世界共用 `buildgit/objects/`。清單在 `buildgit/worlds.yml`，不要手動改。
 - 想把整個建築世界（含歷史）放進它的世界資料夾，壓縮一個資料夾就帶走：

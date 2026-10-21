@@ -67,6 +67,10 @@ worlds:
 
 # 建築世界：一個世界一個版本庫（docs/03-worlds.md）。目前由管理員用 /bg new 建立。
 player-worlds:
+  # 一般玩家能不能用 /bg new 建立自己的建築世界（還要有 buildgit.world.create 權限）。管理員（buildgit.world.admin）不受限制。
+  enabled: false
+  # 每人最多擁有幾個建築世界（不含受邀的）。
+  max-per-player: 3
   # 伺服器世界在 /bg open 等指令裡的名稱；空白時用 server.properties 的 level-name（預設 world）。
   server-world-name: ""
   # 世界資料夾的名稱。{name} 是建築世界的名稱（必須有），{owner-name} 是擁有者的玩家名稱（小寫），

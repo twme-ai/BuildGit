@@ -69,12 +69,15 @@ public final class Versions {
 
   // ---- Fantasy（1.21.x 的 API 以 World 命名） ----
 
-  public static Object openLevel(MinecraftServer server, Identifier id, ServerLevel template) {
+  /** @param fixed 建築用規則：時間不走（Fantasy 的世界預設是正午、晴天）、和平 */
+  public static Object openLevel(MinecraftServer server, Identifier id, net.minecraft.core.Holder<net.minecraft.world.level.dimension.DimensionType> type,
+      net.minecraft.world.level.chunk.ChunkGenerator generator, long seed, boolean fixed) {
     var config = new RuntimeWorldConfig()
-        .setDimensionType(template.dimensionTypeRegistration())
-        .setGenerator(template.getChunkSource().getGenerator())
-        .setSeed(template.getSeed())
-        .setShouldTickTime(true);
+        .setDimensionType(type)
+        .setGenerator(generator)
+        .setSeed(seed)
+        .setShouldTickTime(!fixed);
+    if (fixed) config.setDifficulty(net.minecraft.world.Difficulty.PEACEFUL);
     return Fantasy.get(server).getOrOpenPersistentWorld(id, config);
   }
 

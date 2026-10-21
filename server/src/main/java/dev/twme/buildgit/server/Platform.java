@@ -74,6 +74,17 @@ public interface Platform {
    */
   ServerLevel openLevel(String name, ServerLevel template, Synthesizer blocks, Synthesizer entities) throws IOException;
 
+  /**
+   * 開啟建築世界或它的草稿、檢視世界（主執行緒）：產生器、種子、維度類型照 {@code gen}（03-worlds §3）。
+   * 建築用規則時固定正午、晴天、和平（遊戲規則由 BuildGit 自己設定）。其他同 {@link #openLevel(String, ServerLevel, Synthesizer, Synthesizer)}。
+   */
+  ServerLevel openLevel(String name, WorldConfig.Gen gen, Synthesizer blocks, Synthesizer entities) throws IOException;
+
+  /** 設定這個世界的遊戲規則（建築世界各自一份）。原版的 {@code set} 第三個參數是伺服器，Paper 改成世界。 */
+  default <T> void gameRule(ServerLevel level, net.minecraft.world.level.gamerules.GameRule<T> rule, T value) {
+    level.getGameRules().set(rule, value, null);
+  }
+
   /** 卸載 BuildGit 的世界（主執行緒）。裡面不能有玩家。 */
   boolean unloadLevel(ServerLevel level, boolean save);
 

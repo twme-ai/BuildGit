@@ -119,6 +119,9 @@ permissions:
   buildgit.backup:
     description: 異地備份的狀態、立刻備份、列出快照（backup）
     default: op
+  buildgit.world.create:
+    description: 建立自己的建築世界（new，要 player-worlds.enabled）、回伺服器世界（home）
+    default: op
   buildgit.world.admin:
     description: 建立、進出、列出建築世界（new、open、home、worlds）；之後也能管理所有建築世界
     default: op

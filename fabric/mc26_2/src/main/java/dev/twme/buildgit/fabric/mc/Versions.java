@@ -72,12 +72,15 @@ public final class Versions {
 
   // ---- Fantasy（26.x 的 API 以 Level 命名） ----
 
-  public static Object openLevel(MinecraftServer server, Identifier id, ServerLevel template) {
+  /** @param fixed 建築用規則：時鐘停在正午、和平（Fantasy 的世界預設晴天） */
+  public static Object openLevel(MinecraftServer server, Identifier id, net.minecraft.core.Holder<net.minecraft.world.level.dimension.DimensionType> type,
+      net.minecraft.world.level.chunk.ChunkGenerator generator, long seed, boolean fixed) {
     var config = new RuntimeLevelConfig()
-        .setDimensionType(template.dimensionTypeRegistration())
-        .setGenerator(template.getChunkSource().getGenerator())
-        .setSeed(template.getSeed())
-        .setShouldTickTime(true);
+        .setDimensionType(type)
+        .setGenerator(generator)
+        .setSeed(seed)
+        .setShouldTickTime(!fixed);
+    if (fixed) config.setDifficulty(net.minecraft.world.Difficulty.PEACEFUL).setClockTime(net.minecraft.world.clock.WorldClocks.OVERWORLD, 6000, true);
     return Fantasy.get(server).getOrOpenPersistentLevel(id, config);
   }
 

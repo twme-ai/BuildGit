@@ -162,6 +162,45 @@ final class PaperPlatform implements Platform, Listener {
     return level(world);
   }
 
+  @Override
+  public ServerLevel openLevel(String name, dev.twme.buildgit.server.WorldConfig.Gen gen, Synthesizer blocks, Synthesizer entities) throws IOException {
+    World world;
+    creating.put(name, new Pending(null, blocks, entities));
+    try {
+      var creator = new WorldCreator(name).seed(gen.seed()).environment(switch (gen.type()) {
+        case NETHER -> World.Environment.NETHER;
+        case END -> World.Environment.THE_END;
+        default -> World.Environment.NORMAL;
+      });
+      switch (gen.terrain()) {
+        case FLAT, VOID -> creator.generator(new LayerGenerator(gen.layers(), gen.biome())).generateStructures(false);
+        case LARGE_BIOMES -> creator.type(org.bukkit.WorldType.LARGE_BIOMES);
+        case AMPLIFIED -> creator.type(org.bukkit.WorldType.AMPLIFIED);
+        default -> creator.type(org.bukkit.WorldType.NORMAL);
+      }
+      world = creator.createWorld();
+    } finally {
+      creating.remove(name);
+    }
+    if (world == null) throw new IOException("無法建立世界 " + name);
+    if (gen.rules() == dev.twme.buildgit.server.WorldConfig.Rules.BUILD) {
+      try {
+        world.setTime(6000);
+      } catch (IllegalArgumentException e) {
+        // 26.x：地獄類型沒有時鐘，本來就沒有日夜
+      }
+      world.setStorm(false);
+      world.setThundering(false);
+      world.setDifficulty(org.bukkit.Difficulty.PEACEFUL);
+    }
+    return level(world);
+  }
+
+  @Override
+  public <T> void gameRule(ServerLevel level, net.minecraft.world.level.gamerules.GameRule<T> rule, T value) {
+    level.getGameRules().set(rule, value, level);
+  }
+
   /** 分支世界在讀取任何 chunk 之前掛上合成讀取。 */
   @EventHandler(priority = EventPriority.LOWEST)
   public void onWorldInit(WorldInitEvent e) {
@@ -184,8 +223,10 @@ final class PaperPlatform implements Platform, Listener {
   private static void skipSpawnSearch(ServerLevel level, ServerLevel template) {
     net.minecraft.world.level.storage.ServerLevelData data = level.serverLevelData;
     if (data.isInitialized()) return;
-    var spawn = template.getLevelData().getRespawnData();
-    data.setSpawn(net.minecraft.world.level.storage.LevelData.RespawnData.of(level.dimension(), spawn.pos(), spawn.yaw(), spawn.pitch()));
+    // 建築世界沒有來源世界：出生點由 BuildGit 決定後自己傳送，這裡只要避免搜尋
+    var spawn = template == null ? null : template.getLevelData().getRespawnData();
+    data.setSpawn(net.minecraft.world.level.storage.LevelData.RespawnData.of(level.dimension(),
+        spawn == null ? new net.minecraft.core.BlockPos(0, 64, 0) : spawn.pos(), spawn == null ? 0 : spawn.yaw(), spawn == null ? 0 : spawn.pitch()));
     data.setInitialized(true);
   }
 

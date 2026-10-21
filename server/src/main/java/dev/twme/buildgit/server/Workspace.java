@@ -36,6 +36,7 @@ import java.util.stream.Stream;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.level.chunk.LevelChunk;
 
 /**
@@ -72,6 +73,8 @@ public final class Workspace {
   /** 建築世界；伺服器世界的版本庫為 null。 */
   private final BuildWorlds.Entry world;
   private final BuildWorlds registry;
+  /** 建築世界自己的設定（{@code repo.yml}）；伺服器世界的版本庫為 null。 */
+  private WorldConfig config;
   /** 建築世界在版本中唯一的維度。 */
   static final String OVERWORLD = "minecraft:overworld";
   private static final String GENESIS_POINTER = "genesis-dir";
@@ -135,6 +138,16 @@ public final class Workspace {
   /** 建築世界；伺服器世界的版本庫為 null。 */
   public BuildWorlds.Entry buildWorld() {
     return world;
+  }
+
+  /** 建築世界的設定；伺服器世界的版本庫、或還沒開啟時為 null。 */
+  public WorldConfig config() {
+    return config;
+  }
+
+  /** 改過設定後寫回 {@code repo.yml}（主執行緒）。 */
+  void saveConfig() throws IOException {
+    config.save(dir, upgrader.current());
   }
 
   /** 給玩家看的名稱：建築世界是「擁有者/名稱」，伺服器世界是它的名稱。 */
@@ -480,6 +493,7 @@ public final class Workspace {
   public void open() throws IOException {
     if (!Repository.exists(dir)) return;
     repo = Repository.open(dir, objectsDir, upgrader);
+    if (world != null) config = WorldConfig.load(dir, upgrader);
     genesis = new AnvilSource(d -> {
       var p = genesisDir(d);
       return Files.isDirectory(p) ? p : null;
@@ -507,22 +521,28 @@ public final class Workspace {
    * 建立建築世界的版本庫（主執行緒）：空的起點世界與第一個存檔，再開啟。起點世界在 chunk 第一次生成時補上（設計 §2.3），
    * 所以建立是立刻的。
    */
-  void create(Author author) throws IOException {
+  void create(Author author, WorldConfig config) throws IOException {
     Files.createDirectories(genesisDir(OVERWORLD).resolve("region"));
     Files.createDirectories(genesisDir(OVERWORLD).resolve("entities"));
     Repository.init(dir, objectsDir, author, System.currentTimeMillis(), upgrader);
+    config.save(dir, upgrader.current());
     open();
   }
 
   /**
-   * 建築世界：載入它的主世界（主執行緒）。產生器、種子、維度類型照伺服器的主世界；世界資料夾不在時以起點世界＋最新存檔合成，
+   * 建築世界：載入它的主世界（主執行緒）。產生器、種子、維度類型照 {@code repo.yml}；世界資料夾不在時以起點世界＋最新存檔合成，
    * 和草稿一樣。剛建立的世界把已經生成的 chunk 補進起點世界：它們在掛上追蹤之前生成，沒有經過 {@link #newChunk}。
    */
   ServerLevel openMain() throws IOException {
     var level = main().world(OVERWORLD);
     if (level != null) return level;
-    // 還沒有 region 就是剛建立（版本庫放在世界資料夾裡時，資料夾在建立前就有了）
-    boolean fresh = !Files.isDirectory(platform.levelFolder(world.folder()).resolve("region"));
+    // 起點世界還是空的就是剛建立（世界資料夾的位置與有沒有，依版本庫放哪、Minecraft 版本與世界類型而不同）
+    boolean fresh;
+    try (var files = Files.list(genesisDir(OVERWORLD).resolve("region"))) {
+      fresh = files.findAny().isEmpty();
+    } catch (java.nio.file.NoSuchFileException e) {
+      fresh = true;
+    }
     level = createWorld(world.folder(), platform.server().overworld(), new Pending(OVERWORLD, () -> repo.commit(repo.head(Repository.MAIN)).tree()));
     attachMain(level);
     if (fresh)
@@ -1016,17 +1036,87 @@ public final class Workspace {
     return wt;
   }
 
+  /** 建立或取得 BuildGit 的世界。建築世界的（含草稿、檢視）照它的生成設定，其他照抄 {@code template}。 */
   private ServerLevel createWorld(String name, ServerLevel template, Pending source) throws IOException {
     var world = platform.findLevel(name);
     if (world == null) {
-      world = platform.openLevel(name, template,
-          (target, rx, rz) -> synthesizer(source).blocks(target, rx, rz),
-          (target, rx, rz) -> synthesizer(source).entities(target, rx, rz));
+      Platform.Synthesizer blocks = (target, rx, rz) -> synthesizer(source).blocks(target, rx, rz);
+      Platform.Synthesizer entities = (target, rx, rz) -> synthesizer(source).entities(target, rx, rz);
+      world = config != null && config.terrain != WorldConfig.Terrain.SERVER ? platform.openLevel(name, config.gen(), blocks, entities)
+          : platform.openLevel(name, template, blocks, entities);
       if (world == null) throw new IOException("無法建立世界 " + name);
       tracker.precise(world, dev.twme.buildgit.server.nms.CascadeUpdater.install(platform, world, tracker));
+      if (config != null) applyRules(world);
     }
     sources.put(world, source);
     return world;
+  }
+
+  /**
+   * 建築世界的遊戲規則（每次載入都設定，Fabric 的世界不記）：旁觀者不生成新地形、地獄門不能用（03-worlds §2.2、§4.1）；
+   * 建築用規則再固定時間與天氣、不生成生物、隨機刻 0、火不蔓延、生物不破壞方塊。終界類型沒有終界龍。
+   */
+  private void applyRules(ServerLevel level) {
+    platform.gameRule(level, GameRules.SPECTATORS_GENERATE_CHUNKS, false);
+    platform.gameRule(level, GameRules.ALLOW_ENTERING_NETHER_USING_PORTALS, false);
+    level.setDragonFight(null);
+    if (config.rules != WorldConfig.Rules.BUILD) return;
+    for (var rule : List.of(GameRules.ADVANCE_TIME, GameRules.ADVANCE_WEATHER, GameRules.SPAWN_MOBS, GameRules.SPAWN_MONSTERS,
+        GameRules.SPAWN_PATROLS, GameRules.SPAWN_PHANTOMS, GameRules.SPAWN_WANDERING_TRADERS, GameRules.SPAWN_WARDENS, GameRules.MOB_GRIEFING,
+        GameRules.RAIDS, GameRules.SPREAD_VINES))
+      platform.gameRule(level, rule, false);
+    platform.gameRule(level, GameRules.RANDOM_TICK_SPEED, 0);
+    platform.gameRule(level, GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER, 0);
+  }
+
+  /**
+   * 第一次有人進來時決定出生點（主執行緒呼叫，在主執行緒完成）：虛空世界在腳下放一格方塊，存成第一個存檔；
+   * 其他地形找 (0, 0) 那一柱站得住的地方。決定後記在 {@code repo.yml}。
+   */
+  CompletableFuture<WorldConfig.Spawn> spawn(Author author, String message) {
+    if (config.spawn != null) return CompletableFuture.completedFuture(config.spawn);
+    ServerLevel level;
+    try {
+      level = openMain();
+    } catch (IOException e) {
+      return CompletableFuture.failedFuture(e);
+    }
+    var result = new CompletableFuture<WorldConfig.Spawn>();
+    platform.loadChunk(level, 0, 0).thenAccept(chunk -> sync(() -> {
+      try {
+        int y;
+        if (config.terrain == WorldConfig.Terrain.VOID) {
+          var pos = new net.minecraft.core.BlockPos(0, 63, 0);
+          var state = net.minecraft.commands.arguments.blocks.BlockStateParser.parseForBlock(
+              net.minecraft.core.registries.BuiltInRegistries.BLOCK, config.block == null ? "minecraft:stone" : config.block, false).blockState();
+          level.setBlock(pos, state, 3);
+          tracker.markBox(level, Box.of(new BlockPos(0, 63, 0), new BlockPos(0, 63, 0)), author);
+          main().save(author, message, 0, r -> {}, e -> log().log(Level.WARNING, "無法存下建築世界 " + label() + " 的第一個存檔", e));
+          y = 64;
+        } else y = standable(level);
+        config.spawn = new WorldConfig.Spawn(0.5, y, 0.5, 0, 0);
+        saveConfig();
+        result.complete(config.spawn);
+      } catch (Exception e) {
+        result.completeExceptionally(e);
+      }
+    })).exceptionally(e -> {
+      result.completeExceptionally(e);
+      return null;
+    });
+    return result;
+  }
+
+  /** (0, 0) 那一柱站得住的高度：有天花板的（地獄）從下往上找腳下是實心、上面兩格是空氣的地方，其他取地表。 */
+  private static int standable(ServerLevel level) {
+    int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0);
+    if (!level.dimensionType().hasCeiling()) return top;
+    for (int y = level.getMinY() + 1; y < top - 1; y++) {
+      var below = new net.minecraft.core.BlockPos(0, y - 1, 0);
+      if (level.getBlockState(below).isFaceSturdy(level, below, net.minecraft.core.Direction.UP) && level.getBlockState(below.above()).isAir() && level.getBlockState(below.above(2)).isAir())
+        return y;
+    }
+    return top;
   }
 
   /** 某個覆寫表、某個維度的合成器。IO 執行緒呼叫。 */

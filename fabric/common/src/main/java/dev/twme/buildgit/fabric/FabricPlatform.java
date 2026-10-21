@@ -229,12 +229,54 @@ final class FabricPlatform implements Platform {
 
   @Override
   public ServerLevel openLevel(String name, ServerLevel template, Synthesizer blocks, Synthesizer entities) throws IOException {
+    return open(name, template.dimensionTypeRegistration(), template.getChunkSource().getGenerator(), template.getSeed(), false, blocks, entities);
+  }
+
+  @Override
+  public ServerLevel openLevel(String name, dev.twme.buildgit.server.WorldConfig.Gen gen, Synthesizer blocks, Synthesizer entities) throws IOException {
+    var access = server.registryAccess();
+    var preset = switch (gen.terrain()) {
+      case LARGE_BIOMES -> net.minecraft.world.level.levelgen.presets.WorldPresets.LARGE_BIOMES;
+      case AMPLIFIED -> net.minecraft.world.level.levelgen.presets.WorldPresets.AMPLIFIED;
+      default -> net.minecraft.world.level.levelgen.presets.WorldPresets.NORMAL;
+    };
+    var stemKey = switch (gen.type()) {
+      case NETHER -> net.minecraft.world.level.dimension.LevelStem.NETHER;
+      case END -> net.minecraft.world.level.dimension.LevelStem.END;
+      default -> net.minecraft.world.level.dimension.LevelStem.OVERWORLD;
+    };
+    var stem = access.lookupOrThrow(Registries.WORLD_PRESET).getOrThrow(preset).value().createWorldDimensions().get(stemKey).orElseThrow();
+    var generator = stem.generator();
+    if (gen.terrain() == dev.twme.buildgit.server.WorldConfig.Terrain.FLAT || gen.terrain() == dev.twme.buildgit.server.WorldConfig.Terrain.VOID) {
+      // 原版超平坦的設定：沒有結構、湖泊、裝飾
+      var json = new com.google.gson.JsonObject();
+      var layers = new com.google.gson.JsonArray();
+      for (var l : gen.layers()) {
+        var layer = new com.google.gson.JsonObject();
+        layer.addProperty("block", l.block());
+        layer.addProperty("height", l.count());
+        layers.add(layer);
+      }
+      json.add("layers", layers);
+      json.addProperty("biome", gen.biome());
+      json.addProperty("features", false);
+      json.addProperty("lakes", false);
+      json.add("structure_overrides", new com.google.gson.JsonArray());
+      var settings = net.minecraft.world.level.levelgen.flat.FlatLevelGeneratorSettings.CODEC
+          .parse(net.minecraft.resources.RegistryOps.create(com.mojang.serialization.JsonOps.INSTANCE, access), json).getOrThrow();
+      generator = new net.minecraft.world.level.levelgen.FlatLevelSource(settings);
+    }
+    return open(name, stem.type(), generator, gen.seed(), gen.rules() == dev.twme.buildgit.server.WorldConfig.Rules.BUILD, blocks, entities);
+  }
+
+  private ServerLevel open(String name, net.minecraft.core.Holder<net.minecraft.world.level.dimension.DimensionType> type,
+      net.minecraft.world.level.chunk.ChunkGenerator generator, long seed, boolean fixed, Synthesizer blocks, Synthesizer entities) throws IOException {
     var dir = levelFolder(name);
     // 必須在世界建立之前登記：Fantasy 建立世界時就可能讀取 chunk
     Synthesis.register(dir.resolve("region"), blocks);
     Synthesis.register(dir.resolve("entities"), entities);
     try {
-      var handle = Versions.openLevel(server, id(name), template);
+      var handle = Versions.openLevel(server, id(name), type, generator, seed, fixed);
       var level = Versions.level(handle);
       handles.put(name, handle);
       unloading.remove(level);

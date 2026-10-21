@@ -115,9 +115,11 @@ public final class BgCommand {
     sub("revert", "buildgit.revert", this::revert, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("restore", "buildgit.restore", this::restore, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--selection", "confirm"));
     // 建築世界（03-worlds）：第一階段只有管理員能建立與進出
-    sub("new", "buildgit.world.admin", this::newWorld, null);
+    sub("new", "buildgit.world.create|buildgit.world.admin", this::newWorld, (s, b) -> List.of("type=overworld", "type=nether", "type=end",
+        "terrain=normal", "terrain=large-biomes", "terrain=amplified", "terrain=flat", "terrain=void", "rules=build", "rules=vanilla",
+        "seed=", "layers=", "block=", "confirm"));
     sub("open", "buildgit.world.admin", this::openWorld, (s, b) -> b.isEmpty() ? worldNames() : List.of());
-    sub("home", "buildgit.world.admin", (s, a) -> home(s), null);
+    sub("home", "buildgit.world.create|buildgit.world.admin", (s, a) -> home(s), null);
     sub("worlds", "buildgit.world.admin", (s, a) -> worlds(s), null);
   }
 
@@ -1827,17 +1829,133 @@ public final class BgCommand {
   }
 
   /** {@code new <名稱>}：建立自己的建築世界並進去。 */
+  /**
+   * {@code new [名稱] [type=…] [terrain=…] [rules=…] [seed=…] [layers=…] [block=…] [confirm]}：沒有 {@code confirm} 時打開建立選單，
+   * 選單裡點選就是帶著改過的選項再執行一次；按「建立」才真的建立並傳送進去。
+   */
   private void newWorld(Sender sender, String[] args) throws IOException {
     var p = player(sender);
     if (p == null) return;
-    var w = words(args);
-    if (w.size() != 1) {
-      msg().send(sender, "usage-new");
+    var o = parseNew(sender, args);
+    if (o == null) return;
+    if (!flags(args).contains("confirm")) {
+      bg.menu().openCreate(p, o);
       return;
     }
-    var ws = bg.worlds().create(w.getFirst().toLowerCase(Locale.ROOT), p);
+    var ws = bg.worlds().create(o.name(), p, newConfig(o), sender.hasPermission("buildgit.world.admin"));
     msg().send(sender, "world-created", "world", ws.label(), "folder", ws.buildWorld().folder());
     enter(p, ws);
+  }
+
+  /** {@code new} 的選項；種子、層、方塊照輸入的樣子保留，選單點選時原樣帶著走。 */
+  record NewWorld(String name, WorldConfig.Type type, WorldConfig.Terrain terrain, WorldConfig.Rules rules, String seed, String layers, String block) {
+    NewWorld withType(WorldConfig.Type t) {
+      // 大型生態域與巨型化只有主世界類型有
+      var keep = t == WorldConfig.Type.OVERWORLD || terrain != WorldConfig.Terrain.LARGE_BIOMES && terrain != WorldConfig.Terrain.AMPLIFIED;
+      return new NewWorld(name, t, keep ? terrain : WorldConfig.Terrain.NORMAL, rules, seed, layers, block);
+    }
+
+    NewWorld withTerrain(WorldConfig.Terrain t) {
+      return new NewWorld(name, type, t, rules, seed, layers, block);
+    }
+
+    NewWorld withRules(WorldConfig.Rules r) {
+      return new NewWorld(name, type, terrain, r, seed, layers, block);
+    }
+
+    /** 再執行一次 {@code new} 用的參數。 */
+    String args() {
+      var sb = new StringJoiner(" ");
+      if (name != null) sb.add(name);
+      sb.add("type=" + WorldConfig.key(type)).add("terrain=" + WorldConfig.key(terrain)).add("rules=" + WorldConfig.key(rules));
+      if (seed != null) sb.add("seed=" + seed);
+      if (layers != null) sb.add("layers=" + layers);
+      if (block != null) sb.add("block=" + block);
+      return sb.toString();
+    }
+  }
+
+  private NewWorld parseNew(Sender sender, String[] args) {
+    String name = null, seed = null, layers = null, block = null;
+    var type = WorldConfig.Type.OVERWORLD;
+    var terrain = WorldConfig.Terrain.NORMAL;
+    var rules = WorldConfig.Rules.BUILD;
+    for (var a : words(args)) {
+      int eq = a.indexOf('=');
+      if (eq < 0) {
+        if (name != null) {
+          msg().send(sender, "usage-new");
+          return null;
+        }
+        name = a.toLowerCase(Locale.ROOT);
+        continue;
+      }
+      var value = a.substring(eq + 1);
+      boolean ok = true;
+      switch (a.substring(0, eq).toLowerCase(Locale.ROOT)) {
+        case "type" -> ok = (type = WorldConfig.parse(WorldConfig.Type.class, value)) != null;
+        case "terrain" -> ok = (terrain = WorldConfig.parse(WorldConfig.Terrain.class, value)) != null && terrain != WorldConfig.Terrain.SERVER;
+        case "rules" -> ok = (rules = WorldConfig.parse(WorldConfig.Rules.class, value)) != null;
+        case "seed" -> seed = value.isEmpty() ? null : value;
+        case "layers" -> layers = value.isEmpty() ? null : value;
+        case "block" -> block = value.isEmpty() ? null : value;
+        default -> ok = false;
+      }
+      if (!ok) {
+        msg().send(sender, "world-bad-option", "option", a);
+        return null;
+      }
+    }
+    return new NewWorld(name, type, terrain, rules, seed, layers, block);
+  }
+
+  /** 把選項變成建築世界的設定，檢查方塊與生態域存在、層數放得下。 */
+  private WorldConfig newConfig(NewWorld o) throws Workspace.Refused {
+    if (o.type() != WorldConfig.Type.OVERWORLD && (o.terrain() == WorldConfig.Terrain.LARGE_BIOMES || o.terrain() == WorldConfig.Terrain.AMPLIFIED))
+      throw new Workspace.Refused("大型生態域與巨型化只有主世界類型有");
+    var c = new WorldConfig();
+    c.type = o.type();
+    c.terrain = o.terrain();
+    c.rules = o.rules();
+    if (o.seed() == null) c.seed = new Random().nextLong();
+    else {
+      try {
+        c.seed = Long.parseLong(o.seed());
+      } catch (NumberFormatException e) {
+        c.seed = o.seed().hashCode(); // 和原版一樣：不是數字就用文字的雜湊
+      }
+    }
+    c.biome = WorldConfig.defaultBiome(c.type, c.terrain);
+    if (c.terrain == WorldConfig.Terrain.FLAT) {
+      if (o.layers() == null) c.layers = WorldConfig.defaultLayers(c.type);
+      else {
+        var biome = new StringBuilder();
+        try {
+          c.layers = WorldConfig.parseLayers(o.layers(), biome);
+        } catch (IllegalArgumentException e) {
+          throw new Workspace.Refused("層的寫法不對：" + o.layers() + "（例如 minecraft:bedrock,2*minecraft:dirt,minecraft:grass_block;minecraft:plains）");
+        }
+        if (!biome.isEmpty()) c.biome = biome.toString();
+      }
+      int height = c.type == WorldConfig.Type.OVERWORLD ? 384 : 256;
+      if (c.layers.stream().mapToInt(WorldConfig.Layer::count).sum() > height) throw new Workspace.Refused("層加起來超過世界的高度 " + height);
+      for (var l : c.layers) requireBlock(l.block());
+    }
+    if (c.terrain == WorldConfig.Terrain.VOID) {
+      c.block = WorldConfig.id(o.block() == null ? "stone" : o.block());
+      requireBlock(c.block);
+      if (c.block.equals("minecraft:air")) throw new Workspace.Refused("腳下那一格不能是空氣");
+    }
+    var biome = net.minecraft.resources.Identifier.tryParse(c.biome);
+    if (biome == null || bg.platform().server().registryAccess().lookupOrThrow(net.minecraft.core.registries.Registries.BIOME)
+        .get(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.BIOME, biome)).isEmpty())
+      throw new Workspace.Refused("沒有這個生態域：" + c.biome);
+    return c;
+  }
+
+  private static void requireBlock(String id) throws Workspace.Refused {
+    var key = net.minecraft.resources.Identifier.tryParse(id);
+    if (key == null || !net.minecraft.core.registries.BuiltInRegistries.BLOCK.containsKey(key)) throw new Workspace.Refused("沒有這個方塊：" + id);
   }
 
   /** {@code open <世界>}：自己的寫名稱，別人的寫「擁有者/名稱」，伺服器世界寫它的名稱。 */
@@ -1862,14 +1980,18 @@ public final class BgCommand {
     enter(p, ws);
   }
 
-  /** 傳送到建築世界：主世界 (0, 0) 最高的方塊上。從伺服器世界進來時記下位置給 {@code home}。 */
+  /** 傳送到建築世界的出生點（第一次有人進來時才決定）。從伺服器世界進來時記下位置給 {@code home}。 */
   private void enter(ServerPlayer p, Workspace ws) throws IOException {
     if (bg.workspace(p.level()).buildWorld() == null)
       homes.put(p.getUUID(), new Location(p.level(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()));
     var level = ws.openMain();
-    bg.platform().loadChunk(level, 0, 0).thenAccept(chunk -> ws.sync(() -> {
-      int y = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0);
-      bg.platform().teleport(p, level, 0.5, y, 0.5, p.getYRot(), p.getXRot());
+    ws.spawn(bg.tracker().author(p), msg().raw("world-first-commit")).whenComplete((spawn, e) -> ws.sync(() -> {
+      if (e != null) {
+        bg.platform().log().log(Level.WARNING, "無法決定建築世界 " + ws.label() + " 的出生點", e);
+        failed(s(p), Workspace.unwrap(e));
+        return;
+      }
+      bg.platform().teleport(p, level, spawn.x(), spawn.y(), spawn.z(), spawn.yaw(), spawn.pitch());
       msg().send(s(p), "world-entered", "world", ws.label());
     }));
   }
