@@ -118,13 +118,13 @@ public final class WorldConfig {
   }
 
   /** 每種類型的超平坦預設（和原版「經典平坦」相同的想法）。 */
-  /** 預設的層：地面在 y=64（主世界從 -64、地獄與終界從 0 往上疊）。 */
+  /** 預設的層：底下墊空氣，地面在 y=64（主世界從 -64、地獄與終界從 0 往上疊）。 */
   static List<Layer> defaultLayers(Type type) {
     return switch (type) {
-      case OVERWORLD -> List.of(new Layer("minecraft:bedrock", 1), new Layer("minecraft:stone", 124), new Layer("minecraft:dirt", 3),
+      case OVERWORLD -> List.of(new Layer("minecraft:air", 125), new Layer("minecraft:bedrock", 1), new Layer("minecraft:dirt", 2),
           new Layer("minecraft:grass_block", 1));
-      case NETHER -> List.of(new Layer("minecraft:bedrock", 1), new Layer("minecraft:netherrack", 64));
-      case END -> List.of(new Layer("minecraft:end_stone", 65));
+      case NETHER -> List.of(new Layer("minecraft:air", 62), new Layer("minecraft:bedrock", 1), new Layer("minecraft:netherrack", 2));
+      case END -> List.of(new Layer("minecraft:air", 62), new Layer("minecraft:end_stone", 3));
     };
   }
 
