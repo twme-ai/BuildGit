@@ -1065,24 +1065,42 @@ public final class Workspace {
   }
 
   /**
-   * 建築世界的遊戲規則（每次載入都設定，Fabric 的世界不記）：旁觀者不生成新地形、地獄門不能用（03-worlds §2.2、§4.1）；
-   * 建築用規則再固定時間與天氣、不生成生物、隨機刻 0、火不蔓延、生物不破壞方塊。終界類型沒有終界龍。
+   * 建築世界的遊戲規則與設定（每次載入、改設定時都設定，Fabric 的世界不記）：旁觀者不生成新地形、地獄門不能用
+   * （03-worlds §2.2、§4.1）、終界類型沒有終界龍；時間、天氣、難度、生物、自然變化、世界邊界照設定（§3）。
    */
   private void applyRules(ServerLevel level) {
     platform.gameRule(level, GameRules.SPECTATORS_GENERATE_CHUNKS, false);
     platform.gameRule(level, GameRules.ALLOW_ENTERING_NETHER_USING_PORTALS, false);
     level.setDragonFight(null);
-    // 世界邊界也是訪客能去的範圍（03-worlds §4.1）；每次載入都設定，Fabric 的世界不記
+    // 世界邊界也是訪客能去的範圍（03-worlds §4.1）
     var border = level.getWorldBorder();
-    border.setCenter(0, 0);
-    border.setSize(tracker.settings().playerWorlds().border());
-    if (config.rules != WorldConfig.Rules.BUILD) return;
-    for (var rule : List.of(GameRules.ADVANCE_TIME, GameRules.ADVANCE_WEATHER, GameRules.SPAWN_MOBS, GameRules.SPAWN_MONSTERS,
-        GameRules.SPAWN_PATROLS, GameRules.SPAWN_PHANTOMS, GameRules.SPAWN_WANDERING_TRADERS, GameRules.SPAWN_WARDENS, GameRules.MOB_GRIEFING,
-        GameRules.RAIDS, GameRules.SPREAD_VINES))
-      platform.gameRule(level, rule, false);
-    platform.gameRule(level, GameRules.RANDOM_TICK_SPEED, 0);
-    platform.gameRule(level, GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER, 0);
+    border.setCenter(config.border > 0 ? config.borderX : 0, config.border > 0 ? config.borderZ : 0);
+    border.setSize(borderSize());
+    platform.gameRule(level, GameRules.ADVANCE_TIME, config.time == null);
+    if (config.time != null) platform.time(level, config.time);
+    platform.gameRule(level, GameRules.ADVANCE_WEATHER, config.weather == WorldConfig.Weather.CYCLE);
+    if (config.weather != WorldConfig.Weather.CYCLE)
+      platform.weather(level, config.weather != WorldConfig.Weather.CLEAR, config.weather == WorldConfig.Weather.THUNDER);
+    platform.difficulty(level, config.difficulty != null ? config.difficulty : platform.server().getWorldData().getDifficulty());
+    for (var rule : List.of(GameRules.SPAWN_MOBS, GameRules.SPAWN_MONSTERS, GameRules.SPAWN_PATROLS, GameRules.SPAWN_PHANTOMS,
+        GameRules.SPAWN_WANDERING_TRADERS, GameRules.SPAWN_WARDENS, GameRules.RAIDS))
+      platform.gameRule(level, rule, config.mobs);
+    platform.gameRule(level, GameRules.MOB_GRIEFING, config.nature);
+    platform.gameRule(level, GameRules.SPREAD_VINES, config.nature);
+    platform.gameRule(level, GameRules.RANDOM_TICK_SPEED, config.nature ? GameRules.RANDOM_TICK_SPEED.defaultValue() : 0);
+    platform.gameRule(level, GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER,
+        config.nature ? GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER.defaultValue() : 0);
+  }
+
+  /** 改了設定：已載入的世界（含草稿、檢視世界）當場套用。 */
+  void applySettings() {
+    for (var level : sources.keySet()) if (loaded(level)) applyRules(level);
+  }
+
+  /** 世界邊界的邊長：自己設的（不超過伺服器的上限），沒設時是伺服器的預設。 */
+  int borderSize() {
+    var pw = tracker.settings().playerWorlds();
+    return config.border > 0 ? Math.min(config.border, pw.maxBorder()) : pw.border();
   }
 
   /**

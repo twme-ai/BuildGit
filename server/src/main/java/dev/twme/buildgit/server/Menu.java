@@ -146,6 +146,96 @@ final class Menu {
     bg.platform().openMenu(p, msg.get("world-create-title"), items);
   }
 
+  /** 可以改的設定與它們的值（依點選時輪替的順序）；沒有值的是「設成我現在的位置」。 */
+  static final Map<String, List<String>> SETTINGS = new LinkedHashMap<>();
+  /** 有名稱的時刻。 */
+  static final Map<String, Integer> TIMES = new LinkedHashMap<>();
+
+  static {
+    TIMES.put("noon", 6000);
+    TIMES.put("sunset", 12000);
+    TIMES.put("midnight", 18000);
+    TIMES.put("day", 1000);
+    var times = new ArrayList<>(TIMES.keySet());
+    times.add("cycle");
+    SETTINGS.put("time", times);
+    SETTINGS.put("weather", List.of("clear", "rain", "thunder", "cycle"));
+    SETTINGS.put("difficulty", List.of("peaceful", "easy", "normal", "hard", "server"));
+    SETTINGS.put("mobs", List.of("off", "on"));
+    SETTINGS.put("nature", List.of("off", "on"));
+    SETTINGS.put("border", List.of("256", "512", "1024", "2048", "4096", "default"));
+    SETTINGS.put("border-center", List.of());
+    SETTINGS.put("spawn", List.of());
+    SETTINGS.put("member-mode", List.of("creative", "survival", "adventure"));
+    SETTINGS.put("visitor-mode", List.of("spectator", "adventure"));
+    SETTINGS.put("visitor-interact", List.of("off", "on"));
+  }
+
+  /** 設定目前的值，寫成 {@link #SETTINGS} 裡的寫法（固定在沒有名稱的時刻時是刻數）。 */
+  private static String current(Workspace ws, String key) {
+    var c = ws.config();
+    return switch (key) {
+      case "time" -> c.time == null ? "cycle"
+          : TIMES.entrySet().stream().filter(e -> e.getValue().equals(c.time)).map(Map.Entry::getKey).findFirst().orElse(String.valueOf(c.time));
+      case "weather" -> WorldConfig.key(c.weather);
+      case "difficulty" -> c.difficulty == null ? "server" : c.difficulty.getSerializedName();
+      case "mobs" -> c.mobs ? "on" : "off";
+      case "nature" -> c.nature ? "on" : "off";
+      case "border" -> c.border == 0 ? "default" : String.valueOf(c.border);
+      case "member-mode" -> c.memberMode.getName();
+      case "visitor-mode" -> c.visitorMode.getName();
+      case "visitor-interact" -> c.visitorInteract ? "on" : "off";
+      default -> "";
+    };
+  }
+
+  /** 給玩家看的目前的值。 */
+  Component settingValue(Workspace ws, String key) {
+    var msg = bg.messages();
+    var c = ws.config();
+    var v = current(ws, key);
+    return switch (key) {
+      case "time" -> TIMES.containsKey(v) || v.equals("cycle") ? msg.get("value-time-" + v) : msg.get("value-ticks", "ticks", v);
+      case "border" -> msg.get(c.border == 0 ? "value-border-default" : "value-border", "size", ws.borderSize());
+      case "border-center" -> msg.get("value-position", "x", (long) Math.floor(c.border == 0 ? 0 : c.borderX), "z",
+          (long) Math.floor(c.border == 0 ? 0 : c.borderZ));
+      case "spawn" -> c.spawn == null ? msg.get("value-spawn-unset")
+          : msg.get("value-position", "x", (long) Math.floor(c.spawn.x()), "z", (long) Math.floor(c.spawn.z()));
+      default -> msg.get("value-" + v);
+    };
+  }
+
+  /** {@code /bg world settings}：每格一個設定，點一下換成下一個值（沒有值的設成自己站的位置），改完重開選單。 */
+  void openSettings(ServerPlayer p, Workspace ws) {
+    var msg = bg.messages();
+    var items = new ArrayList<Platform.MenuItem>();
+    items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), msg.get("settings-header-lore"), null));
+    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22);
+    var icons = Map.ofEntries(Map.entry("time", "clock"), Map.entry("weather", "water_bucket"), Map.entry("difficulty", "iron_sword"),
+        Map.entry("mobs", "zombie_head"), Map.entry("nature", "wheat"), Map.entry("border", "barrier"), Map.entry("border-center", "compass"),
+        Map.entry("spawn", "red_bed"), Map.entry("member-mode", "diamond_pickaxe"), Map.entry("visitor-mode", "ender_eye"),
+        Map.entry("visitor-interact", "lever"));
+    int i = 0;
+    for (var e : SETTINGS.entrySet()) {
+      var key = e.getKey();
+      var values = e.getValue();
+      String action;
+      if (values.isEmpty()) action = "world settings " + key + " menu";
+      else {
+        var next = values.get((values.indexOf(current(ws, key)) + 1) % values.size());
+        // 超過伺服器上限的邊界跳過
+        if (key.equals("border"))
+          while (!next.equals("default") && Integer.parseInt(next) > bg.settings().playerWorlds().maxBorder())
+            next = values.get((values.indexOf(next) + 1) % values.size());
+        action = "world settings " + key + " " + next + " menu";
+      }
+      var lore = List.of(msg.get("settings-current", "value", settingValue(ws, key)), msg.get("setting-" + key + "-lore"),
+          msg.get(values.isEmpty() ? "settings-click-here" : "settings-click-next"));
+      items.add(new Platform.MenuItem(slots.get(i++), icons.get(key), msg.get("setting-" + key), lore, action));
+    }
+    bg.platform().openMenu(p, msg.get("settings-title"), items);
+  }
+
   private void label(List<Platform.MenuItem> items, int slot, String item, String key) {
     items.add(new Platform.MenuItem(slot, item, bg.messages().get(key), bg.messages().get(key + "-lore"), null));
   }

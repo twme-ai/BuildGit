@@ -89,18 +89,34 @@ public final class Hud {
    * 平台在放置、破壞、互動、桶子、實體互動與攻擊的掛點呼叫。
    */
   public boolean readOnly(ServerPlayer p) {
+    return readOnly(p, null);
+  }
+
+  /**
+   * 同 {@link #readOnly(ServerPlayer)}，{@code clicked} 是右鍵或踩到的方塊：世界設定允許時（{@code visitor-interact}），訪客可以按按鈕、
+   * 拉桿、開門、踩壓力板。只有冒險模式的訪客碰得到這些（旁觀者本來就不能互動）。
+   */
+  public boolean readOnly(ServerPlayer p, net.minecraft.world.level.block.state.BlockState clicked) {
     var ws = ws(p.level());
     if (!ws.isOpen()) return false;
     String key;
     if (ws.view(p.level()) != null) key = "view-readonly";
-    else if (ws.buildWorld() != null && ws.role(p.getUUID()) == WorldConfig.Role.VISITOR && !bg.realms().admin(p)) key = "visitor-readonly";
-    else return false;
+    else if (ws.buildWorld() != null && ws.role(p.getUUID()) == WorldConfig.Role.VISITOR && !bg.realms().admin(p)) {
+      if (clicked != null && ws.config().visitorInteract && mechanism(clicked)) return false;
+      key = "visitor-readonly";
+    } else return false;
     long now = System.currentTimeMillis();
     if (now - warned.getOrDefault(p.getUUID(), 0L) > 3000) {
       warned.put(p.getUUID(), now);
       bg.messages().send(bg.platform().sender(p), key);
     }
     return true;
+  }
+
+  private static boolean mechanism(net.minecraft.world.level.block.state.BlockState s) {
+    return s.is(net.minecraft.tags.BlockTags.BUTTONS) || s.is(net.minecraft.tags.BlockTags.DOORS) || s.is(net.minecraft.tags.BlockTags.TRAPDOORS)
+        || s.is(net.minecraft.tags.BlockTags.FENCE_GATES) || s.is(net.minecraft.tags.BlockTags.PRESSURE_PLATES)
+        || s.is(net.minecraft.world.level.block.Blocks.LEVER);
   }
 
   /** 玩家換了世界。 */

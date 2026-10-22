@@ -183,17 +183,28 @@ final class PaperPlatform implements Platform, Listener {
       creating.remove(name);
     }
     if (world == null) throw new IOException("無法建立世界 " + name);
-    if (gen.rules() == dev.twme.buildgit.server.WorldConfig.Rules.BUILD) {
-      try {
-        world.setTime(6000);
-      } catch (IllegalArgumentException e) {
-        // 26.x：地獄類型沒有時鐘，本來就沒有日夜
-      }
-      world.setStorm(false);
-      world.setThundering(false);
-      world.setDifficulty(org.bukkit.Difficulty.PEACEFUL);
-    }
     return level(world);
+  }
+
+  @Override
+  public void time(ServerLevel level, long time) {
+    try {
+      level.getWorld().setTime(time);
+    } catch (IllegalArgumentException e) {
+      // 26.x：地獄類型沒有時鐘，本來就沒有日夜
+    }
+  }
+
+  @Override
+  public void weather(ServerLevel level, boolean rain, boolean thunder) {
+    var world = level.getWorld();
+    world.setStorm(rain);
+    world.setThundering(thunder);
+  }
+
+  @Override
+  public void difficulty(ServerLevel level, net.minecraft.world.Difficulty difficulty) {
+    level.getWorld().setDifficulty(org.bukkit.Difficulty.valueOf(difficulty.name()));
   }
 
   @Override

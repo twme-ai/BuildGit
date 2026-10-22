@@ -135,6 +135,11 @@ public final class Hooks {
   }
 
   /** 檢視世界裡不能改東西。 */
+  public static boolean readOnly(ServerPlayer player, net.minecraft.world.level.block.state.BlockState clicked) {
+    var b = bg;
+    return b != null && b.hud().readOnly(player, clicked);
+  }
+
   public static boolean readOnly(ServerPlayer player) {
     var b = bg;
     return b != null && b.hud().readOnly(player);

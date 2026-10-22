@@ -69,16 +69,33 @@ public final class Versions {
 
   // ---- Fantasy（1.21.x 的 API 以 World 命名） ----
 
-  /** @param fixed 建築用規則：時間不走（Fantasy 的世界預設是正午、晴天）、和平 */
+  /** 每個世界的 Fantasy 設定：難度只能從這裡改。 */
+  private static final java.util.Map<ServerLevel, RuntimeWorldConfig> CONFIGS = new java.util.WeakHashMap<>();
+
+  /** 時間要不要走由遊戲規則決定（BuildGit 照建築世界的設定）。Fantasy 的世界的時間、天氣、難度是各自的。 */
   public static Object openLevel(MinecraftServer server, Identifier id, net.minecraft.core.Holder<net.minecraft.world.level.dimension.DimensionType> type,
-      net.minecraft.world.level.chunk.ChunkGenerator generator, long seed, boolean fixed) {
+      net.minecraft.world.level.chunk.ChunkGenerator generator, long seed) {
     var config = new RuntimeWorldConfig()
         .setDimensionType(type)
         .setGenerator(generator)
         .setSeed(seed)
-        .setShouldTickTime(!fixed);
-    if (fixed) config.setDifficulty(net.minecraft.world.Difficulty.PEACEFUL);
-    return Fantasy.get(server).getOrOpenPersistentWorld(id, config);
+        .setShouldTickTime(true);
+    var handle = Fantasy.get(server).getOrOpenPersistentWorld(id, config);
+    CONFIGS.put(level(handle), config);
+    return handle;
+  }
+
+  public static void time(ServerLevel level, long time) {
+    level.setDayTime(time);
+  }
+
+  public static void weather(ServerLevel level, boolean rain, boolean thunder) {
+    level.setWeatherParameters(rain ? 0 : 6000, rain ? 6000 : 0, rain, thunder);
+  }
+
+  public static void difficulty(ServerLevel level, net.minecraft.world.Difficulty difficulty) {
+    var config = CONFIGS.get(level);
+    if (config != null) config.setDifficulty(difficulty);
   }
 
   public static ServerLevel level(Object handle) {

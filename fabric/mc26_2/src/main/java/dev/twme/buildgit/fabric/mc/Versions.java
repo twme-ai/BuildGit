@@ -72,16 +72,53 @@ public final class Versions {
 
   // ---- Fantasy（26.x 的 API 以 Level 命名） ----
 
-  /** @param fixed 建築用規則：時鐘停在正午、和平（Fantasy 的世界預設晴天） */
+  /** 每個世界的 Fantasy 設定：難度只能從這裡改。 */
+  private static final java.util.Map<ServerLevel, RuntimeLevelConfig> CONFIGS = new java.util.WeakHashMap<>();
+  /**
+   * BuildGit 開的世界各自的天氣（{@code mixin.WeatherMixin} 讓這些世界讀自己的）：26.x 原版的天氣是整台伺服器一份，
+   * Fantasy 的世界也跟著伺服器世界下雨。
+   */
+  private static final java.util.Map<net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>, net.minecraft.world.level.saveddata.WeatherData> WEATHER =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  /** 時間要不要走由遊戲規則決定（BuildGit 照建築世界的設定）。 */
   public static Object openLevel(MinecraftServer server, Identifier id, net.minecraft.core.Holder<net.minecraft.world.level.dimension.DimensionType> type,
-      net.minecraft.world.level.chunk.ChunkGenerator generator, long seed, boolean fixed) {
+      net.minecraft.world.level.chunk.ChunkGenerator generator, long seed) {
     var config = new RuntimeLevelConfig()
         .setDimensionType(type)
         .setGenerator(generator)
         .setSeed(seed)
-        .setShouldTickTime(!fixed);
-    if (fixed) config.setDifficulty(net.minecraft.world.Difficulty.PEACEFUL).setClockTime(net.minecraft.world.clock.WorldClocks.OVERWORLD, 6000, true);
-    return Fantasy.get(server).getOrOpenPersistentLevel(id, config);
+        .setShouldTickTime(true);
+    // 世界建立時就會讀天氣，先登記
+    WEATHER.computeIfAbsent(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, id),
+        k -> new net.minecraft.world.level.saveddata.WeatherData());
+    var handle = Fantasy.get(server).getOrOpenPersistentLevel(id, config);
+    CONFIGS.put(level(handle), config);
+    return handle;
+  }
+
+  /** 這個世界自己的天氣；不是 BuildGit 開的世界時為 null（用伺服器的）。 */
+  public static net.minecraft.world.level.saveddata.WeatherData weather(net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension) {
+    return WEATHER.get(dimension);
+  }
+
+  /** 照維度類型的時鐘（主世界、終界類型各有一個；地獄類型沒有）。 */
+  public static void time(ServerLevel level, long time) {
+    level.dimensionType().defaultClock().ifPresent(clock -> {
+      level.clockManager().setTotalTicks(clock, time);
+      level.clockManager().setPaused(clock, false);
+    });
+  }
+
+  public static void weather(ServerLevel level, boolean rain, boolean thunder) {
+    var data = level.getWeatherData();
+    data.setRaining(rain);
+    data.setThundering(thunder);
+  }
+
+  public static void difficulty(ServerLevel level, net.minecraft.world.Difficulty difficulty) {
+    var config = CONFIGS.get(level);
+    if (config != null) config.setDifficulty(difficulty);
   }
 
   public static ServerLevel level(Object handle) {

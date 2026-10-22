@@ -145,7 +145,8 @@ LuckPerms 範例：
 | `integrations.worldedit`／`axiom`／`debugstickpro` | true | 是否記錄 WorldEdit／FAWE、Axiom、DebugStickPro 的編輯 |
 | `player-worlds.enabled` | `false` | 一般玩家（有 `buildgit.world.create`）能不能建立建築世界 |
 | `player-worlds.max-per-player` | 3 | 每人最多擁有幾個建築世界 |
-| `player-worlds.border` | 1024 | 建築世界的世界邊界邊長（以 (0, 0) 為中心），也是訪客能去的範圍 |
+| `player-worlds.border` | 1024 | 建築世界預設的世界邊界邊長（以 (0, 0) 為中心），也是訪客能去的範圍；擁有者可以用 `/bg world settings border` 改 |
+| `player-worlds.max-border` | 4096 | 擁有者能設定的最大邊長 |
 | `player-worlds.world-name` | `bw_{owner-name}_{name}` | 建築世界的資料夾名稱（見 §7.1）；只影響之後建立的世界 |
 | `player-worlds.paths.*` | | 建築世界的版本庫、物件、起點世界放在哪裡（見 §7.1） |
 | `tracking.*` | | 連帶變化的時間窗與距離、哪些實體不記錄；通常不用改 |
@@ -180,7 +181,7 @@ LuckPerms 範例：
 
 ### 7.1 建築世界
 
-除了伺服器原本的世界，管理員可以建立**建築世界**：每個建築世界是獨立的版本庫，有自己的歷史與草稿，存檔、併回、撤銷、還原都只影響它自己（規劃見 [03-worlds.md](03-worlds.md)，目前是第一階段）。
+除了伺服器原本的世界，管理員可以建立**建築世界**：每個建築世界是獨立的版本庫，有自己的歷史與草稿，存檔、併回、撤銷、還原都只影響它自己（規劃見 [03-worlds.md](03-worlds.md)）。
 
 | 指令 | 做什麼 |
 |---|---|
@@ -190,14 +191,29 @@ LuckPerms 範例：
 | `/bg worlds` | 列出自己進得去的建築世界（自己的、受邀的、公開的）、是否載入、裡面幾個人；點一下進去 |
 | `/bg world members [list\|add <玩家> [builder\|manager]\|remove <玩家>]` | 在建築世界裡管理成員：擁有者可以加、移除建造者與管理者；管理者只能加、移除建造者。邀請時對方要在線上 |
 | `/bg world visibility public\|private` | 擁有者把世界改成公開（所有人都能進來參觀）或私人（只有成員，預設） |
+| `/bg world settings [<設定> <值>]` | 擁有者與管理者改這個世界的設定（下表）；只打 `/bg world settings` 開設定選單，點一下換下一個值。改了馬上生效 |
+
+| 設定 | 值 | 說明 |
+|---|---|---|
+| `time` | `noon`、`sunset`、`midnight`、`day`、`cycle`，或 0～23999 的刻數 | 固定在某個時刻，或正常流動 |
+| `weather` | `clear`、`rain`、`thunder`、`cycle` | 只影響這個世界，不跟著伺服器世界 |
+| `difficulty` | `peaceful`、`easy`、`normal`、`hard`、`server` | `server` 是照伺服器的難度 |
+| `mobs` | `on`、`off` | 生成動物、怪物、巡邏隊、幻影、流浪商人、突襲 |
+| `nature` | `on`、`off` | 隨機刻（作物、冰、樹葉）、火焰蔓延、生物破壞方塊、藤蔓蔓延 |
+| `border` | 16～`player-worlds.max-border`，或 `default` | 世界邊界的邊長 |
+| `border-center` | （不用值） | 邊界中心設成自己站的位置 |
+| `spawn` | （不用值） | 第一次進來的人出現的地方設成自己站的位置 |
+| `member-mode` | `creative`、`survival`、`adventure` | 成員進來時的遊戲模式 |
+| `visitor-mode` | `spectator`、`adventure` | 訪客進來時的遊戲模式 |
+| `visitor-interact` | `on`、`off` | 冒險模式的訪客能不能按按鈕、拉桿、開門、踩壓力板 |
 
 - **誰能建立**：有 `buildgit.world.admin` 的人隨時可以；一般玩家要 `player-worlds.enabled: true` 並給 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）。`open`、`home`、`worlds` 所有人都能用，能進哪些世界看成員名單與可見性。
 - **角色**：在建築世界裡，BuildGit 的指令權限由那個世界的角色決定，不看你給的 `buildgit.role.*`：擁有者與管理者等於 manager，建造者等於 builder，訪客只能看（`status`、`log`、`diff`、`blame` 等），不能改方塊、不能進草稿或檢視舊版本。有 `buildgit.world.admin` 的人在任何世界都能做所有事。`init`、`reload`、`backup` 等伺服器管理照舊看權限節點。
 - 成員被移除或世界改成私人時，裡面沒資格的人會被送回伺服器世界；離線期間被移除的，上線時送回。
-- **遊戲模式**：進建築世界時，成員換成創造、訪客換成旁觀者；回伺服器世界時換回原本的模式。原本的模式與 `/bg home` 的位置記在 `buildgit/players/<uuid>.yml`，重啟後照樣恢復。背包目前所有世界共通。
-- **訪客的限制**：不能改方塊，WorldEdit、Axiom 的編輯會被擋下；走到世界邊界（`player-worlds.border`，預設 1024×1024）外會被拉回來。
+- **遊戲模式**：進建築世界時換成這個世界設定的模式（預設成員創造、訪客旁觀者）；回伺服器世界時換回原本的模式。原本的模式與 `/bg home` 的位置記在 `buildgit/players/<uuid>.yml`，重啟後照樣恢復。背包目前所有世界共通。
+- **訪客的限制**：不能改方塊，也不能開箱子、和實體互動；WorldEdit、Axiom 的編輯會被擋下；走到世界邊界（預設 `player-worlds.border`，1024×1024）外會被拉回來。冒險模式的訪客在 `visitor-interact` 打開時可以按機關，造成的改變記成那個訪客改的，之後成員存檔時會一起存進去。
 - **傳送門**：建築世界裡的地獄門、終界門、折躍門都不能用（不然會被送到伺服器的地獄、終界）。
-- **建築用規則**：固定正午與晴天、和平、不生成生物、隨機刻 0（作物不長、冰不融化）、火不蔓延、生物不破壞方塊。建築世界一律關掉「旁觀者生成地形」與地獄門，終界類型沒有終界龍。
+- **建築用規則**（建立時選）：上面的設定預設成固定正午與晴天、和平、不生成生物、沒有自然變化；「原版」是正常流動、照伺服器的難度、生成生物、有自然變化。建立後都可以用 `/bg world settings` 改。建築世界一律關掉「旁觀者生成地形」與地獄門，終界類型沒有終界龍。
 - 類型、地形、種子建立後不能改。一個建築世界只有一個維度。設定記在它版本庫裡的 `repo.yml`。
 - **世界資料夾**：名稱由 `player-worlds.world-name` 決定，例如 bob 的 `castle` 是 `bw_bob_castle`（Paper 26.x 在 `world/dimensions/minecraft/` 底下，1.21.11 在伺服器根目錄）。它的草稿是 `bw_bob_castle-<草稿>`。名稱和現有的世界、資料夾、伺服器世界衝突時會拒絕建立。
 - **資料放在哪裡**：預設版本庫在 `buildgit/worlds/<id>/`，物件和伺服器世界共用 `buildgit/objects/`。清單在 `buildgit/worlds.yml`，不要手動改。

@@ -44,7 +44,8 @@ public abstract class ServerPlayerGameModeMixin {
   @Inject(method = "useItemOn", at = @At("HEAD"), cancellable = true)
   private void buildgit$useItemOnCheck(ServerPlayer p, Level l, ItemStack stack, InteractionHand hand, BlockHitResult hit,
       CallbackInfoReturnable<InteractionResult> cir) {
-    if (Hooks.inspect(p, hit.getBlockPos(), hit.getDirection(), true, hand == InteractionHand.MAIN_HAND) || Hooks.readOnly(p))
+    if (Hooks.inspect(p, hit.getBlockPos(), hit.getDirection(), true, hand == InteractionHand.MAIN_HAND)
+        || Hooks.readOnly(p, l.getBlockState(hit.getBlockPos())))
       cir.setReturnValue(InteractionResult.FAIL);
   }
 

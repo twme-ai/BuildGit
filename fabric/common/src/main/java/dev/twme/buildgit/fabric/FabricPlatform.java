@@ -229,7 +229,7 @@ final class FabricPlatform implements Platform {
 
   @Override
   public ServerLevel openLevel(String name, ServerLevel template, Synthesizer blocks, Synthesizer entities) throws IOException {
-    return open(name, template.dimensionTypeRegistration(), template.getChunkSource().getGenerator(), template.getSeed(), false, blocks, entities);
+    return open(name, template.dimensionTypeRegistration(), template.getChunkSource().getGenerator(), template.getSeed(), blocks, entities);
   }
 
   @Override
@@ -266,17 +266,32 @@ final class FabricPlatform implements Platform {
           .parse(net.minecraft.resources.RegistryOps.create(com.mojang.serialization.JsonOps.INSTANCE, access), json).getOrThrow();
       generator = new net.minecraft.world.level.levelgen.FlatLevelSource(settings);
     }
-    return open(name, stem.type(), generator, gen.seed(), gen.rules() == dev.twme.buildgit.server.WorldConfig.Rules.BUILD, blocks, entities);
+    return open(name, stem.type(), generator, gen.seed(), blocks, entities);
+  }
+
+  @Override
+  public void time(ServerLevel level, long time) {
+    Versions.time(level, time);
+  }
+
+  @Override
+  public void weather(ServerLevel level, boolean rain, boolean thunder) {
+    Versions.weather(level, rain, thunder);
+  }
+
+  @Override
+  public void difficulty(ServerLevel level, net.minecraft.world.Difficulty difficulty) {
+    Versions.difficulty(level, difficulty);
   }
 
   private ServerLevel open(String name, net.minecraft.core.Holder<net.minecraft.world.level.dimension.DimensionType> type,
-      net.minecraft.world.level.chunk.ChunkGenerator generator, long seed, boolean fixed, Synthesizer blocks, Synthesizer entities) throws IOException {
+      net.minecraft.world.level.chunk.ChunkGenerator generator, long seed, Synthesizer blocks, Synthesizer entities) throws IOException {
     var dir = levelFolder(name);
     // 必須在世界建立之前登記：Fantasy 建立世界時就可能讀取 chunk
     Synthesis.register(dir.resolve("region"), blocks);
     Synthesis.register(dir.resolve("entities"), entities);
     try {
-      var handle = Versions.openLevel(server, id(name), type, generator, seed, fixed);
+      var handle = Versions.openLevel(server, id(name), type, generator, seed);
       var level = Versions.level(handle);
       handles.put(name, handle);
       unloading.remove(level);

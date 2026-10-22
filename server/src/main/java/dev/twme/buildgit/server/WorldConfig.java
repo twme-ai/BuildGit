@@ -6,10 +6,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import net.minecraft.world.Difficulty;
+import net.minecraft.world.level.GameType;
 
 /**
- * 建築世界自己的設定（03-worlds §3、§4），存在版本庫的 {@code repo.yml}：建立時決定的類型與地形（之後不能改）、規則、
- * 出生點、可見性與成員。用 BuildGit 自己的寫法存（超平坦的層是方塊 id 與層數），連同寫下時的資料版本；讀取時把方塊與
+ * 建築世界自己的設定（03-worlds §3、§4），存在版本庫的 {@code repo.yml}：建立時決定的類型與地形（之後不能改）、
+ * 建立後可以改的設定（時間、天氣、邊界、遊戲模式…）、出生點、可見性與成員。用 BuildGit 自己的寫法存（超平坦的層是方塊 id
+ * 與層數，時間是刻數，模式與難度寫名稱），不用遊戲規則的名稱（1.21.11 起改了寫法），連同寫下時的資料版本；讀取時把方塊與
  * 生態域的 id 升級到伺服器目前的版本（03-worlds §6.4）。
  */
 public final class WorldConfig {
@@ -20,8 +23,10 @@ public final class WorldConfig {
   /** {@code SERVER}：第一階段建立的世界，照伺服器主世界的產生器。 */
   public enum Terrain { NORMAL, LARGE_BIOMES, AMPLIFIED, FLAT, VOID, SERVER }
 
-  /** {@code BUILD}：固定正午、晴天、和平、不生成生物、隨機刻 0、火不蔓延、生物不破壞方塊。 */
+  /** 建立時的規則預設，決定下面那些設定的初始值。{@code BUILD}：固定正午、晴天、和平、不生成生物、沒有自然變化。 */
   public enum Rules { BUILD, VANILLA }
+
+  public enum Weather { CLEAR, RAIN, THUNDER, CYCLE }
 
   /** 角色往下包含：擁有者也是管理者與建造者。訪客不記在成員名單裡。 */
   public enum Role { OWNER, MANAGER, BUILDER, VISITOR }
@@ -29,7 +34,7 @@ public final class WorldConfig {
   public record Layer(String block, int count) {}
 
   /** 產生世界要的全部資訊，交給平台建立世界；{@code layers} 由下往上，只在超平坦與虛空時用。 */
-  public record Gen(Type type, Terrain terrain, long seed, List<Layer> layers, String biome, Rules rules) {}
+  public record Gen(Type type, Terrain terrain, long seed, List<Layer> layers, String biome) {}
 
   public record Spawn(double x, double y, double z, float yaw, float pitch) {}
 
@@ -43,6 +48,26 @@ public final class WorldConfig {
   /** 虛空世界建立時放在出生點腳下的方塊。 */
   public String block;
   public Rules rules = Rules.VANILLA;
+
+  // ---- 建立後可以改的設定（03-worlds §3） ----
+
+  /** 固定的時刻（0～23999 刻，6000 是正午）；null 是正常流動。 */
+  public Integer time;
+  public Weather weather = Weather.CYCLE;
+  /** null 是照伺服器的難度。 */
+  public Difficulty difficulty;
+  /** 生成生物（含怪物、巡邏隊、幻影、流浪商人、伏守者、突襲）。 */
+  public boolean mobs = true;
+  /** 自然變化：隨機刻（作物、冰、樹葉）、火焰蔓延、生物破壞方塊、藤蔓蔓延。 */
+  public boolean nature = true;
+  public GameType memberMode = GameType.CREATIVE;
+  /** 旁觀者或冒險（03-worlds §4.1）。 */
+  public GameType visitorMode = GameType.SPECTATOR;
+  /** 冒險模式的訪客能不能按按鈕、拉桿、開門、踩壓力板。 */
+  public boolean visitorInteract;
+  /** 世界邊界的邊長；0 是伺服器的預設（{@code player-worlds.border}）。 */
+  public int border;
+  public double borderX, borderZ;
   /** 第一次進來的人出現的地方；還沒決定（剛建立、還沒有人進去）時為 null。 */
   public Spawn spawn;
   public boolean open;
@@ -60,8 +85,19 @@ public final class WorldConfig {
     return null;
   }
 
+  /** 照規則預設設定時間、天氣、難度、生物與自然變化。 */
+  void preset(Rules r) {
+    rules = r;
+    boolean build = r == Rules.BUILD;
+    time = build ? 6000 : null;
+    weather = build ? Weather.CLEAR : Weather.CYCLE;
+    difficulty = build ? Difficulty.PEACEFUL : null;
+    mobs = !build;
+    nature = !build;
+  }
+
   Gen gen() {
-    return new Gen(type, terrain, seed, terrain == Terrain.FLAT ? layers : List.of(), biome, rules);
+    return new Gen(type, terrain, seed, terrain == Terrain.FLAT ? layers : List.of(), biome);
   }
 
   /** 每種類型的超平坦預設（和原版「經典平坦」相同的想法）。 */
@@ -138,7 +174,26 @@ public final class WorldConfig {
     c.biome = biome == null ? defaultBiome(c.type, c.terrain) : upgrader.biome(biome, from);
     var block = y.getString("generation.block");
     c.block = block == null ? null : upgrader.cell(new Cell(block, null), from).state();
-    c.rules = Objects.requireNonNullElse(parse(Rules.class, y.getString("rules")), Rules.VANILLA);
+    c.preset(Objects.requireNonNullElse(parse(Rules.class, y.getString("rules")), Rules.VANILLA));
+    // 第二階段建立的世界沒有 settings，照規則預設
+    if (y.contains("settings")) {
+      var time = y.getString("settings.time", "cycle");
+      try {
+        c.time = time.equals("cycle") ? null : Math.floorMod(Integer.parseInt(time), 24000);
+      } catch (NumberFormatException e) {
+        c.time = null;
+      }
+      c.weather = Objects.requireNonNullElse(parse(Weather.class, y.getString("settings.weather")), Weather.CYCLE);
+      c.difficulty = Difficulty.byName(y.getString("settings.difficulty", "server"));
+      c.mobs = y.getBoolean("settings.mobs", true);
+      c.nature = y.getBoolean("settings.nature", true);
+      c.memberMode = mode(y.getString("settings.member-mode"), MEMBER_MODES, GameType.CREATIVE);
+      c.visitorMode = mode(y.getString("settings.visitor-mode"), VISITOR_MODES, GameType.SPECTATOR);
+      c.visitorInteract = y.getBoolean("settings.visitor-interact", false);
+      c.border = Math.max(0, y.getInt("settings.border.size", 0));
+      c.borderX = num(y.get("settings.border.x"));
+      c.borderZ = num(y.get("settings.border.z"));
+    }
     if (y.contains("spawn.x"))
       c.spawn = new Spawn(num(y.get("spawn.x")), num(y.get("spawn.y")), num(y.get("spawn.z")), (float) num(y.get("spawn.yaw")), (float) num(y.get("spawn.pitch")));
     c.open = "public".equals(y.getString("visibility"));
@@ -154,6 +209,14 @@ public final class WorldConfig {
         }
       }
     return c;
+  }
+
+  static final List<GameType> MEMBER_MODES = List.of(GameType.CREATIVE, GameType.SURVIVAL, GameType.ADVENTURE);
+  static final List<GameType> VISITOR_MODES = List.of(GameType.SPECTATOR, GameType.ADVENTURE);
+
+  private static GameType mode(String name, List<GameType> allowed, GameType fallback) {
+    var m = GameType.byName(name == null ? "" : name, null);
+    return allowed.contains(m) ? m : fallback;
   }
 
   private static double num(Object o) {
@@ -180,6 +243,19 @@ public final class WorldConfig {
     y.set("generation.biome", biome);
     y.set("generation.block", block);
     y.set("rules", key(rules));
+    y.set("settings.time", time == null ? "cycle" : String.valueOf(time));
+    y.set("settings.weather", key(weather));
+    y.set("settings.difficulty", difficulty == null ? "server" : difficulty.getSerializedName());
+    y.set("settings.mobs", mobs);
+    y.set("settings.nature", nature);
+    y.set("settings.member-mode", memberMode.getName());
+    y.set("settings.visitor-mode", visitorMode.getName());
+    y.set("settings.visitor-interact", visitorInteract);
+    if (border > 0) {
+      y.set("settings.border.size", border);
+      y.set("settings.border.x", borderX);
+      y.set("settings.border.z", borderZ);
+    }
     if (spawn != null) {
       y.set("spawn.x", spawn.x());
       y.set("spawn.y", spawn.y());

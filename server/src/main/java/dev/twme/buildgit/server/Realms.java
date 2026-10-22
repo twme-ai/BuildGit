@@ -15,7 +15,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 
 /**
  * 進出建築世界（03-worlds §2）：誰能進去、傳送到出生點、回伺服器世界、失去資格的人送回去，以及遊戲模式：
- * 在建築世界裡成員是創造、訪客是旁觀者，回到伺服器世界時恢復原本的模式。
+ * 在建築世界裡照這個世界的設定（預設成員創造、訪客旁觀者），回到伺服器世界時恢復原本的模式。
  *
  * <p>每個玩家一個 {@code buildgit/players/<uuid>.yml}：進建築世界前在伺服器世界的模式與位置。重啟、當機、離線時被移出都照這份恢復，
  * 所以只要玩家人在伺服器世界、檔案裡還有模式，就換回去。模式與世界寫名稱（{@code creative}、{@code minecraft:overworld}），不隨版本變。
@@ -41,12 +41,12 @@ final class Realms {
   }
 
   /** 在建築世界裡只能看的人：訪客（管理員除外）。 */
-  private boolean visitor(ServerPlayer p, Workspace ws) {
+  boolean visitor(ServerPlayer p, Workspace ws) {
     var role = ws.role(p.getUUID());
     return (role == null || role == WorldConfig.Role.VISITOR) && !admin(p);
   }
 
-  /** 傳送到建築世界的出生點（第一次有人進來時才決定）。從伺服器世界進來時記下位置給 {@link #home}。 */
+  /** 傳送到建築世界的出生點（第一次有人進來時才決定，擁有者可以改）。從伺服器世界進來時記下位置給 {@link #home}。 */
   void enter(ServerPlayer p, Workspace ws) throws IOException {
     if (bg.workspace(p.level()).buildWorld() == null) {
       var state = load(p.getUUID());
@@ -103,11 +103,11 @@ final class Realms {
       state.set("gamemode", p.gameMode().getName());
       save(p.getUUID(), state);
     }
-    var mode = visitor(p, ws) ? GameType.SPECTATOR : GameType.CREATIVE;
+    var mode = visitor(p, ws) ? ws.config().visitorMode : ws.config().memberMode;
     if (p.gameMode() != mode) p.setGameMode(mode);
   }
 
-  /** 在這個建築世界（含草稿、檢視世界）裡、已經沒有資格的人送回伺服器世界；留下的人照新的角色換模式（成員或可見性變了時）。 */
+  /** 在這個建築世界（含草稿、檢視世界）裡、已經沒有資格的人送回伺服器世界；留下的人照新的角色換模式（成員、可見性或遊戲模式的設定變了時）。 */
   void roleChanged(Workspace ws) {
     for (var p : List.copyOf(bg.platform().server().getPlayerList().getPlayers()))
       if (bg.workspace(p.level()) == ws) {

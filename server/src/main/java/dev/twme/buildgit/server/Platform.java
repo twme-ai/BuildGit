@@ -76,7 +76,7 @@ public interface Platform {
 
   /**
    * 開啟建築世界或它的草稿、檢視世界（主執行緒）：產生器、種子、維度類型照 {@code gen}（03-worlds §3）。
-   * 建築用規則時固定正午、晴天、和平（遊戲規則由 BuildGit 自己設定）。其他同 {@link #openLevel(String, ServerLevel, Synthesizer, Synthesizer)}。
+   * 時間、天氣、難度與遊戲規則由 BuildGit 照建築世界的設定另外設定。其他同 {@link #openLevel(String, ServerLevel, Synthesizer, Synthesizer)}。
    */
   ServerLevel openLevel(String name, WorldConfig.Gen gen, Synthesizer blocks, Synthesizer entities) throws IOException;
 
@@ -84,6 +84,15 @@ public interface Platform {
   default <T> void gameRule(ServerLevel level, net.minecraft.world.level.gamerules.GameRule<T> rule, T value) {
     level.getGameRules().set(rule, value, null);
   }
+
+  /** 把這個世界的時間設成某個時刻（0～23999 刻；沒有日夜的維度類型不理會）。要不要繼續走由遊戲規則決定。 */
+  void time(ServerLevel level, long time);
+
+  /** 設定這個世界自己的天氣（建築世界各自一份，不影響伺服器世界）。要不要繼續變化由遊戲規則決定。 */
+  void weather(ServerLevel level, boolean rain, boolean thunder);
+
+  /** 設定這個世界自己的難度。 */
+  void difficulty(ServerLevel level, net.minecraft.world.Difficulty difficulty);
 
   /** 卸載 BuildGit 的世界（主執行緒）。裡面不能有玩家。 */
   boolean unloadLevel(ServerLevel level, boolean save);

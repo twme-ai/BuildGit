@@ -283,7 +283,9 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
 
   @EventHandler(ignoreCancelled = true)
   public void onInteract(PlayerInteractEvent e) {
-    if (e.getAction() == Action.RIGHT_CLICK_BLOCK || e.getAction() == Action.PHYSICAL) readOnly(e.getPlayer(), e);
+    if (e.getAction() != Action.RIGHT_CLICK_BLOCK && e.getAction() != Action.PHYSICAL || e.getClickedBlock() == null) return;
+    var p = handle(e.getPlayer());
+    if (bg.hud().readOnly(p, p.level().getBlockState(((CraftBlock) e.getClickedBlock()).getPosition()))) e.setCancelled(true);
   }
 
   @EventHandler(ignoreCancelled = true)

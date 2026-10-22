@@ -119,7 +119,9 @@ public final class BgCommand {
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("home", null, (s, a) -> home(s), null);
     sub("worlds", null, (s, a) -> worlds(s), null);
-    sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("members", "visibility")
+    sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "visibility")
+        : b.size() == 1 && b.getFirst().equals("settings") ? List.copyOf(Menu.SETTINGS.keySet())
+        : b.size() == 2 && b.getFirst().equals("settings") ? Menu.SETTINGS.getOrDefault(b.get(1), List.of())
         : b.size() == 1 && b.getFirst().equals("members") ? List.of("list", "add", "remove")
         : b.size() == 1 && b.getFirst().equals("visibility") ? List.of("public", "private")
         : b.size() == 2 && b.get(1).equals("add") ? onlineNames()
@@ -1936,7 +1938,7 @@ public final class BgCommand {
     var c = new WorldConfig();
     c.type = o.type();
     c.terrain = o.terrain();
-    c.rules = o.rules();
+    c.preset(o.rules());
     if (o.seed() == null) c.seed = new Random().nextLong();
     else {
       try {
@@ -2016,8 +2018,8 @@ public final class BgCommand {
   private enum Visibility { PUBLIC, PRIVATE }
 
   /**
-   * {@code world members [list|add <玩家> [builder|manager]|remove <玩家>]}、{@code world visibility public|private}：
-   * 管理自己所在的建築世界（03-worlds §4）。擁有者全部可以；管理者只能加、移除建造者；管理員都可以。
+   * {@code world settings …}、{@code world members [list|add <玩家> [builder|manager]|remove <玩家>]}、{@code world visibility public|private}：
+   * 管理自己所在的建築世界（03-worlds §3、§4）。擁有者全部可以；管理者能改設定、只能加、移除建造者；管理員都可以。
    */
   private void world(Sender sender, String[] args) throws IOException {
     var p = player(sender);
@@ -2030,6 +2032,11 @@ public final class BgCommand {
     boolean manager = owner || role == WorldConfig.Role.MANAGER;
     var config = ws.config();
     var what = w.isEmpty() ? "" : w.getFirst();
+    if (what.equals("settings")) {
+      if (!manager) throw new Workspace.Refused("只有擁有者與管理者能改設定");
+      settings(sender, p, ws, w);
+      return;
+    }
     if (what.equals("visibility")) {
       var v = w.size() == 2 ? WorldConfig.parse(Visibility.class, w.get(1)) : null;
       if (v == null) {
@@ -2088,6 +2095,101 @@ public final class BgCommand {
       }
       default -> msg().send(sender, "usage-world");
     }
+  }
+
+  /**
+   * {@code world settings [<設定> [值]] [menu]}（03-worlds §3）：沒給設定時打開設定選單；選單裡點一下是帶著 {@code menu} 執行，
+   * 改完再打開選單。改了當場套用到已載入的世界（含草稿、檢視世界）。
+   */
+  private void settings(Sender sender, ServerPlayer p, Workspace ws, List<String> w) throws IOException {
+    boolean menu = w.getLast().equals("menu");
+    var a = w.subList(1, menu ? w.size() - 1 : w.size());
+    if (a.isEmpty()) {
+      bg.menu().openSettings(p, ws);
+      return;
+    }
+    var c = ws.config();
+    var key = a.getFirst();
+    var value = a.size() == 2 ? a.get(1).toLowerCase(Locale.ROOT) : "";
+    if (a.size() > 2 || !Menu.SETTINGS.containsKey(key) || value.isEmpty() != Menu.SETTINGS.get(key).isEmpty()) {
+      msg().send(sender, "usage-world-settings");
+      return;
+    }
+    boolean modes = false;
+    switch (key) {
+      case "time" -> {
+        if (value.equals("cycle")) c.time = null;
+        else if (Menu.TIMES.containsKey(value)) c.time = Menu.TIMES.get(value);
+        else {
+          int t = number(value);
+          if (t < 0 || t > 23999) throw new Workspace.Refused("時間可以是 " + String.join("、", Menu.SETTINGS.get("time")) + " 或 0～23999 的刻數");
+          c.time = t;
+        }
+      }
+      case "weather" -> c.weather = option(WorldConfig.Weather.class, value, key);
+      case "difficulty" -> {
+        c.difficulty = net.minecraft.world.Difficulty.byName(value);
+        if (c.difficulty == null && !value.equals("server")) throw badValue(key);
+      }
+      case "mobs" -> c.mobs = onOff(value, key);
+      case "nature" -> c.nature = onOff(value, key);
+      case "member-mode", "visitor-mode" -> {
+        var allowed = key.equals("member-mode") ? WorldConfig.MEMBER_MODES : WorldConfig.VISITOR_MODES;
+        var mode = net.minecraft.world.level.GameType.byName(value, null);
+        if (!allowed.contains(mode)) throw badValue(key);
+        if (key.equals("member-mode")) c.memberMode = mode;
+        else c.visitorMode = mode;
+        modes = true;
+      }
+      case "visitor-interact" -> c.visitorInteract = onOff(value, key);
+      case "border" -> {
+        int max = bg.settings().playerWorlds().maxBorder();
+        if (value.equals("default")) c.border = 0;
+        else {
+          int size = number(value);
+          if (size < 16 || size > max) throw new Workspace.Refused("邊界的邊長可以是 16～" + max + "，或 default（伺服器的預設）");
+          if (c.border == 0) c.borderX = c.borderZ = 0;
+          c.border = size;
+        }
+      }
+      case "border-center" -> {
+        if (c.border == 0) c.border = ws.borderSize();
+        c.borderX = Math.floor(p.getX()) + 0.5;
+        c.borderZ = Math.floor(p.getZ()) + 0.5;
+      }
+      case "spawn" -> c.spawn = new WorldConfig.Spawn(p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot());
+      default -> throw new IllegalStateException(key);
+    }
+    ws.saveConfig();
+    ws.applySettings();
+    if (modes) bg.realms().roleChanged(ws);
+    if (menu) bg.menu().openSettings(p, ws);
+    else msg().send(sender, "settings-changed", "setting", msg().get("setting-" + key), "value", bg.menu().settingValue(ws, key));
+  }
+
+  /** 不是數字時為 -1。 */
+  private static int number(String s) {
+    try {
+      return Integer.parseInt(s);
+    } catch (NumberFormatException e) {
+      return -1;
+    }
+  }
+
+  private static <E extends Enum<E>> E option(Class<E> type, String value, String key) throws Workspace.Refused {
+    var e = WorldConfig.parse(type, value);
+    if (e == null) throw badValue(key);
+    return e;
+  }
+
+  private static boolean onOff(String value, String key) throws Workspace.Refused {
+    if (value.equals("on")) return true;
+    if (value.equals("off")) return false;
+    throw badValue(key);
+  }
+
+  private static Workspace.Refused badValue(String key) {
+    return new Workspace.Refused(key + " 可以是 " + String.join("、", Menu.SETTINGS.get(key)));
   }
 
   private net.kyori.adventure.text.Component roleName(WorldConfig.Role role) {
