@@ -39,6 +39,8 @@ public final class PermissionSets {
    * 不能在這裡檢查權限：LuckPerms 也會透過情境問角色，會無限循環。
    */
   static volatile Function<ServerPlayer, WorldConfig.Role> roles = p -> null;
+  /** 在伺服器世界裡、成員名單上的角色（03-worlds §4.2）；加在伺服器給的節點之上。不在名單上、或在建築世界時為 null。 */
+  static volatile Function<ServerPlayer, WorldConfig.Role> serverRoles = p -> null;
 
   /** 節點 → 有了就算有這個節點的所有節點（含自己），先具體後寬鬆。 */
   private static final Map<String, Set<String>> GRANTED_BY = new HashMap<>();
@@ -58,18 +60,26 @@ public final class PermissionSets {
 
   /**
    * 玩家的權限：在建築世界裡，權限集包含的節點改由那個世界的角色決定（擁有者與管理者是 manager、建造者是 builder，
-   * 訪客只能看），不看伺服器給的節點；{@code buildgit.world.admin} 都可以。其他節點與伺服器世界照 {@code has}。
+   * 訪客只能看），不看伺服器給的節點；{@code buildgit.world.admin} 都可以。其他節點與伺服器世界照 {@code has}；
+   * 伺服器世界的成員另外有角色給的節點。
    */
   public static boolean check(ServerPlayer player, Predicate<String> has, String permission) {
     var role = player == null ? null : roles.apply(player);
     // 只有 manager 權限集以內的節點看角色；init、reload、backup 等伺服器管理照舊
-    if (role == null || !grants(MANAGER, permission)) return check(has, permission);
-    boolean granted = switch (role) {
+    if (!grants(MANAGER, permission)) return check(has, permission);
+    if (role == null) {
+      var member = player == null ? null : serverRoles.apply(player);
+      return member != null && allows(member, permission) || check(has, permission);
+    }
+    return allows(role, permission) || check(has, "buildgit.world.admin");
+  }
+
+  private static boolean allows(WorldConfig.Role role, String permission) {
+    return switch (role) {
       case OWNER, MANAGER -> grants(MANAGER, permission);
       case BUILDER -> grants(BUILDER, permission);
       case VISITOR -> VISITOR.contains(permission);
     };
-    return granted || check(has, "buildgit.world.admin");
   }
 
   private static boolean grants(String set, String permission) {

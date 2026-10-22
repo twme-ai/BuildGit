@@ -400,12 +400,77 @@ public final class BuildWorlds {
     yaml.set(key + ".created", e.created());
   }
 
+  // ---- 持續載入（03-worlds §4.3） ----
+
+  /** 持續載入的世界與分支；每次 {@link #keepLoaded} 重新對應。 */
+  private Map<Workspace, Set<String>> kept = Map.of();
+  /** 正在載入持續載入的世界：不受 {@code max-loaded} 限制。 */
+  private boolean keeping;
+  /** 已經警告過、還沒恢復的設定，免得每 30 秒重複。 */
+  private final Set<String> keepWarned = new HashSet<>();
+
+  /** 這個世界持續載入的分支（{@code main} 或草稿）。 */
+  Set<String> kept(Workspace ws) {
+    return kept.getOrDefault(ws, Set.of());
+  }
+
+  /**
+   * 每 30 秒（主執行緒；啟動後也馬上一次）：對應 {@code worlds.keep-loaded} 與是建築世界的大廳，沒載入的載入。
+   * 對到的世界 id 記在 {@code keep-loaded.yml}（id → 設定裡寫的名稱），改名、轉讓後照 id 找。
+   */
+  void keepLoaded() {
+    var s = settings.get();
+    var specs = new LinkedHashSet<>(s.keepLoaded());
+    if (s.lobby().contains("/")) specs.add(s.lobby());
+    var file = platform.repoDir().resolve("keep-loaded.yml");
+    var ids = Yaml.load(file);
+    boolean changed = false;
+    var result = new HashMap<Workspace, Set<String>>();
+    for (var spec : specs) {
+      int colon = spec.lastIndexOf(':');
+      var name = colon < 0 ? spec : spec.substring(0, colon);
+      var branch = colon < 0 ? Repository.MAIN : spec.substring(colon + 1);
+      Workspace ws = null;
+      for (var id : ids.keys()) if (name.equals(ids.getString(id)) && byId(id) != null) ws = byId(id);
+      if (ws == null) ws = find(name, null);
+      if (ws != null && ws.buildWorld() != null && !name.equals(ids.getString(ws.buildWorld().id()))) {
+        ids.set(ws.buildWorld().id(), name);
+        changed = true;
+      }
+      // 伺服器世界的 main 本來就一直載入
+      if (ws == null || ws.buildWorld() == null && branch.equals(Repository.MAIN)) {
+        if (ws == null && keepWarned.add(spec)) platform.log().warning("worlds.keep-loaded：找不到世界 " + name);
+        continue;
+      }
+      result.computeIfAbsent(ws, k -> new HashSet<>()).add(branch);
+      if (busy(ws) || !ws.isOpen()) continue;
+      keeping = true;
+      try {
+        if (branch.equals(Repository.MAIN)) ws.openMain();
+        else ws.openBranch(branch);
+        keepWarned.remove(spec);
+      } catch (IOException | RuntimeException e) {
+        if (keepWarned.add(spec)) platform.log().warning("worlds.keep-loaded：無法載入 " + spec + "：" + e.getMessage());
+      } finally {
+        keeping = false;
+      }
+    }
+    kept = result;
+    if (changed)
+      try {
+        ids.save(file);
+      } catch (IOException e) {
+        platform.log().log(Level.WARNING, "無法寫入 keep-loaded.yml", e);
+      }
+  }
+
   // ---- 改名、轉讓、刪除（03-worlds §5.2、§6.1） ----
 
   /** 要再開一個建築世界的世界（主世界、草稿、檢視）前：同時載入的不能超過 {@code max-loaded}。 */
   void checkLoad() throws Workspace.Refused {
+    if (keeping) return;
     int max = settings.get().playerWorlds().maxLoaded();
-    int loaded = worlds.values().stream().mapToInt(ws -> ws.levelNames().size()).sum();
+    int loaded = worlds.values().stream().mapToInt(ws -> ws.levelNames(kept(ws)).size()).sum();
     if (loaded >= max) throw new Workspace.Refused("伺服器上同時開著的建築世界已經滿了（" + max + " 個），請稍後再試");
   }
 

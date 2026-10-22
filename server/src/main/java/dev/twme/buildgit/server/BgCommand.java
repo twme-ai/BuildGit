@@ -2140,8 +2140,7 @@ public final class BgCommand {
   private void home(Sender sender) {
     var p = player(sender);
     if (p == null) return;
-    bg.realms().home(p);
-    msg().send(sender, "world-home", "world", bg.worlds().serverWorldName());
+    if (bg.realms().home(p)) msg().send(sender, "world-home", "world", bg.worlds().serverWorldName());
   }
 
   private enum Visibility { PUBLIC, PRIVATE }
@@ -2167,12 +2166,17 @@ public final class BgCommand {
       return;
     }
     var ws = bg.workspace(p.level());
-    if (ws.buildWorld() == null || ws.config() == null) throw new Workspace.Refused("要在建築世界裡才能管理它（伺服器世界的成員還沒有）");
-    var role = ws.role(p.getUUID());
+    // 伺服器世界（03-worlds §4.2）只有成員與可見性；管理員當擁有者
+    boolean server = ws.buildWorld() == null;
+    if (server && !bg.realms().inServerWorld(p.level())) throw new Workspace.Refused("要在建築世界或伺服器世界裡才能管理它");
+    if (!server && ws.config() == null) throw new Workspace.Refused("這個建築世界的版本庫無法開啟，請管理員看主控台");
+    var role = server ? ws.serverRole(p.getUUID()) : ws.role(p.getUUID());
     boolean owner = role == WorldConfig.Role.OWNER || bg.realms().admin(p);
     boolean manager = owner || role == WorldConfig.Role.MANAGER;
-    var config = ws.config();
-    var what = w.isEmpty() ? "" : w.getFirst();
+    var config = ws.access();
+    var what = w.isEmpty() ? (server ? "members" : "") : w.getFirst();
+    if (server && !what.equals("members") && !what.equals("visibility"))
+      throw new Workspace.Refused("伺服器世界只能設定成員與可見性（/bg world members、/bg world visibility）");
     if (what.equals("settings")) {
       if (!manager) throw new Workspace.Refused("只有擁有者與管理者能改設定");
       settings(sender, p, ws, w);
@@ -2189,12 +2193,15 @@ public final class BgCommand {
         msg().send(sender, "usage-world");
         return;
       }
-      if (!owner) throw new Workspace.Refused("只有擁有者能改可見性");
+      if (!owner) throw new Workspace.Refused(server ? "只有管理員能改伺服器世界的可見性" : "只有擁有者能改可見性");
       if (config.unlisted && v == Visibility.PUBLIC && !bg.realms().admin(p))
         throw new Workspace.Refused("這個世界被管理員下架了，不能改成公開；請找管理員");
+      if (v == Visibility.PRIVATE && server && bg.realms().lobbyProblem() != null)
+        throw new Workspace.Refused("伺服器世界要有大廳才能設成私人：" + bg.realms().lobbyProblem());
+      if (v == Visibility.PRIVATE && ws == bg.realms().lobbyWorld()) throw new Workspace.Refused("這個世界是大廳，必須是公開的");
       config.open = v == Visibility.PUBLIC;
       ws.saveConfig();
-      msg().send(sender, config.open ? "world-public" : "world-private", "world", ws.label());
+      msg().send(sender, (server ? "server-" : "") + (config.open ? "world-public" : "world-private"), "world", ws.label());
       roleChanged(ws);
       if (menu) bg.menu().openMembers(p, ws);
       return;
@@ -2281,7 +2288,7 @@ public final class BgCommand {
         bg.menu().openMember(p, ws, entry.getKey());
       }
       case "list" -> {
-        msg().send(sender, "members-header", "world", ws.label(), "owner", ws.buildWorld().ownerName(),
+        msg().send(sender, "members-header", "world", ws.label(), "owner", server ? msg().raw("members-server-owner") : ws.buildWorld().ownerName(),
             "visibility", msg().get(config.open ? "visibility-public" : "visibility-private"));
         for (var m : config.members.values()) msg().send(sender, "members-entry", "name", m.name(), "role", roleName(m.role()));
       }
@@ -2298,14 +2305,14 @@ public final class BgCommand {
         if (target == null && existing == null) throw new Workspace.Refused("找不到線上玩家 " + w.get(2) + "（邀請時對方要在線上）");
         var uuid = target != null ? target.getUUID() : existing.getKey();
         var name = target != null ? target.getScoreboardName() : existing.getValue().name();
-        if (ws.buildWorld().owner().equals(uuid)) throw new Workspace.Refused(name + " 是擁有者");
+        if (!server && ws.buildWorld().owner().equals(uuid)) throw new Workspace.Refused(name + " 是擁有者");
         var old = config.members.get(uuid);
         if (!owner && (newRole == WorldConfig.Role.MANAGER || old != null && old.role() == WorldConfig.Role.MANAGER))
           throw new Workspace.Refused("管理者只能邀請或移除建造者");
         config.members.put(uuid, new WorldConfig.Member(name, newRole));
         ws.saveConfig();
         msg().send(sender, "members-added", "name", name, "role", roleName(newRole));
-        if (target != null && target != p) msg().send(bg.platform().sender(target), "members-invited", "world", ws.label(), "role", roleName(newRole));
+        if (target != null && target != p) msg().send(bg.platform().sender(target), server ? "server-members-invited" : "members-invited", "world", ws.label(), "role", roleName(newRole));
         roleChanged(ws);
         if (menu) bg.menu().openMembers(p, ws);
       }
@@ -2535,6 +2542,7 @@ public final class BgCommand {
       return;
     }
     boolean unlist = w.getFirst().equals("unlist");
+    if (unlist && ws == bg.realms().lobbyWorld()) throw new Workspace.Refused("這個世界是大廳，必須是公開的；先改 config.yml 的 worlds.lobby");
     ws.config().unlisted = unlist;
     if (unlist) ws.config().open = false;
     ws.saveConfig();

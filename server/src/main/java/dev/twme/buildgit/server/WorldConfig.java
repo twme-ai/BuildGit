@@ -224,6 +224,28 @@ public final class WorldConfig {
     c.forkId = y.getString("fork.source");
     c.forkCommit = y.getString("fork.commit");
     c.forkTemplate = y.getBoolean("fork.template", false);
+    readMembers(y, c);
+    return c;
+  }
+
+  /** 伺服器世界的成員與可見性（03-worlds §4.2），存在 {@code buildgit/server-world.yml}；沒有時是公開、沒有成員。 */
+  static WorldConfig loadServer(Path file) {
+    var c = new WorldConfig();
+    var y = Yaml.load(file);
+    c.open = !"private".equals(y.getString("visibility"));
+    readMembers(y, c);
+    return c;
+  }
+
+  void saveServer(Path file) throws IOException {
+    var y = new Yaml();
+    y.set("visibility", open ? "public" : "private");
+    writeMembers(y);
+    Files.createDirectories(file.getParent());
+    y.save(file);
+  }
+
+  private static void readMembers(Yaml y, WorldConfig c) {
     if (y.get("members") instanceof Map<?, ?> members)
       for (var e : members.entrySet()) {
         try {
@@ -235,7 +257,6 @@ public final class WorldConfig {
           // 格式不對的成員略過
         }
       }
-    return c;
   }
 
   static final List<GameType> MEMBER_MODES = List.of(GameType.CREATIVE, GameType.SURVIVAL, GameType.ADVENTURE);
@@ -303,11 +324,15 @@ public final class WorldConfig {
       y.set("fork.commit", forkCommit);
       y.set("fork.template", forkTemplate ? true : null);
     }
+    writeMembers(y);
+    Files.createDirectories(dir);
+    y.save(dir.resolve(FILE));
+  }
+
+  private void writeMembers(Yaml y) {
     for (var e : members.entrySet()) {
       y.set("members." + e.getKey() + ".name", e.getValue().name());
       y.set("members." + e.getKey() + ".role", key(e.getValue().role()));
     }
-    Files.createDirectories(dir);
-    y.save(dir.resolve(FILE));
   }
 }

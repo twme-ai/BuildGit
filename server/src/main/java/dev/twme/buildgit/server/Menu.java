@@ -278,7 +278,9 @@ final class Menu {
   void openSettings(ServerPlayer p, Workspace ws) {
     var msg = bg.messages();
     var items = new ArrayList<Platform.MenuItem>();
-    items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), msg.get("settings-header-lore"), null));
+    var header = new ArrayList<>(List.of(msg.get("settings-header-lore")));
+    if (!bg.worlds().kept(ws).isEmpty()) header.add(msg.get("settings-kept", "branches", String.join("、", bg.worlds().kept(ws))));
+    items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), header, null));
     var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 29, 30, 31, 32, 33);
     var icons = Map.ofEntries(Map.entry("time", "clock"), Map.entry("weather", "water_bucket"), Map.entry("difficulty", "iron_sword"),
         Map.entry("mobs", "zombie_head"), Map.entry("nature", "wheat"), Map.entry("border", "barrier"), Map.entry("border-center", "compass"),
@@ -434,13 +436,14 @@ final class Menu {
    */
   void openMembers(ServerPlayer p, Workspace ws) {
     var msg = bg.messages();
-    var c = ws.config();
-    var role = ws.role(p.getUUID());
+    var c = ws.access();
+    boolean server = ws.buildWorld() == null;
+    var role = server ? ws.serverRole(p.getUUID()) : ws.role(p.getUUID());
     boolean owner = role == WorldConfig.Role.OWNER || bg.realms().admin(p);
     boolean manager = owner || role == WorldConfig.Role.MANAGER;
     var items = new ArrayList<Platform.MenuItem>();
     items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()),
-        msg.get("members-menu-owner", "owner", ws.buildWorld().ownerName()), null));
+        msg.get("members-menu-owner", "owner", server ? msg.raw("members-server-owner") : ws.buildWorld().ownerName()), null));
     items.add(new Platform.MenuItem(8, c.open ? "ender_eye" : "ender_pearl", msg.get(c.open ? "visibility-public" : "visibility-private"),
         List.of(msg.get(c.open ? "members-menu-public-lore" : "members-menu-private-lore"), msg.get(owner ? "settings-click-next" : "members-menu-owner-only")),
         owner ? "world visibility " + (c.open ? "private" : "public") + " menu" : null));
@@ -457,19 +460,20 @@ final class Menu {
     if (manager)
       for (var online : bg.platform().server().getPlayerList().getPlayers()) {
         if (slot >= 36) break;
-        if (online == p || ws.buildWorld().owner().equals(online.getUUID()) || c.members.containsKey(online.getUUID())) continue;
+        if (online == p || !server && ws.buildWorld().owner().equals(online.getUUID()) || c.members.containsKey(online.getUUID())) continue;
         items.add(new Platform.MenuItem(slot++, "player_head", Component.text(online.getScoreboardName()), msg.get("members-menu-invite"),
             "world members add " + online.getScoreboardName() + " menu"));
       }
-    for (int x = 36; x < 45; x++) if (x != 40) items.add(divider(x));
-    items.add(new Platform.MenuItem(40, "oak_door", msg.get("members-menu-back"), (List<Component>) null, "world settings"));
+    for (int x = 36; x < 45; x++) if (x != 40 || server) items.add(divider(x));
+    // 伺服器世界沒有設定選單
+    if (!server) items.add(new Platform.MenuItem(40, "oak_door", msg.get("members-menu-back"), (List<Component>) null, "world settings"));
     bg.platform().openMenu(p, msg.get("members-menu-title"), items);
   }
 
   /** 一位成員：設成建造者、管理者（只有擁有者能設），或移出成員。 */
   void openMember(ServerPlayer p, Workspace ws, UUID member) {
     var msg = bg.messages();
-    var m = ws.config().members.get(member);
+    var m = ws.access().members.get(member);
     boolean owner = ws.role(p.getUUID()) == WorldConfig.Role.OWNER || bg.realms().admin(p);
     var items = new ArrayList<Platform.MenuItem>();
     items.add(new Platform.MenuItem(4, "player_head", Component.text(m.name()), msg.get("members-menu-role", "role", msg.get("role-" + WorldConfig.key(m.role()))), null));

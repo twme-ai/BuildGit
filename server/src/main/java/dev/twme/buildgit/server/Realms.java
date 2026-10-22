@@ -45,9 +45,96 @@ final class Realms {
     return bg.platform().hasPermission(p, "buildgit.world.admin");
   }
 
-  /** 能不能進去：伺服器世界都可以；建築世界要是成員，或世界是公開的；管理員都可以。 */
+  /** 能不能進去：建築世界要是成員，或世界是公開的；伺服器世界見 {@link #canEnterServer}；管理員都可以。 */
   boolean canEnter(ServerPlayer p, Workspace ws) {
-    return ws.buildWorld() == null || ws.role(p.getUUID()) != null || admin(p);
+    if (ws.buildWorld() == null) return canEnterServer(p);
+    return ws.role(p.getUUID()) != null || admin(p);
+  }
+
+  /** 伺服器世界（03-worlds §4.2）：公開時都可以；私人時要是成員、或有伺服器給的權限（{@code buildgit.role.viewer} 以上）。 */
+  boolean canEnterServer(ServerPlayer p) {
+    var access = bg.workspace().access();
+    return access.open || access.members.containsKey(p.getUUID()) || bg.platform().hasPermission(p, PermissionSets.VIEWER) || admin(p);
+  }
+
+  /** 在伺服器世界裡：主世界、地獄、終界與它們的草稿、檢視世界。不受版本控制的其他世界（例如大廳）不算。 */
+  boolean inServerWorld(ServerLevel level) {
+    var ws = bg.workspace(level);
+    if (ws.buildWorld() != null) return false;
+    var key = level.dimension();
+    return ws.owns(level) || key == net.minecraft.world.level.Level.OVERWORLD || key == net.minecraft.world.level.Level.NETHER
+        || key == net.minecraft.world.level.Level.END;
+  }
+
+  /** 在私人的伺服器世界裡、卻不能在這裡（上線、被移出成員、死掉重生、權限被拿掉時）。 */
+  private boolean blocked(ServerPlayer p) {
+    return inServerWorld(p.level()) && !canEnterServer(p);
+  }
+
+  // ---- 大廳（03-worlds §4.2） ----
+
+  /** 大廳無法使用時已經警告過（恢復前不再重複）。 */
+  private boolean lobbyWarned;
+
+  /** 是建築世界的大廳（{@code worlds.lobby} 寫「擁有者/名稱」）；不是、或找不到時為 null。 */
+  Workspace lobbyWorld() {
+    var spec = bg.settings().lobby();
+    return spec.contains("/") ? bg.worlds().find(spec, null) : null;
+  }
+
+  /** 普通世界的大廳：先照維度 id（只寫名稱時當 {@code minecraft:名稱}），再照世界名稱找。 */
+  private ServerLevel plainLobby() {
+    var spec = bg.settings().lobby();
+    if (spec.isEmpty() || spec.contains("/")) return null;
+    var id = Identifier.tryParse((spec.contains(":") ? spec : "minecraft:" + spec).toLowerCase(Locale.ROOT));
+    var level = id == null ? null : bg.platform().server().getLevel(ResourceKey.create(Registries.DIMENSION, id));
+    return level != null ? level : bg.platform().findLevel(spec);
+  }
+
+  /** 大廳能不能用：有設定、找得到，是建築世界時是公開的，不是伺服器世界本身。能用時為 null，否則是原因。 */
+  String lobbyProblem() {
+    var spec = bg.settings().lobby();
+    if (spec.isEmpty()) return "還沒有設定大廳（config.yml 的 worlds.lobby）";
+    if (spec.contains("/")) {
+      var ws = lobbyWorld();
+      if (ws == null || !ws.isOpen()) return "找不到大廳 " + spec;
+      if (!ws.config().open) return "大廳 " + spec + " 不是公開的";
+      return null;
+    }
+    var level = plainLobby();
+    if (level == null) return "找不到大廳世界 " + spec + "（要先用多世界插件載入）";
+    if (inServerWorld(level)) return "大廳不能是伺服器世界本身";
+    return null;
+  }
+
+  /** 立刻送到大廳（主執行緒）；大廳不能用時留在原地，主控台警告一次。 */
+  void toLobby(ServerPlayer p) {
+    var problem = lobbyProblem();
+    var ws = lobbyWorld();
+    ServerLevel level = null;
+    if (problem == null)
+      try {
+        level = ws != null ? ws.openMain() : plainLobby();
+      } catch (IOException | RuntimeException e) {
+        problem = e.getMessage();
+      }
+    if (level == null) {
+      if (!lobbyWarned) bg.platform().log().warning("伺服器世界是私人的，但無法把玩家送到大廳：" + problem);
+      lobbyWarned = true;
+      return;
+    }
+    lobbyWarned = false;
+    var spawn = ws != null ? ws.config().spawn : null;
+    if (spawn != null) Workspace.teleportNow(p, level, spawn.x(), spawn.y(), spawn.z(), spawn.yaw(), spawn.pitch());
+    else if (ws != null) {
+      level.getChunk(0, 0);
+      Workspace.teleportNow(p, level, 0.5, level.getHeight(Heightmap.Types.MOTION_BLOCKING, 0, 0), 0.5, p.getYRot(), p.getXRot());
+    } else {
+      var r = level.getLevelData().getRespawnData();
+      Workspace.teleportNow(p, level, r.pos().getX() + 0.5, r.pos().getY(), r.pos().getZ() + 0.5, r.yaw(), r.pitch());
+    }
+    apply(p);
+    bg.messages().send(bg.platform().sender(p), "lobby-sent");
   }
 
   /** 能不能 fork：成員都可以；訪客要擁有者允許複製；管理員都可以。 */
@@ -97,7 +184,12 @@ final class Realms {
     var server = bg.platform().server();
     var id = Identifier.tryParse(state.getString("home.world", ""));
     var saved = id == null ? null : server.getLevel(ResourceKey.create(Registries.DIMENSION, id));
-    if (saved != null && bg.workspace(saved).buildWorld() == null && state.get("home.pos") instanceof List<?> pos && pos.size() == 5) {
+    if (saved != null && !allowedHome(p, saved)) saved = null;
+    if (saved == null && !canEnterServer(p)) {
+      toLobby(p);
+      return;
+    }
+    if (saved != null && state.get("home.pos") instanceof List<?> pos && pos.size() == 5) {
       double[] v = new double[5];
       for (int i = 0; i < 5; i++) v[i] = pos.get(i) instanceof Number n ? n.doubleValue() : 0;
       Workspace.teleportNow(p, saved, v[0], v[1], v[2], (float) v[3], (float) v[4]);
@@ -109,21 +201,35 @@ final class Realms {
     apply(p);
   }
 
-  /** 回到進入建築世界之前的位置；不知道、或那個世界沒載入時到伺服器主世界的 (0, 0)。模式由 {@link #apply} 在換世界後恢復。 */
-  void home(ServerPlayer p) {
+  /**
+   * 回到進入建築世界之前的位置；不知道、或那個世界沒載入時到伺服器主世界的 (0, 0)。模式由 {@link #apply} 在換世界後恢復。
+   * 伺服器世界是私人的、自己又不能在那裡時送到大廳，回傳 false。
+   */
+  boolean home(ServerPlayer p) {
     var state = load(p.getUUID());
     var server = bg.platform().server();
     var id = Identifier.tryParse(state.getString("home.world", ""));
     var saved = id == null ? null : server.getLevel(ResourceKey.create(Registries.DIMENSION, id));
-    if (saved != null && bg.workspace(saved).buildWorld() == null && state.get("home.pos") instanceof List<?> pos && pos.size() == 5) {
+    if (saved != null && !allowedHome(p, saved)) saved = null;
+    if (saved == null && !canEnterServer(p)) {
+      toLobby(p);
+      return false;
+    }
+    if (saved != null && state.get("home.pos") instanceof List<?> pos && pos.size() == 5) {
       double[] v = new double[5];
       for (int i = 0; i < 5; i++) v[i] = pos.get(i) instanceof Number n ? n.doubleValue() : 0;
       bg.platform().teleport(p, saved, v[0], v[1], v[2], (float) v[3], (float) v[4]);
-      return;
+      return true;
     }
     var level = server.overworld();
     bg.platform().loadChunk(level, 0, 0).thenAccept(chunk -> bg.workspace().sync(() ->
         bg.platform().teleport(p, level, 0.5, level.getHeight(Heightmap.Types.MOTION_BLOCKING, 0, 0), 0.5, p.getYRot(), p.getXRot())));
+    return true;
+  }
+
+  /** 記下的位置能不能回去：不是建築世界，是伺服器世界時要進得去。 */
+  private boolean allowedHome(ServerPlayer p, ServerLevel level) {
+    return bg.workspace(level).buildWorld() == null && (!inServerWorld(level) || canEnterServer(p));
   }
 
   /**
@@ -187,6 +293,10 @@ final class Realms {
 
   /** 在這個建築世界（含草稿、檢視世界）裡、已經沒有資格的人送回伺服器世界；留下的人照新的角色換模式（成員、可見性或遊戲模式的設定變了時）。 */
   void roleChanged(Workspace ws) {
+    if (ws.buildWorld() == null) {
+      for (var p : List.copyOf(bg.platform().server().getPlayerList().getPlayers())) if (blocked(p)) toLobby(p);
+      return;
+    }
     for (var p : List.copyOf(bg.platform().server().getPlayerList().getPlayers()))
       if (bg.workspace(p.level()) == ws) {
         if (canEnter(p, ws)) apply(p);
@@ -212,6 +322,7 @@ final class Realms {
   void joined(ServerPlayer p) {
     var ws = bg.workspace(p.level());
     if (ws.buildWorld() != null && !canEnter(p, ws)) evict(p, ws);
+    else if (blocked(p)) toLobby(p);
     else apply(p);
     // 離線時收到的通知
     var state = load(p.getUUID());
@@ -242,11 +353,16 @@ final class Realms {
   }
 
   /**
-   * 每秒：旁觀者會穿過世界邊界，訪客超出邊界就拉回邊界內側（03-worlds §4.1）。
+   * 每秒：在私人的伺服器世界裡、卻不能在那裡的人送到大廳（死掉重生、從傳送門過來、權限被拿掉）。
+   * 旁觀者會穿過世界邊界，訪客超出邊界就拉回邊界內側（03-worlds §4.1）。
    * 世界邊界只擋得住非旁觀者，成員本來就出不去。
    */
   void tick() {
-    for (var p : bg.platform().server().getPlayerList().getPlayers()) {
+    for (var p : List.copyOf(bg.platform().server().getPlayerList().getPlayers())) {
+      if (blocked(p)) {
+        toLobby(p);
+        continue;
+      }
       var ws = bg.workspace(p.level());
       var border = p.level().getWorldBorder();
       if (ws.buildWorld() == null || !visitor(p, ws) || border.isWithinBounds(p.getX(), p.getZ())) {

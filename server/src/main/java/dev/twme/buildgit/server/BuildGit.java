@@ -54,6 +54,7 @@ public final class BuildGit {
       var role = ws.role(p.getUUID());
       return role != null ? role : WorldConfig.Role.VISITOR;
     };
+    PermissionSets.serverRoles = p -> realms.inServerWorld(p.level()) ? worlds.server().serverRole(p.getUUID()) : null;
   }
 
   public Platform platform() {
@@ -186,6 +187,7 @@ public final class BuildGit {
     messages = new Messages(platform.configDir(), settings.language(), platform.log());
     tracker.settings(settings);
     backup.start();
+    worlds.keepLoaded();
   }
 
   /** 每刻開始時（主執行緒）。 */
@@ -208,7 +210,8 @@ public final class BuildGit {
     hud.tick();
     realms.tick();
     sync.tick();
-    for (var ws : worlds.all()) ws.unloadIdleTick(settings.unloadIdleTicks());
+    for (var ws : worlds.all()) ws.unloadIdleTick(settings.unloadIdleTicks(), worlds.kept(ws));
+    if (ticks % 600 == 40) worlds.keepLoaded();
     if (ticks % (20L * 3600 * 24) == 0) worlds.purge();
   }
 

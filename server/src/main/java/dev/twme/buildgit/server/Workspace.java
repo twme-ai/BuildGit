@@ -160,9 +160,31 @@ public final class Workspace {
     return config.open ? WorldConfig.Role.VISITOR : null;
   }
 
-  /** 改過設定後寫回 {@code repo.yml}（主執行緒）。 */
+  /** 改過設定後寫回 {@code repo.yml}（主執行緒）；伺服器世界寫回 {@code server-world.yml}。 */
   void saveConfig() throws IOException {
-    config.save(dir, upgrader.current());
+    if (world == null) access().saveServer(serverAccessFile());
+    else config.save(dir, upgrader.current());
+  }
+
+  /** 伺服器世界的成員與可見性（03-worlds §4.2）；第一次用到時讀檔。 */
+  private WorldConfig serverAccess;
+
+  /** 成員與可見性：建築世界是它的設定，伺服器世界只用到 {@code members} 與 {@code open}。 */
+  public WorldConfig access() {
+    if (world != null) return config;
+    if (serverAccess == null) serverAccess = WorldConfig.loadServer(serverAccessFile());
+    return serverAccess;
+  }
+
+  private Path serverAccessFile() {
+    return platform.repoDir().resolve("server-world.yml");
+  }
+
+  /** 伺服器世界成員名單上的角色（加在權限節點之上）；不在名單上、或是建築世界時為 null。 */
+  WorldConfig.Role serverRole(UUID player) {
+    if (world != null) return null;
+    var member = access().members.get(player);
+    return member == null ? null : member.role();
   }
 
   /** 給玩家看的名稱：建築世界是「擁有者/名稱」，伺服器世界是它的名稱。 */
@@ -647,8 +669,13 @@ public final class Workspace {
 
   /** 這個版本庫載入中的世界名稱（主世界、草稿、整合、檢視）。 */
   List<String> levelNames() {
+    return levelNames(Set.of());
+  }
+
+  /** 同 {@link #levelNames()}，但不含 {@code except} 這些分支的世界。 */
+  List<String> levelNames(Set<String> except) {
     var names = new ArrayList<String>();
-    for (var wt : worktrees()) for (var w : wt.worlds().values()) names.add(platform.levelName(w));
+    for (var wt : worktrees()) if (!except.contains(wt.branch())) for (var w : wt.worlds().values()) names.add(platform.levelName(w));
     for (var w : views.keySet()) names.add(platform.levelName(w));
     return names;
   }
@@ -686,12 +713,14 @@ public final class Workspace {
    * （未存的標記寫進日誌）。之後 {@link #openBranch} 會重新載入：region 檔還在，不會重新合成。
    *
    * @param idleTicks 小於 0 表示不卸載
+   * @param kept 持續載入的分支（{@code worlds.keep-loaded}），不卸載
    */
-  public void unloadIdleTick(long idleTicks) {
+  public void unloadIdleTick(long idleTicks, Set<String> kept) {
     if (repo == null || idleTicks < 0) return;
     long now = platform.tick();
     idleSince.keySet().retainAll(worktrees.keySet());
     for (var wt : worktrees()) {
+      if (kept.contains(wt.branch())) continue;
       if (wt.branch().equals(Repository.MAIN)
           && (world == null || worktrees.size() > 1 || !views.isEmpty() || wt.worlds().isEmpty() || !wt.table().isEmpty())) continue;
       boolean occupied = wt.worlds().values().stream().anyMatch(w -> !w.players().isEmpty());
