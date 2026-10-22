@@ -59,7 +59,7 @@ public final class MarkJournal implements Closeable {
     return Long.parseLong(n.substring(6, n.length() - 8));
   }
 
-  /** 把標記表裡變動過的部分寫進日誌並寫到磁碟。平台每秒與世界存檔時呼叫。 */
+  /** 把標記表裡變動過的部分寫進日誌並寫到磁碟。平台每秒與世界存檔時呼叫。鎖的順序：先日誌、後標記表。 */
   public synchronized void flush(MarkTable table) throws IOException {
     var dirty = table.takeDirty();
     if (dirty.isEmpty()) return; // 沒人在蓋時不要每秒 fsync
@@ -71,19 +71,23 @@ public final class MarkJournal implements Closeable {
   public record Drained(Marks marks, List<Path> previousFiles) {}
 
   /**
-   * 提交開始：寫出尚未寫的標記、開新日誌檔、取走全部標記。三步在標記表的鎖內完成，期間的新標記不會遺失。
+   * 提交開始：寫出尚未寫的標記、開新日誌檔、取走全部標記。尚未寫的與全部標記在標記表的鎖內一起取走，
+   * 之後的新標記留在表裡，下次寫進新的日誌檔，不會遺失。
+   *
+   * <p>鎖的順序和 {@link #flush} 一樣先日誌、後標記表；反過來會和背景執行緒的 flush 互相等待而卡死。
    */
-  public Drained drainForCommit(MarkTable table) throws IOException {
+  public synchronized Drained drainForCommit(MarkTable table) throws IOException {
+    Marks dirty, all;
     synchronized (table) {
-      synchronized (this) {
-        write(table.takeDirty());
-        out.flush();
-        out.close();
-        var previous = files();
-        open();
-        return new Drained(table.drain(), previous.stream().filter(p -> !p.equals(current)).toList());
-      }
+      dirty = table.takeDirty();
+      all = table.drain();
     }
+    write(dirty);
+    out.flush();
+    out.close();
+    var previous = files();
+    open();
+    return new Drained(all, previous.stream().filter(p -> !p.equals(current)).toList());
   }
 
   /** 提交失敗：把標記放回並寫進目前的日誌，然後才能刪除舊檔。 */
