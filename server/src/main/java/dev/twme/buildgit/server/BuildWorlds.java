@@ -229,6 +229,44 @@ public final class BuildWorlds {
     return ws;
   }
 
+  /** 建立前先檢查（上傳單人世界之前，免得傳完才發現不能建）。 */
+  void checkCreate(String name, ServerPlayer owner, boolean admin) throws IOException {
+    prepare(name, owner, admin);
+  }
+
+  /**
+   * 把上傳的單人世界建成建築世界（主執行緒，03-worlds §7）：和 {@link #create} 一樣，只是起點世界換成 {@code staged} 裡檢查過的
+   * {@code region}、{@code entities}，沒有歷史。
+   */
+  Workspace importWorld(String name, ServerPlayer owner, WorldConfig config, boolean admin, Path staged) throws IOException {
+    var ws = prepare(name, owner, admin);
+    var e = ws.buildWorld();
+    var to = ws.genesisDir(Workspace.OVERWORLD);
+    try {
+      Files.createDirectories(to);
+      for (var sub : List.of("region", "entities")) {
+        var from = staged.resolve(sub);
+        if (!Files.isDirectory(from)) continue;
+        try {
+          Files.move(from, to.resolve(sub));
+        } catch (IOException ex) {
+          // 不同的檔案系統
+          Workspace.copyTree(from, to.resolve(sub), false);
+        }
+      }
+      ws.create(tracker.author(owner), config);
+    } catch (IOException | RuntimeException ex) {
+      ws.closeRepo();
+      deleteTree(ws.dir());
+      deleteTree(ws.genesisRoot());
+      throw ex;
+    }
+    worlds.put(e.id(), ws);
+    save();
+    platform.log().info(owner.getScoreboardName() + " 上傳單人世界建立了建築世界 " + e.label() + "（" + e.folder() + "）");
+    return ws;
+  }
+
   /**
    * fork（主執行緒開始，03-worlds §5.3）：新的私人建築世界，起點世界複製一份、main 指向來源 main 的最新存檔、設定照抄（名稱、
    * 成員除外）、繼承來源的 {@code legacy}。物件位置相同時不複製，不同時用硬連結複製。完成時（主執行緒）已登記並開啟，

@@ -206,6 +206,13 @@ final class Backup {
     }
   }
 
+  /** {@code s3.yml} 裡填好的連線（上傳單人世界用）；沒有或沒填完時是 null。 */
+  static S3.Config connection(Path configDir, String name) {
+    var y = Yaml.load(configDir.resolve(S3_FILE));
+    var c = connection(y, !y.contains("connections"), name);
+    return c == null || missing(c) != null ? null : c;
+  }
+
   private static S3.Config connection(Yaml y, boolean legacy, String name) {
     String at;
     if (legacy) {

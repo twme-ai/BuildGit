@@ -115,7 +115,7 @@ public final class BgCommand {
     // 建築世界（03-worlds）：進出、列出所有人都能用，能不能進去看成員名單與可見性
     sub("new", "buildgit.world.create|buildgit.world.admin", this::newWorld, (s, b) -> List.of("type=overworld", "type=nether", "type=end",
         "terrain=normal", "terrain=large-biomes", "terrain=amplified", "terrain=flat", "terrain=void", "rules=build", "rules=vanilla",
-        "seed=", "layers=", "block=", "template=", "confirm"));
+        "seed=", "layers=", "block=", "template=", "from=", "confirm"));
     sub("submit", "buildgit.world.create|buildgit.world.admin", this::submit, null);
     sub("fork", "buildgit.world.create|buildgit.world.admin", this::fork, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
@@ -1914,10 +1914,32 @@ public final class BgCommand {
   private void newWorld(Sender sender, String[] args) throws IOException {
     var p = player(sender);
     if (p == null) return;
+    // from=<存檔>：上傳單人世界（03-worlds §7），不經過選單。寫在最後，存檔名稱可以有空格
+    String from = null;
+    var rest = new ArrayList<String>();
+    for (var a : args) {
+      if (from == null && a.toLowerCase(Locale.ROOT).startsWith("from=")) from = a.substring(5);
+      else if (from != null && !a.startsWith("--") && !a.equals("confirm")) from += " " + a;
+      else rest.add(a);
+    }
+    args = rest.toArray(String[]::new);
     var o = parseNew(sender, args);
     if (o == null) return;
     var pw = bg.settings().playerWorlds();
     boolean admin = sender.hasPermission("buildgit.world.admin");
+    if (from != null) {
+      if (o.template() != null) throw new Workspace.Refused("from= 不能和 template= 一起用");
+      if (o.type() != WorldConfig.Type.OVERWORLD) throw new Workspace.Refused("上傳的單人世界只帶主世界，類型只能是 overworld");
+      // 存檔以外的地方：沒指定地形時是虛空
+      if (Arrays.stream(args).noneMatch(a -> a.toLowerCase(Locale.ROOT).startsWith("terrain="))) o = o.withTerrain(WorldConfig.Terrain.VOID);
+      if (!admin && !pw.allowed(o.terrain())) throw new Workspace.Refused("這台伺服器沒有開放 " + WorldConfig.key(o.terrain()) + " 地形，請用 terrain= 指定其他的");
+      if (!bg.platform().canSync(p)) {
+        msg().send(sender, "sync-no-client");
+        return;
+      }
+      bg.worldUpload().start(p, o.name(), newConfig(o), admin, from);
+      return;
+    }
     if (!flags(args).contains("confirm")) {
       // 預設的類型、地形沒開放時，選單從開放的第一個開始
       if (!admin && o.template() == null && !pw.allowed(o.type()))

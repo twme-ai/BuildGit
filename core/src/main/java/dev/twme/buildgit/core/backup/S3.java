@@ -60,6 +60,54 @@ public final class S3 implements BackupStore {
     return getVersion(key, null);
   }
 
+  /**
+   * 下載到檔案，超過 {@code max} 位元組時中止（下載不可信任的上傳時用）。
+   *
+   * @return 不存在時為 false
+   */
+  public boolean getFile(String key, Path to, long max) throws IOException {
+    HttpResponse<java.io.InputStream> r;
+    try {
+      r = http.send(signed("GET", key, Map.of(), Map.of(), null), HttpResponse.BodyHandlers.ofInputStream());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("中斷", e);
+    }
+    try (var in = r.body()) {
+      if (r.statusCode() == 404) return false;
+      if (r.statusCode() / 100 != 2) throw new IOException("S3 回應 " + r.statusCode());
+      try (var out = Files.newOutputStream(to)) {
+        var buf = new byte[1 << 16];
+        long total = 0;
+        for (int n; (n = in.read(buf)) > 0; ) {
+          if ((total += n) > max) throw new IOException("檔案超過上限");
+          out.write(buf, 0, n);
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 預簽的 PUT 網址（SigV4 query 簽名）：拿到的人在 {@code seconds} 秒內可以上傳到 {@code key} 一次，內容長度必須是
+   * {@code length}。{@code endpoint} 是拿到網址的人看得到的位址（可以和伺服器自己連的不同），簽名綁著它的主機名稱。
+   */
+  public String presignPut(String endpoint, String key, long length, int seconds) {
+    var base = URI.create(endpoint.replaceAll("/+$", ""));
+    String host = host(base), path = path(key);
+    String date = AMZ_DATE.format(ZonedDateTime.now(ZoneOffset.UTC));
+    String scope = date.substring(0, 8) + "/" + config.region() + "/s3/aws4_request";
+    var query = new TreeMap<String, String>();
+    query.put("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
+    query.put("X-Amz-Credential", config.accessKey() + "/" + scope);
+    query.put("X-Amz-Date", date);
+    query.put("X-Amz-Expires", String.valueOf(seconds));
+    query.put("X-Amz-SignedHeaders", "content-length;host");
+    String q = canonicalQuery(query);
+    String request = String.join("\n", "PUT", path, q, "content-length:" + length + "\nhost:" + host + "\n", "content-length;host", "UNSIGNED-PAYLOAD");
+    return base.getScheme() + "://" + host + path + "?" + q + "&X-Amz-Signature=" + signature(config, date, request);
+  }
+
   /** 物件的某個版本；{@code version} 為 null 時是最新的。不存在時為 null。 */
   public byte[] getVersion(String key, String version) throws IOException {
     var r = request("GET", key, version == null ? Map.of() : Map.of("versionId", version), null);
@@ -198,10 +246,26 @@ public final class S3 implements BackupStore {
   /** 一次請求；每次重新簽名（簽名帶時間）。 */
   private HttpResponse<byte[]> attempt(String method, String key, Map<String, String> query, Map<String, String> extra, Object body)
       throws IOException {
-    var base = URI.create(config.endpoint().replaceAll("/+$", ""));
-    String host = (config.pathStyle() ? "" : config.bucket() + ".") + base.getHost()
+    try {
+      return http.send(signed(method, key, query, extra, body), HttpResponse.BodyHandlers.ofByteArray());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("中斷", e);
+    }
+  }
+
+  private String host(URI base) {
+    return (config.pathStyle() ? "" : config.bucket() + ".") + base.getHost()
         + (base.getPort() == -1 || base.getPort() == (base.getScheme().equals("https") ? 443 : 80) ? "" : ":" + base.getPort());
-    String path = (config.pathStyle() ? "/" + encode(config.bucket(), false) : "") + "/" + encode(key, true);
+  }
+
+  private String path(String key) {
+    return (config.pathStyle() ? "/" + encode(config.bucket(), false) : "") + "/" + encode(key, true);
+  }
+
+  private HttpRequest signed(String method, String key, Map<String, String> query, Map<String, String> extra, Object body) throws IOException {
+    var base = URI.create(config.endpoint().replaceAll("/+$", ""));
+    String host = host(base), path = path(key);
     String q = canonicalQuery(query);
     String payload = body instanceof Path file ? hex(sha256(file)) : hex(sha256(body == null ? new byte[0] : (byte[]) body));
     String date = AMZ_DATE.format(ZonedDateTime.now(ZoneOffset.UTC));
@@ -218,12 +282,7 @@ public final class S3 implements BackupStore {
     headers.forEach((k, v) -> {
       if (!k.equals("host")) builder.header(k, v);
     });
-    try {
-      return http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IOException("中斷", e);
-    }
+    return builder.build();
   }
 
   /** SigV4 的 Authorization 標頭。{@code headers} 是要簽的標頭（小寫名稱）。 */
@@ -233,12 +292,18 @@ public final class S3 implements BackupStore {
     String signed = String.join(";", headers.keySet());
     String request = String.join("\n", method, path, query, canonicalHeaders.toString(), signed, payload);
     String scope = date.substring(0, 8) + "/" + c.region() + "/s3/aws4_request";
+    return "AWS4-HMAC-SHA256 Credential=" + c.accessKey() + "/" + scope + ", SignedHeaders=" + signed + ", Signature=" + signature(c, date, request);
+  }
+
+  /** canonical request 的 SigV4 簽名。 */
+  private static String signature(Config c, String date, String request) {
+    String scope = date.substring(0, 8) + "/" + c.region() + "/s3/aws4_request";
     String toSign = String.join("\n", "AWS4-HMAC-SHA256", date, scope, hex(sha256(request.getBytes(StandardCharsets.UTF_8))));
     byte[] key = hmac(("AWS4" + c.secretKey()).getBytes(StandardCharsets.UTF_8), date.substring(0, 8));
     key = hmac(key, c.region());
     key = hmac(key, "s3");
     key = hmac(key, "aws4_request");
-    return "AWS4-HMAC-SHA256 Credential=" + c.accessKey() + "/" + scope + ", SignedHeaders=" + signed + ", Signature=" + hex(hmac(key, toSign));
+    return hex(hmac(key, toSign));
   }
 
   private static String canonicalQuery(Map<String, String> query) {

@@ -9,7 +9,7 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
@@ -23,13 +23,15 @@ import org.slf4j.LoggerFactory;
 /**
  * 用戶端的入口（設計 §6.7）：收下伺服器送來的範圍，伺服器要求時把改過的範圍送回；連上時列出還沒送回的範圍。
  * 範圍檔放在 {@code .minecraft/buildgit/sync/}，單人世界的 {@code /bg load} 也讀這裡。
- * {@code /bgc open <名稱>} 離開伺服器、在專屬的單人世界打開範圍。
+ * {@code /bgc open <名稱>} 離開伺服器、在專屬的單人世界打開範圍。伺服器的 {@code /bg new … from=<存檔>} 要求時，
+ * 把 {@code .minecraft/saves/<存檔>} 打包上傳。
  */
 public final class BuildGitClient implements ClientModInitializer {
   /** 每刻送出的段數（每段約 30 KB）。 */
   private static final int PARTS_PER_TICK = 4;
 
-  private final ArrayDeque<byte[]> outgoing = new ArrayDeque<>();
+  /** 上傳單人世界的回覆從背景執行緒加進來。 */
+  private final ConcurrentLinkedQueue<byte[]> outgoing = new ConcurrentLinkedQueue<>();
   /** 下一刻要做的事（不在指令執行中途離開世界）。 */
   private Runnable next;
 
@@ -37,7 +39,7 @@ public final class BuildGitClient implements ClientModInitializer {
   public void onInitializeClient() {
     var log = LoggerFactory.getLogger("BuildGit");
     var folder = FabricLoader.getInstance().getGameDir().resolve("buildgit").resolve("sync");
-    var sync = new SyncClient(folder);
+    var sync = new SyncClient(folder, FabricLoader.getInstance().getGameDir().resolve("saves"), f -> outgoing.add(f.encode()));
     ClientPlayNetworking.registerGlobalReceiver(SyncPayload.TYPE, (payload, context) -> {
       try {
         for (var reply : sync.receive(Frame.decode(payload.data()))) outgoing.add(reply.encode());

@@ -26,6 +26,16 @@ public record Frame(int type, String name, int index, int total, byte[] data) {
   public static final int EDITED = 5;
   /** 伺服器 → 用戶端：已送回成草稿，刪掉改過的範圍檔。 */
   public static final int DONE = 6;
+  /** 伺服器 → 用戶端：打包單人世界存檔（03-worlds §7 上傳），{@code data} 是「存檔資料夾名稱\n上限位元組」。 */
+  public static final int IMPORT = 7;
+  /** 用戶端 → 伺服器：打包好了，{@code data} 是「位元組數\nSHA-256」。 */
+  public static final int IMPORT_READY = 8;
+  /** 伺服器 → 用戶端：預簽的上傳網址。 */
+  public static final int IMPORT_URL = 9;
+  /** 用戶端 → 伺服器：上傳完成。 */
+  public static final int IMPORT_DONE = 10;
+  /** 用戶端 → 伺服器：打包或上傳失敗，{@code data} 是原因代碼。 */
+  public static final int IMPORT_ERROR = 11;
 
   /** 伺服器送出的一段（原版上限 1 MiB）。 */
   public static final int SERVER_PART = 512 * 1024;

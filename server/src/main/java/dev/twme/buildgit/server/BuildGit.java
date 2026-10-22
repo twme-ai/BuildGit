@@ -26,6 +26,7 @@ public final class BuildGit {
   private Menu menu;
   private BgCommand command;
   private Sync sync;
+  private WorldUpload worldUpload;
   private LocalSync localSync;
   private final Backup backup;
   private final Contexts contexts = new Contexts();
@@ -45,6 +46,7 @@ public final class BuildGit {
     hud = new Hud(this);
     menu = new Menu(this);
     sync = new Sync(this);
+    worldUpload = new WorldUpload(this);
     localSync = new LocalSync(this);
     backup = new Backup(this);
     command = new BgCommand(this);
@@ -105,6 +107,10 @@ public final class BuildGit {
 
   Menu menu() {
     return menu;
+  }
+
+  WorldUpload worldUpload() {
+    return worldUpload;
   }
 
   Sync sync() {
@@ -214,6 +220,7 @@ public final class BuildGit {
     hud.tick();
     realms.tick();
     sync.tick();
+    worldUpload.tick();
     for (var ws : worlds.all()) ws.unloadIdleTick(settings.unloadIdleTicks(), worlds.kept(ws));
     if (ticks % 600 == 40) worlds.keepLoaded();
     if (ticks % (20L * 3600 * 24) == 0) worlds.purge();
@@ -279,6 +286,7 @@ public final class BuildGit {
     selections.quit(player.getUUID());
     command.quit(player.getUUID());
     sync.quit(player.getUUID());
+    worldUpload.quit(player.getUUID());
     hud.quit(player);
     realms.quit(player);
   }

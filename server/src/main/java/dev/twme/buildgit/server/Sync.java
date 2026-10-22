@@ -196,6 +196,10 @@ final class Sync {
       edited(p, new String(f.data(), StandardCharsets.UTF_8));
       return;
     }
+    if (f.type() >= Frame.IMPORT_READY && f.type() <= Frame.IMPORT_ERROR) {
+      bg.worldUpload().receive(p, f);
+      return;
+    }
     var up = uploads.get(p.getUUID());
     if (up == null || !up.name().equals(f.name())) return;
     if (f.type() == Frame.ERROR) {

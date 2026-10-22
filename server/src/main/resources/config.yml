@@ -117,6 +117,16 @@ player-worlds:
     objects: "{buildgit}/objects"
     # 起點世界
     genesis: "{repo}/genesis"
+  # 把單人世界上傳成新的建築世界（/bg new <名稱> from=<存檔>，要裝 BuildGit 用戶端）。只帶主世界的方塊與實體，
+  # 不帶歷史。用戶端直接上傳到 S3（伺服器發 15 分鐘有效的預簽網址），伺服器再下載、檢查每個 chunk。
+  upload:
+    # s3.yml 的連線名稱；空白時不開放上傳。上傳暫存在 bucket 的 uploads/ 下，處理完就刪掉
+    # （建議替 uploads/ 設一天後自動刪除的生命週期規則，清掉玩家中途離開留下的）
+    connection: ""
+    # 玩家的電腦連得到的 S3 網址；空白時和連線的 endpoint 相同（endpoint 是 127.0.0.1 等內部位址時要填）
+    public-endpoint: ""
+    # 打包後的大小上限（MB）
+    max-mb: 512
 
 init:
   # 世界的存檔（region 與 entities）超過這個大小（MB）時，/bg init 不複製整個世界，改成延遲複製：

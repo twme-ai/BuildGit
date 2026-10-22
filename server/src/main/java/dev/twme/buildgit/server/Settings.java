@@ -51,7 +51,8 @@ public record Settings(
    */
   public record PlayerWorlds(boolean enabled, int maxPerPlayer, int border, int maxBorder, boolean separateInventories,
       boolean allowInventoryIsolation, int trashDays, int maxLoaded, Set<WorldConfig.Type> allowedTypes, Set<WorldConfig.Terrain> allowedTerrain,
-      List<String> templates, String serverWorldName, String worldName, String repo, String objects, String genesis) {
+      List<String> templates, String serverWorldName, String worldName, String repo, String objects, String genesis,
+      String uploadConnection, String uploadEndpoint, long uploadMaxBytes) {
     boolean allowed(WorldConfig.Type type) {
       return allowedTypes.isEmpty() || allowedTypes.contains(type);
     }
@@ -142,7 +143,10 @@ public record Settings(
             c.getString("player-worlds.world-name", "bw_{owner-name}_{name}").strip(),
             c.getString("player-worlds.paths.repo", "{buildgit}/worlds/{id}").strip(),
             c.getString("player-worlds.paths.objects", "{buildgit}/objects").strip(),
-            c.getString("player-worlds.paths.genesis", "{repo}/genesis").strip()));
+            c.getString("player-worlds.paths.genesis", "{repo}/genesis").strip(),
+            c.getString("player-worlds.upload.connection", "").strip(),
+            c.getString("player-worlds.upload.public-endpoint", "").strip(),
+            Math.max(1, c.getLong("player-worlds.upload.max-mb", 512)) * 1024 * 1024));
   }
 
   /** 負數表示不卸載；否則至少 30 秒：開世界加傳送可能要好幾秒，太短會在玩家抵達前就卸載。 */
