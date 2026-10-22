@@ -71,7 +71,7 @@ public final class BgCommand {
 
   BgCommand(BuildGit bg) {
     this.bg = bg;
-    sub("help", null, (s, a) -> msg().send(s, "help"), null);
+    sub("help", null, this::help, (s, b) -> b.isEmpty() ? List.of("admin") : List.of());
     sub("init", "buildgit.init", (s, a) -> init(s), null);
     sub("reload", "buildgit.reload", (s, a) -> {
       bg.reload();
@@ -157,6 +157,58 @@ public final class BgCommand {
     return r;
   }
 
+  /** 說明的一段：語言檔 {@code help-section-<key>}，每行 {@code help-<子指令>}，同一行也算其他列出的子指令（例如 inspect／blame）。 */
+  private record HelpSection(String key, List<List<String>> lines) {}
+
+  private static final List<HelpSection> HELP = List.of(
+      new HelpSection("draft", List.of(List.of("try"), List.of("publish"), List.of("back"), List.of("go"), List.of("branch"))),
+      new HelpSection("history", List.of(List.of("status"), List.of("save"), List.of("log"), List.of("graph"), List.of("show"), List.of("diff"),
+          List.of("view"), List.of("inspect", "blame"))),
+      new HelpSection("restore", List.of(List.of("revert"), List.of("restore"))),
+      new HelpSection("single", List.of(List.of("pull"), List.of("load"), List.of("push"))),
+      new HelpSection("worlds", List.of(List.of("new"), List.of("open", "home"), List.of("worlds"), List.of("world"), List.of("fork"),
+          List.of("submit"))),
+      new HelpSection("merge", List.of(List.of("merge"))),
+      new HelpSection("other", List.of(List.of("sel"), List.of("who"), List.of("mark"))));
+  private static final HelpSection ADMIN_HELP = new HelpSection("admin", List.of(List.of("disk"), List.of("genesis"), List.of("backup"),
+      List.of("init", "reload")));
+
+  /**
+   * {@code help [admin]}：只列自己能用的；所在的地方最常用的一段放最前面（整合中是衝突，建築世界裡是建築世界）。
+   * 管理指令另外在 {@code help admin}。
+   */
+  private void help(Sender sender, String[] a) {
+    var p = sender.player();
+    var ws = ws(sender);
+    var wt = p == null ? null : ws.worktree(p.level());
+    String front = wt != null && Workspace.isScratch(wt.branch()) ? "merge" : ws.buildWorld() != null ? "worlds" : null;
+    boolean admin = a.length > 0 && a[0].equals("admin");
+    var sections = new ArrayList<>(admin ? List.of(ADMIN_HELP) : HELP);
+    sections.sort(java.util.Comparator.comparing(s -> !s.key().equals(front)));
+    var out = new ArrayList<Component>();
+    if (p != null && sender.hasPermission("buildgit.menu") && !admin) out.add(msg().get("help-menu"));
+    for (var section : sections) {
+      var lines = section.lines().stream().filter(l -> l.stream().anyMatch(name -> canUse(sender, ws, name))).toList();
+      if (lines.isEmpty()) continue;
+      out.add(msg().get("help-section-" + section.key()));
+      for (var l : lines) out.add(msg().get("help-" + l.getFirst()));
+    }
+    if (!admin && ADMIN_HELP.lines().stream().flatMap(List::stream).anyMatch(name -> canUse(sender, ws, name)))
+      out.add(msg().get("help-admin-hint"));
+    sender.send(msg().prefixed(Component.join(net.kyori.adventure.text.JoinConfiguration.newlines(), out)));
+  }
+
+  /** 說明裡列不列這個子指令：有權限；世界設定只給這個建築世界的擁有者、管理者與管理員。 */
+  private boolean canUse(Sender sender, Workspace ws, String name) {
+    var sub = subs.stream().filter(s -> s.names().contains(name)).findFirst().orElseThrow();
+    if (sub.permission() != null && !anyPermission(sender, sub.permission())) return false;
+    if (!name.equals("world")) return true;
+    var p = sender.player();
+    if (p == null || ws.buildWorld() == null) return false;
+    var role = ws.role(p.getUUID());
+    return role == WorldConfig.Role.OWNER || role == WorldConfig.Role.MANAGER || bg.realms().admin(p);
+  }
+
   private Messages msg() {
     return bg.messages();
   }
@@ -173,7 +225,7 @@ public final class BgCommand {
     var root = LiteralArgumentBuilder.<S>literal("bg").executes(ctx -> {
       var s = sender.apply(ctx.getSource());
       if (s.player() != null && s.hasPermission("buildgit.menu") && ws(s).isOpen()) bg.menu().open(s.player());
-      else msg().send(s, "help");
+      else help(s, new String[0]);
       return 1;
     });
     for (var sub : subs)

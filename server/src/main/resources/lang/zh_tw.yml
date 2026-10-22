@@ -1,44 +1,47 @@
 prefix: "<dark_aqua>[BuildGit]</dark_aqua> "
 
-help: |-
-  <gray>草稿：</gray>
-  <aqua>/bg try <名稱></aqua> <gray>— 開草稿並傳送到同一個位置</gray>
-  <aqua>/bg publish [--selection]</aqua> <gray>— 預覽併回（點確認才寫入）；--selection 只併回選取範圍</gray>
-  <aqua>/bg back</aqua> <gray>— 不併回，回到來源世界</gray>
-  <aqua>/bg go <草稿|main></aqua> <gray>— 到某個草稿或主世界</gray>
-  <aqua>/bg branch list|create|delete</aqua> <gray>— 管理草稿</gray>
-  <gray>存檔與歷史：</gray>
-  <aqua>/bg status</aqua> <gray>— 未存的變更</gray>
-  <aqua>/bg save [訊息]</aqua> <gray>— 存檔（里程碑）</gray>
-  <aqua>/bg log [頁數] [--all] [--author <玩家>]</aqua> <gray>— 存檔歷史</gray>
-  <aqua>/bg graph [頁數] [--all]</aqua> <gray>— 分支歷史圖（像 git log --graph）</gray>
-  <aqua>/bg show <存檔> [--cells]</aqua> <gray>— 這次存檔改了什麼</gray>
-  <aqua>/bg diff [存檔] [存檔]</aqua> <gray>— 在世界裡標出變更</gray>
-  <aqua>/bg view <存檔></aqua> <gray>— 唯讀地看舊版本</gray>
-  <aqua>/bg inspect</aqua> <gray>／</gray><aqua>/bg blame</aqua> <gray>— 看方塊是誰改的</gray>
-  <gray>還原：</gray>
-  <aqua>/bg revert <存檔></aqua> <gray>— 撤銷某次存檔，保留之後的變更</gray>
-  <aqua>/bg restore <存檔> [--selection]</aqua> <gray>— 把整個分支或選取範圍還原到舊版本</gray>
-  <gray>單人世界（用戶端要裝 BuildGit）：</gray>
-  <aqua>/bg pull [名稱]</aqua> <gray>— 把選取範圍（沒選時是草稿改過的地方或周圍）帶到單人世界</gray>
-  <aqua>/bg load <名稱></aqua> <gray>— 在單人世界放進取出的範圍</gray>
-  <aqua>/bg push <名稱> [草稿]</aqua> <gray>— 把單人世界改過的範圍送回，存成草稿</gray>
-  <gray>衝突：</gray>
-  <aqua>/bg merge conflicts|goto|take|continue|abort</aqua> <gray>— 處理衝突</gray>
-  <gray>其他：</gray>
-  <aqua>/bg sel pos1|pos2|show|clear</aqua> <gray>— 選取範圍（有 WorldEdit 時用它的選取）</gray>
-  <aqua>/bg who</aqua> <gray>— 誰在哪個草稿</gray>
-  <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— 手動補記一個範圍</gray>
-  <aqua>/bg disk</aqua> <gray>[clean]</gray> <gray>— BuildGit 用掉的磁碟空間、回收沒人用的物件（管理）</gray>
-  <aqua>/bg genesis upgrade</aqua> <gray>— 升級 Minecraft 後，把起點世界改寫成新版的格式（管理）</gray>
-  <aqua>/bg backup [status|now|list|fetch|restore]</aqua> <gray>— 備份到 S3 或本機資料夾（管理）</gray>
-  <aqua>/bg init</aqua> <gray>／</gray><aqua>/bg reload</aqua> <gray>— 管理</gray>
-  <gray>建築世界（管理）：</gray>
-  <aqua>/bg new <名稱></aqua> <gray>— 建立自己的建築世界（一個世界一個版本庫）並進去</gray>
-  <aqua>/bg open <世界></aqua> <gray>／</gray><aqua>/bg home</aqua> <gray>— 進入建築世界（別人的寫「擁有者/名稱」）／回伺服器世界</gray>
-  <aqua>/bg worlds</aqua> <gray>— 列出建築世界</gray>
-  <aqua>/bg fork <擁有者/名稱> [新名稱]</aqua> <gray>— 複製成自己的私人世界，歷史一起帶過來</gray>
-  <aqua>/bg submit [說明]</aqua> <gray>— 在 fork 的世界把最後一次存檔送回原作者，請他併回</gray>
+help-menu: "<gray>只打</gray> <aqua>/bg</aqua> <gray>打開選單</gray>"
+help-section-draft: "<gray>草稿：</gray>"
+help-section-history: "<gray>存檔與歷史：</gray>"
+help-section-restore: "<gray>還原：</gray>"
+help-section-single: "<gray>單人世界（用戶端要裝 BuildGit）：</gray>"
+help-section-worlds: "<gray>建築世界：</gray>"
+help-section-merge: "<gray>衝突：</gray>"
+help-section-other: "<gray>其他：</gray>"
+help-section-admin: "<gray>管理：</gray>"
+help-admin-hint: "<gray>管理指令：</gray><aqua>/bg help admin</aqua>"
+help-try: "<aqua>/bg try <名稱></aqua> <gray>— 開草稿並傳送到同一個位置</gray>"
+help-publish: "<aqua>/bg publish [--selection]</aqua> <gray>— 預覽併回（點確認才寫入）；--selection 只併回選取範圍</gray>"
+help-back: "<aqua>/bg back</aqua> <gray>— 不併回，回到來源世界</gray>"
+help-go: "<aqua>/bg go <草稿|main></aqua> <gray>— 到某個草稿或主世界</gray>"
+help-branch: "<aqua>/bg branch list|create|delete</aqua> <gray>— 管理草稿</gray>"
+help-status: "<aqua>/bg status</aqua> <gray>— 未存的變更</gray>"
+help-save: "<aqua>/bg save [訊息]</aqua> <gray>— 存檔（里程碑）</gray>"
+help-log: "<aqua>/bg log [頁數] [--all] [--author <玩家>]</aqua> <gray>— 存檔歷史</gray>"
+help-graph: "<aqua>/bg graph [頁數] [--all]</aqua> <gray>— 分支歷史圖（像 git log --graph）</gray>"
+help-show: "<aqua>/bg show <存檔> [--cells]</aqua> <gray>— 這次存檔改了什麼</gray>"
+help-diff: "<aqua>/bg diff [存檔] [存檔]</aqua> <gray>— 在世界裡標出變更</gray>"
+help-view: "<aqua>/bg view <存檔></aqua> <gray>— 唯讀地看舊版本</gray>"
+help-inspect: "<aqua>/bg inspect</aqua> <gray>／</gray><aqua>/bg blame</aqua> <gray>— 看方塊是誰改的</gray>"
+help-revert: "<aqua>/bg revert <存檔></aqua> <gray>— 撤銷某次存檔，保留之後的變更</gray>"
+help-restore: "<aqua>/bg restore <存檔> [--selection]</aqua> <gray>— 把整個分支或選取範圍還原到舊版本</gray>"
+help-pull: "<aqua>/bg pull [名稱]</aqua> <gray>— 把選取範圍（沒選時是草稿改過的地方或周圍）帶到單人世界</gray>"
+help-load: "<aqua>/bg load <名稱></aqua> <gray>— 在單人世界放進取出的範圍</gray>"
+help-push: "<aqua>/bg push <名稱> [草稿]</aqua> <gray>— 把單人世界改過的範圍送回，存成草稿</gray>"
+help-merge: "<aqua>/bg merge conflicts|goto|take|continue|abort</aqua> <gray>— 處理衝突</gray>"
+help-new: "<aqua>/bg new [名稱]</aqua> <gray>— 建立自己的建築世界（不加選項打開建立選單）</gray>"
+help-open: "<aqua>/bg open <世界></aqua> <gray>／</gray><aqua>/bg home</aqua> <gray>— 進入建築世界（別人的寫「擁有者/名稱」）／回伺服器世界</gray>"
+help-worlds: "<aqua>/bg worlds</aqua> <gray>— 列出建築世界</gray>"
+help-world: "<aqua>/bg world settings|members</aqua> <gray>— 這個世界的設定、成員</gray>"
+help-fork: "<aqua>/bg fork <擁有者/名稱> [新名稱]</aqua> <gray>— 複製成自己的私人世界，歷史一起帶過來</gray>"
+help-submit: "<aqua>/bg submit [說明]</aqua> <gray>— 在 fork 的世界把最後一次存檔送回原作者，請他併回</gray>"
+help-sel: "<aqua>/bg sel pos1|pos2|show|clear</aqua> <gray>— 選取範圍（有 WorldEdit 時用它的選取）</gray>"
+help-who: "<aqua>/bg who</aqua> <gray>— 誰在哪個草稿</gray>"
+help-mark: "<aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— 手動補記一個範圍</gray>"
+help-disk: "<aqua>/bg disk</aqua> <gray>[clean]</gray> <gray>— BuildGit 用掉的磁碟空間、回收沒人用的物件</gray>"
+help-genesis: "<aqua>/bg genesis upgrade</aqua> <gray>— 升級 Minecraft 後，把起點世界改寫成新版的格式</gray>"
+help-backup: "<aqua>/bg backup [status|now|list|fetch|restore]</aqua> <gray>— 備份到 S3 或本機資料夾</gray>"
+help-init: "<aqua>/bg init</aqua> <gray>／</gray><aqua>/bg reload</aqua> <gray>— 開始版本控制／重新讀取設定</gray>"
 no-permission: "<red>你沒有權限。</red>"
 players-only: "<red>只有玩家可以使用這個指令。</red>"
 not-initialized: "<red>還沒有開始版本控制。管理員可以執行 <aqua>/bg init</aqua>。</red>"
@@ -318,6 +321,7 @@ params-merge: "分支|list|view|conflicts|goto|take|continue|abort 選項 範圍
 params-revert: "存檔"
 params-new: "名稱 選項"
 params-disk: "clean"
+params-help: "admin"
 params-open: "世界"
 params-fork: "世界與新名稱"
 params-submit: "說明"

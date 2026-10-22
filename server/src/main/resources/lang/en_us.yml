@@ -1,44 +1,47 @@
 prefix: "<dark_aqua>[BuildGit]</dark_aqua> "
 
-help: |-
-  <gray>Drafts:</gray>
-  <aqua>/bg try <name></aqua> <gray>— open a draft and teleport to the same spot</gray>
-  <aqua>/bg publish [--selection]</aqua> <gray>— preview publishing (click to confirm); --selection publishes only the selection</gray>
-  <aqua>/bg back</aqua> <gray>— return to the source world without publishing</gray>
-  <aqua>/bg go <draft|main></aqua> <gray>— go to a draft or the main world</gray>
-  <aqua>/bg branch list|create|delete</aqua> <gray>— manage drafts</gray>
-  <gray>Saves and history:</gray>
-  <aqua>/bg status</aqua> <gray>— unsaved changes</gray>
-  <aqua>/bg save [message]</aqua> <gray>— save a milestone</gray>
-  <aqua>/bg log [page] [--all] [--author <player>]</aqua> <gray>— history</gray>
-  <aqua>/bg graph [page] [--all]</aqua> <gray>— branch history graph (like git log --graph)</gray>
-  <aqua>/bg show <save> [--cells]</aqua> <gray>— what a save changed</gray>
-  <aqua>/bg diff [save] [save]</aqua> <gray>— outline changes in the world</gray>
-  <aqua>/bg view <save></aqua> <gray>— look at an old version (read-only)</gray>
-  <aqua>/bg inspect</aqua> <gray>/</gray> <aqua>/bg blame</aqua> <gray>— who changed a block</gray>
-  <gray>Undo:</gray>
-  <aqua>/bg revert <save></aqua> <gray>— undo one save, keep later changes</gray>
-  <aqua>/bg restore <save> [--selection]</aqua> <gray>— restore the branch or a selection to an old version</gray>
-  <gray>Single-player (BuildGit on the client):</gray>
-  <aqua>/bg pull [name]</aqua> <gray>— take the selection (or the draft's changes, or your surroundings) to single-player</gray>
-  <aqua>/bg load <name></aqua> <gray>— place a pulled area in a single-player world</gray>
-  <aqua>/bg push <name> [draft]</aqua> <gray>— send the edited area back as a draft</gray>
-  <gray>Conflicts:</gray>
-  <aqua>/bg merge conflicts|goto|take|continue|abort</aqua> <gray>— resolve conflicts</gray>
-  <gray>Other:</gray>
-  <aqua>/bg sel pos1|pos2|show|clear</aqua> <gray>— selection (uses WorldEdit's when installed)</gray>
-  <aqua>/bg who</aqua> <gray>— who is in which draft</gray>
-  <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— record a region manually</gray>
-  <aqua>/bg disk</aqua> <gray>[clean]</gray> <gray>— disk space used by BuildGit, remove unused objects (admin)</gray>
-  <aqua>/bg genesis upgrade</aqua> <gray>— after upgrading Minecraft, rewrite the starting world in the new format (admin)</gray>
-  <aqua>/bg backup [status|now|list|fetch|restore]</aqua> <gray>— backups to S3 or a local folder (admin)</gray>
-  <aqua>/bg init</aqua> <gray>/</gray> <aqua>/bg reload</aqua> <gray>— admin</gray>
-  <gray>Build worlds (admin):</gray>
-  <aqua>/bg new <name></aqua> <gray>— create your own build world (one world, one repository) and go there</gray>
-  <aqua>/bg open <world></aqua> <gray>/</gray> <aqua>/bg home</aqua> <gray>— enter a build world (others' as owner/name) / back to the server world</gray>
-  <aqua>/bg worlds</aqua> <gray>— list build worlds</gray>
-  <aqua>/bg fork <owner/name> [new name]</aqua> <gray>— copy into your own private world, history included</gray>
-  <aqua>/bg submit [message]</aqua> <gray>— in a forked world, send your last save to the original author to merge</gray>
+help-menu: "<gray>Type just</gray> <aqua>/bg</aqua> <gray>to open the menu</gray>"
+help-section-draft: "<gray>Drafts:</gray>"
+help-section-history: "<gray>Saves and history:</gray>"
+help-section-restore: "<gray>Undo:</gray>"
+help-section-single: "<gray>Single-player (BuildGit on the client):</gray>"
+help-section-worlds: "<gray>Build worlds:</gray>"
+help-section-merge: "<gray>Conflicts:</gray>"
+help-section-other: "<gray>Other:</gray>"
+help-section-admin: "<gray>Admin:</gray>"
+help-admin-hint: "<gray>Admin commands:</gray> <aqua>/bg help admin</aqua>"
+help-try: "<aqua>/bg try <name></aqua> <gray>— open a draft and teleport to the same spot</gray>"
+help-publish: "<aqua>/bg publish [--selection]</aqua> <gray>— preview publishing (click to confirm); --selection publishes only the selection</gray>"
+help-back: "<aqua>/bg back</aqua> <gray>— return to the source world without publishing</gray>"
+help-go: "<aqua>/bg go <draft|main></aqua> <gray>— go to a draft or the main world</gray>"
+help-branch: "<aqua>/bg branch list|create|delete</aqua> <gray>— manage drafts</gray>"
+help-status: "<aqua>/bg status</aqua> <gray>— unsaved changes</gray>"
+help-save: "<aqua>/bg save [message]</aqua> <gray>— save a milestone</gray>"
+help-log: "<aqua>/bg log [page] [--all] [--author <player>]</aqua> <gray>— history</gray>"
+help-graph: "<aqua>/bg graph [page] [--all]</aqua> <gray>— branch history graph (like git log --graph)</gray>"
+help-show: "<aqua>/bg show <save> [--cells]</aqua> <gray>— what a save changed</gray>"
+help-diff: "<aqua>/bg diff [save] [save]</aqua> <gray>— outline changes in the world</gray>"
+help-view: "<aqua>/bg view <save></aqua> <gray>— look at an old version (read-only)</gray>"
+help-inspect: "<aqua>/bg inspect</aqua> <gray>/</gray> <aqua>/bg blame</aqua> <gray>— who changed a block</gray>"
+help-revert: "<aqua>/bg revert <save></aqua> <gray>— undo one save, keep later changes</gray>"
+help-restore: "<aqua>/bg restore <save> [--selection]</aqua> <gray>— restore the branch or a selection to an old version</gray>"
+help-pull: "<aqua>/bg pull [name]</aqua> <gray>— take the selection (or the draft's changes, or your surroundings) to single-player</gray>"
+help-load: "<aqua>/bg load <name></aqua> <gray>— place a pulled area in a single-player world</gray>"
+help-push: "<aqua>/bg push <name> [draft]</aqua> <gray>— send the edited area back as a draft</gray>"
+help-merge: "<aqua>/bg merge conflicts|goto|take|continue|abort</aqua> <gray>— resolve conflicts</gray>"
+help-new: "<aqua>/bg new [name]</aqua> <gray>— create your own build world (without options, opens the create menu)</gray>"
+help-open: "<aqua>/bg open <world></aqua> <gray>/</gray> <aqua>/bg home</aqua> <gray>— enter a build world (others' as owner/name) / back to the server world</gray>"
+help-worlds: "<aqua>/bg worlds</aqua> <gray>— list build worlds</gray>"
+help-world: "<aqua>/bg world settings|members</aqua> <gray>— this world's settings and members</gray>"
+help-fork: "<aqua>/bg fork <owner/name> [new name]</aqua> <gray>— copy into your own private world, history included</gray>"
+help-submit: "<aqua>/bg submit [message]</aqua> <gray>— in a forked world, send your last save to the original author to merge</gray>"
+help-sel: "<aqua>/bg sel pos1|pos2|show|clear</aqua> <gray>— selection (uses WorldEdit's when installed)</gray>"
+help-who: "<aqua>/bg who</aqua> <gray>— who is in which draft</gray>"
+help-mark: "<aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— record a region manually</gray>"
+help-disk: "<aqua>/bg disk</aqua> <gray>[clean]</gray> <gray>— disk space used by BuildGit, remove unused objects</gray>"
+help-genesis: "<aqua>/bg genesis upgrade</aqua> <gray>— after upgrading Minecraft, rewrite the starting world in the new format</gray>"
+help-backup: "<aqua>/bg backup [status|now|list|fetch|restore]</aqua> <gray>— backups to S3 or a local folder</gray>"
+help-init: "<aqua>/bg init</aqua> <gray>/</gray> <aqua>/bg reload</aqua> <gray>— start version control / reload the configuration</gray>"
 no-permission: "<red>You don't have permission.</red>"
 players-only: "<red>Only players can use this command.</red>"
 not-initialized: "<red>Version control has not started. An admin can run <aqua>/bg init</aqua>.</red>"
@@ -318,6 +321,7 @@ params-merge: "branch|list|view|conflicts|goto|take|continue|abort option scope"
 params-revert: "commit"
 params-new: "name options"
 params-disk: "clean"
+params-help: "admin"
 params-open: "world"
 params-fork: "world-and-new-name"
 params-submit: "message"
