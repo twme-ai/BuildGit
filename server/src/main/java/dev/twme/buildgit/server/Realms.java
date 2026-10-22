@@ -213,6 +213,32 @@ final class Realms {
     var ws = bg.workspace(p.level());
     if (ws.buildWorld() != null && !canEnter(p, ws)) evict(p, ws);
     else apply(p);
+    // 離線時收到的通知
+    var state = load(p.getUUID());
+    if (state.get("notices") instanceof List<?> notices) {
+      for (var n : notices)
+        if (n instanceof Map<?, ?> m && m.get("key") instanceof String key && m.get("args") instanceof List<?> args)
+          bg.messages().send(bg.platform().sender(p), key, args.stream().map(String::valueOf).toArray());
+      state.set("notices", null);
+      save(p.getUUID(), state);
+    }
+  }
+
+  /** 通知玩家（主執行緒）：在線上就送，否則記在 {@code players/<uuid>.yml}，下次上線再送。佔位符的值都當文字。 */
+  void notify(UUID player, String key, Object... placeholders) {
+    var online = bg.platform().server().getPlayerList().getPlayer(player);
+    if (online != null) {
+      bg.messages().send(bg.platform().sender(online), key, placeholders);
+      return;
+    }
+    var state = load(player);
+    var notices = new ArrayList<Object>(state.get("notices") instanceof List<?> l ? l : List.of());
+    var n = new LinkedHashMap<String, Object>();
+    n.put("key", key);
+    n.put("args", Arrays.stream(placeholders).map(String::valueOf).toList());
+    notices.add(n);
+    state.set("notices", notices);
+    save(player, state);
   }
 
   /**

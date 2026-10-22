@@ -14,6 +14,7 @@ import dev.twme.buildgit.core.overlay.ThreeWayMerge;
 import dev.twme.buildgit.core.overlay.TreeDiff;
 import dev.twme.buildgit.core.repo.Commit;
 import dev.twme.buildgit.core.repo.Repository;
+import dev.twme.buildgit.core.anvil.RegionFile;
 import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.store.RefStore;
 import dev.twme.buildgit.server.nms.DataUpgrader;
@@ -58,6 +59,8 @@ public final class Workspace {
   public static final Pattern BRANCH_NAME = Pattern.compile("[a-z0-9][a-z0-9_-]{0,31}");
   /** 衝突整合的暫時分支；玩家不能用這個開頭命名草稿。 */
   public static final String MERGE_PREFIX = "merge-";
+  /** 提出併回的草稿（03-worlds §5.4）；玩家不能用這個開頭命名草稿。 */
+  public static final String SUBMIT_PREFIX = "submit-";
   private static final String WORLD_PREFIX = "bg_";
   static final String VIEW_PREFIX = "bgview_";
 
@@ -575,7 +578,7 @@ public final class Workspace {
   }
 
   /** 複製資料夾，已有的檔案跳過。{@code link} 時用硬連結（物件不會被改寫），不支援時才複製。 */
-  private static void copyTree(Path from, Path to, boolean link) throws IOException {
+  static void copyTree(Path from, Path to, boolean link) throws IOException {
     if (!Files.isDirectory(from)) return;
     try (var walk = Files.walk(from)) {
       for (var p : walk.toList()) {
@@ -971,6 +974,52 @@ public final class Workspace {
     return Yaml.load(branchesPath());
   }
 
+  /** 讀寫 branches.yml 裡分支的其他資料（提出併回，主執行緒）。 */
+  Yaml branchInfo() {
+    return branchesFile();
+  }
+
+  void saveBranchInfo(Yaml yaml) throws IOException {
+    yaml.save(branchesPath());
+  }
+
+  /**
+   * 提出併回的分支（主執行緒）：還沒有就從 main 建立，指向 {@code at}；已有就往前移。有人在看（世界開著、有沒存的改動、
+   * 正在整合）時拒絕，免得世界和分支對不上。
+   */
+  void submitBranch(String name, ObjectId at) throws IOException {
+    var current = repo.refs().get(name);
+    if (current.isEmpty()) {
+      createBranch(name, Repository.MAIN, at, false, null);
+      return;
+    }
+    if (worktrees.containsKey(name) || hasJournal(dir.resolve("worktree").resolve(name)) || merges.find(Repository.MAIN, name) != null)
+      throw new Refused("來源世界有人正在看這個提出，請稍後再送");
+    if (!repo.refs().compareAndSet(name, current.get(), at)) throw new Refused("提出的分支剛好被更新，請再試一次");
+  }
+
+  /** 在起點世界的寫入執行緒上，排在先前的寫入之後執行。 */
+  void afterGenesisWrites(Runnable task) {
+    genesisRecorder.execute(task);
+  }
+
+  /** 把另一個起點世界（{@code from} 底下的 region、entities）裡這邊沒有的 chunk 補進來（任何執行緒；寫入照順序排入）。 */
+  void copyGenesisFrom(Path from) throws IOException {
+    var regions = from.resolve("region");
+    if (!Files.isDirectory(regions)) return;
+    try (var files = Files.list(regions)) {
+      for (var file : files.toList()) {
+        var parts = file.getFileName().toString().split("\\.");
+        if (parts.length != 4 || !parts[0].equals("r") || !parts[3].equals("mca")) continue;
+        int rx = Integer.parseInt(parts[1]), rz = Integer.parseInt(parts[2]);
+        try (var r = new RegionFile(file)) {
+          for (int i = 0; i < 1024; i++)
+            if (r.has(i)) genesisRecorder.copy(OVERWORLD, from, rx * 32 + (i & 31), rz * 32 + (i >> 5));
+        }
+      }
+    }
+  }
+
   /**
    * 草稿所屬的世界（維度 id，設計 §4.4）：草稿只開這個世界，撤銷、還原也只動它。
    * null 表示主世界，或是這項設定之前建立的草稿（涵蓋所有世界）。
@@ -1009,6 +1058,7 @@ public final class Workspace {
 
   /** 建立分支，指向來源分支的最新存檔。{@code dimension} 是草稿所屬的世界，null 表示所有世界。 */
   public void createBranch(String name, String from, String dimension) throws IOException {
+    if (name.startsWith(SUBMIT_PREFIX)) throw new Refused("草稿名稱不能以 " + SUBMIT_PREFIX + " 開頭（那是提出併回用的）");
     createBranch(name, from, repo.head(from), false, dimension);
   }
 

@@ -30,6 +30,7 @@ public final class BuildGit {
   private final Backup backup;
   private final Contexts contexts = new Contexts();
   private final Realms realms = new Realms(this);
+  private final Submissions submissions = new Submissions(this);
   private long ticks;
   private String openError;
 
@@ -120,6 +121,10 @@ public final class BuildGit {
 
   Contexts contexts() {
     return contexts;
+  }
+
+  Submissions submissions() {
+    return submissions;
   }
 
   Realms realms() {

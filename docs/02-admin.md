@@ -195,6 +195,8 @@ LuckPerms 範例：
 | `/bg open <世界>` | 進入建築世界：自己的寫名稱，別人的寫 `擁有者/名稱`；寫伺服器世界的名稱就是回去 |
 | `/bg home` | 回到進入建築世界之前在伺服器世界的位置 |
 | `/bg fork <擁有者/名稱> [新名稱]` | 複製一個建築世界成自己的私人世界，main 的歷史一起帶過來；成員都可以，訪客要那個世界允許複製。不給新名稱時用原本的名稱 |
+| `/bg submit [說明]` | 在 fork 的世界把所在分支最後一次存檔送回來源，來源多一個 `submit-<玩家>-<編號>` 草稿；再提出一次更新同一個 |
+| `/bg world submissions [list\|reject <分支> [理由]]` | 來源的擁有者與管理者看還沒處理的提出（不帶參數開選單，點一下進去看，在裡面 `/bg publish` 併回）或拒絕；整份併回後自動收掉並通知提出的人 |
 | `/bg worlds [mine\|public\|recent] [頁]` | 玩家打開建築世界清單選單：我的（自己的與受邀的）、公開（最近存檔的在前）、最近去過，點一下進去；主控台列出所有建築世界 |
 | `/bg world members [list\|add <玩家> [builder\|manager]\|remove <玩家>]` | 在建築世界裡管理成員：擁有者可以加、移除建造者與管理者；管理者只能加、移除建造者。邀請時對方要在線上（已經是成員的改角色不用）。不帶參數開成員選單，點線上玩家的頭邀請 |
 | `/bg world visibility public\|private` | 擁有者把世界改成公開（所有人都能進來參觀）或私人（只有成員，預設） |
@@ -224,6 +226,7 @@ LuckPerms 範例：
 | `description` | 文字（最多 120 字），不給是清掉 | 清單上的簡介 |
 | `icon` | 物品 id，不給是手上的物品 | 清單上的圖示（預設草方塊） |
 | `allow-fork` | `on`／`off`（預設 `on`） | 公開時訪客能不能用 `/bg fork` 複製；成員都可以 |
+| `accept-submissions` | `on`／`off`（預設 `on`） | fork 的世界能不能用 `/bg submit` 送改動回來 |
 
 - **誰能建立**：有 `buildgit.world.admin` 的人隨時可以；一般玩家要 `player-worlds.enabled: true` 並給 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）。`open`、`home`、`worlds` 所有人都能用，能進哪些世界看成員名單與可見性。
 - **角色**：在建築世界裡，BuildGit 的指令權限由那個世界的角色決定，不看你給的 `buildgit.role.*`：擁有者與管理者等於 manager，建造者等於 builder，訪客只能看（`status`、`log`、`diff`、`blame` 等），不能改方塊、不能進草稿或檢視舊版本。有 `buildgit.world.admin` 的人在任何世界都能做所有事。`init`、`reload`、`backup` 等伺服器管理照舊看權限節點。

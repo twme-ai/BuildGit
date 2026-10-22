@@ -116,11 +116,12 @@ public final class BgCommand {
     sub("new", "buildgit.world.create|buildgit.world.admin", this::newWorld, (s, b) -> List.of("type=overworld", "type=nether", "type=end",
         "terrain=normal", "terrain=large-biomes", "terrain=amplified", "terrain=flat", "terrain=void", "rules=build", "rules=vanilla",
         "seed=", "layers=", "block=", "template=", "confirm"));
+    sub("submit", "buildgit.world.create|buildgit.world.admin", this::submit, null);
     sub("fork", "buildgit.world.create|buildgit.world.admin", this::fork, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("home", null, (s, a) -> home(s), null);
     sub("worlds", null, this::worlds, (s, b) -> b.isEmpty() ? Menu.WORLD_TABS : List.of());
-    sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "visibility", "rename", "transfer", "delete", "undelete", "unlist", "relist")
+    sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "submissions", "visibility", "rename", "transfer", "delete", "undelete", "unlist", "relist")
         : b.size() == 1 && b.getFirst().equals("transfer") ? onlineNames()
         : b.size() == 1 && b.getFirst().equals("undelete") ? deletedNames(s)
         : b.size() == 1 && (b.getFirst().equals("unlist") || b.getFirst().equals("relist")) ? worldNames(s)
@@ -1259,8 +1260,11 @@ public final class BgCommand {
       if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
       if (draft != null && sender.player() instanceof ServerPlayer p && !p.hasDisconnected() && ws.worktree(p.level()) == draft) {
         ws.teleport(p, target);
-        if (scope == null && draft.branch().equals(source)) sendButton(s(p), "draft-delete-button", "/bg branch delete " + source);
+        if (scope == null && draft.branch().equals(source) && !source.startsWith(Workspace.SUBMIT_PREFIX))
+          sendButton(s(p), "draft-delete-button", "/bg branch delete " + source);
       }
+      // 整份併回的提出：等傳送完再收掉
+      if (source.startsWith(Workspace.SUBMIT_PREFIX)) bg.platform().later(40, () -> bg.submissions().settle(ws));
     }, error -> {
       done(sender);
       if (error instanceof Workspace.ConflictException c)
@@ -1675,6 +1679,7 @@ public final class BgCommand {
             msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
                 branchLabel(s.target()));
             if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
+            if (s.source() != null && s.source().startsWith(Workspace.SUBMIT_PREFIX)) bg.platform().later(40, () -> bg.submissions().settle(ws));
           }
         }, e -> {
           done(sender);
@@ -1914,6 +1919,61 @@ public final class BgCommand {
     forked(sender, p, bg.worlds().fork(source, name, p, bg.realms().admin(p), false));
   }
 
+  /** 提出說明的字數上限。 */
+  private static final int SUBMIT_MESSAGE_MAX = 120;
+
+  /**
+   * {@code /bg submit [說明]}（03-worlds §5.4）：在 fork 的世界把所在分支（主世界或草稿）最後一次存檔送回來源；再提出一次就更新
+   * 同一個提出。fork 的擁有者與管理者可以用。
+   */
+  private void submit(Sender sender, String[] args) throws IOException {
+    var p = player(sender);
+    if (p == null) return;
+    var ws = bg.workspace(p.level());
+    if (ws.buildWorld() == null || ws.config() == null) throw new Workspace.Refused("要在 fork 來的建築世界裡才能提出");
+    var role = ws.role(p.getUUID());
+    if (role != WorldConfig.Role.OWNER && role != WorldConfig.Role.MANAGER && !bg.realms().admin(p))
+      throw new Workspace.Refused("只有這個世界的擁有者與管理者能提出");
+    var wt = ws.worktree(p.level());
+    if (wt == null || Workspace.isScratch(wt.branch())) throw new Workspace.Refused("要在主世界或草稿裡提出");
+    var message = String.join(" ", args).strip();
+    if (message.codePointCount(0, message.length()) > SUBMIT_MESSAGE_MAX) throw new Workspace.Refused("說明最多 " + SUBMIT_MESSAGE_MAX + " 個字");
+    if (message.chars().anyMatch(ch -> ch == '§' || Character.isISOControl(ch))) throw new Workspace.Refused("不能有格式碼或控制字元");
+    if (!wt.table().isEmpty()) msg().send(sender, "submit-unsaved");
+    msg().send(sender, "submit-sending");
+    bg.submissions().submit(p, ws, wt.branch(), message).whenComplete((branch, ex) -> {
+      if (ex != null) msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+      else msg().send(sender, "submit-sent", "branch", branch, "world", bg.worlds().byId(ws.config().forkId).label());
+    });
+  }
+
+  /** {@code /bg world submissions [list|reject <分支> [理由]]}：來源世界的擁有者與管理者處理提出。不帶參數開選單。 */
+  private void submissions(Sender sender, ServerPlayer p, Workspace ws, String[] args) throws IOException {
+    var subs = bg.submissions();
+    subs.settle(ws);
+    var list = subs.list(ws);
+    var w = words(args);
+    switch (w.size() < 2 ? "menu" : w.get(1)) {
+      case "menu" -> bg.menu().openSubmissions(p, ws, list);
+      case "list" -> {
+        if (list.isEmpty()) msg().send(sender, "submissions-none");
+        for (var s : list)
+          msg().send(sender, "submissions-entry", "branch", s.branch(), "player", s.name(), "time", TIME.format(Instant.ofEpochMilli(s.time())),
+              "message", s.message());
+      }
+      case "reject" -> {
+        var s = w.size() >= 3 ? list.stream().filter(x -> x.branch().equals(w.get(2))).findFirst().orElse(null) : null;
+        if (s == null) throw new Workspace.Refused("沒有這個提出：" + (w.size() >= 3 ? w.get(2) : ""));
+        // 理由是分支名稱後面所有的字（保留大小寫）
+        var raw = String.join(" ", args);
+        var reason = raw.substring(raw.indexOf(s.branch()) + s.branch().length()).strip();
+        subs.reject(ws, s, reason, p.getScoreboardName());
+        msg().send(sender, "submissions-rejected", "branch", s.branch(), "player", s.name());
+      }
+      default -> msg().send(sender, "usage-world");
+    }
+  }
+
   /** fork、範本建立完成時（主執行緒）：告訴他並傳送進去。 */
   private void forked(Sender sender, ServerPlayer p, java.util.concurrent.CompletableFuture<Workspace> future) {
     future.whenComplete((ws, ex) -> {
@@ -2116,6 +2176,11 @@ public final class BgCommand {
     if (what.equals("settings")) {
       if (!manager) throw new Workspace.Refused("只有擁有者與管理者能改設定");
       settings(sender, p, ws, w);
+      return;
+    }
+    if (what.equals("submissions")) {
+      if (!manager) throw new Workspace.Refused("只有擁有者與管理者能處理提出");
+      submissions(sender, p, ws, args);
       return;
     }
     if (what.equals("visibility")) {
@@ -2321,6 +2386,7 @@ public final class BgCommand {
       }
       case "visitor-interact" -> c.visitorInteract = onOff(value, key);
       case "allow-fork" -> c.allowFork = onOff(value, key);
+      case "accept-submissions" -> c.acceptSubmissions = onOff(value, key);
       case "inventory" -> {
         var pw = bg.settings().playerWorlds();
         if (pw.separateInventories()) throw new Workspace.Refused("伺服器設定所有建築世界都隔離背包，不能關掉");

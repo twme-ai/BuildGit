@@ -215,6 +215,7 @@ final class Menu {
     SETTINGS.put("description", List.of());
     SETTINGS.put("icon", List.of());
     SETTINGS.put("allow-fork", List.of("off", "on"));
+    SETTINGS.put("accept-submissions", List.of("off", "on"));
   }
 
   /** 玩家寫的文字設定（值是後面所有的字，保留大小寫）。 */
@@ -244,6 +245,7 @@ final class Menu {
       case "visitor-interact" -> c.visitorInteract ? "on" : "off";
       case "inventory" -> ws.isolated() ? "on" : "off";
       case "allow-fork" -> c.allowFork ? "on" : "off";
+      case "accept-submissions" -> c.acceptSubmissions ? "on" : "off";
       default -> "";
     };
   }
@@ -277,13 +279,13 @@ final class Menu {
     var msg = bg.messages();
     var items = new ArrayList<Platform.MenuItem>();
     items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), msg.get("settings-header-lore"), null));
-    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 29, 30, 31, 32);
+    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 29, 30, 31, 32, 33);
     var icons = Map.ofEntries(Map.entry("time", "clock"), Map.entry("weather", "water_bucket"), Map.entry("difficulty", "iron_sword"),
         Map.entry("mobs", "zombie_head"), Map.entry("nature", "wheat"), Map.entry("border", "barrier"), Map.entry("border-center", "compass"),
         Map.entry("spawn", "red_bed"), Map.entry("member-mode", "diamond_pickaxe"), Map.entry("visitor-mode", "ender_eye"),
         Map.entry("visitor-interact", "lever"), Map.entry("inventory", "chest"), Map.entry("kit-member", "bundle"), Map.entry("kit-visitor", "map"),
         Map.entry("display-name", "name_tag"), Map.entry("description", "writable_book"), Map.entry("icon", icon(ws)),
-        Map.entry("allow-fork", "cartography_table"));
+        Map.entry("allow-fork", "cartography_table"), Map.entry("accept-submissions", "hopper"));
     int i = 0;
     for (var e : SETTINGS.entrySet()) {
       var key = e.getKey();
@@ -305,9 +307,32 @@ final class Menu {
               : msg.get(values.isEmpty() ? "settings-click-here" : "settings-click-next"));
       items.add(new Platform.MenuItem(slots.get(i++), icons.get(key), msg.get("setting-" + key), lore, action));
     }
-    for (int c = 36; c < 45; c++) if (c != 40) items.add(divider(c));
+    for (int c = 36; c < 45; c++) if (c != 40 && c != 41) items.add(divider(c));
     items.add(new Platform.MenuItem(40, "player_head", msg.get("settings-members"), msg.get("settings-members-lore"), "world members"));
+    items.add(new Platform.MenuItem(41, "paper", msg.get("settings-submissions"), msg.get("settings-submissions-lore"), "world submissions"));
     bg.platform().openMenu(p, msg.get("settings-title"), items);
+  }
+
+  /** {@code /bg world submissions}：還沒處理的提出，點一下進去看（和草稿一樣）。最多 36 個。 */
+  void openSubmissions(ServerPlayer p, Workspace ws, List<Submissions.Submission> list) {
+    var msg = bg.messages();
+    var items = new ArrayList<Platform.MenuItem>();
+    for (int i = 0; i < Math.min(36, list.size()); i++) {
+      var s = list.get(i);
+      var from = s.from() == null ? null : bg.worlds().byId(s.from());
+      var lore = new ArrayList<Component>();
+      lore.add(msg.get("submissions-item-player", "player", s.name(), "time", BgCommand.TIME.format(Instant.ofEpochMilli(s.time()))));
+      if (from != null) lore.add(msg.get("submissions-item-from", "world", from.label()));
+      for (int at = 0; at < s.message().length(); at += DESCRIPTION_LINE)
+        lore.add(msg.get("worlds-item-description", "text", s.message().substring(at, Math.min(s.message().length(), at + DESCRIPTION_LINE))));
+      lore.add(msg.get("submissions-item-click"));
+      lore.add(msg.get("submissions-item-reject", "branch", s.branch()));
+      items.add(new Platform.MenuItem(i, "paper", msg.get("submissions-item", "branch", s.branch()), lore, "go " + s.branch()));
+    }
+    if (list.isEmpty()) items.add(new Platform.MenuItem(13, "barrier", msg.get("submissions-none"), List.of(), null));
+    for (int c = 36; c < 45; c++) if (c != 40) items.add(divider(c));
+    items.add(new Platform.MenuItem(40, "arrow", msg.get("members-menu-back"), List.of(), "world settings"));
+    bg.platform().openMenu(p, msg.get("submissions-title", "world", ws.label()), items);
   }
 
   /** {@code /bg worlds} 的分頁。 */

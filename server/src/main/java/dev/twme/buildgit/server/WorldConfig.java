@@ -69,6 +69,8 @@ public final class WorldConfig {
   public boolean inventory;
   /** 訪客能不能 fork（公開時才有訪客）。 */
   public boolean allowFork = true;
+  /** 接不接受 fork 的世界提出併回。 */
+  public boolean acceptSubmissions = true;
   /** 世界邊界的邊長；0 是伺服器的預設（{@code player-worlds.border}）。 */
   public int border;
   public double borderX, borderZ;
@@ -205,6 +207,7 @@ public final class WorldConfig {
       c.visitorInteract = y.getBoolean("settings.visitor-interact", false);
       c.inventory = y.getBoolean("settings.inventory", false);
       c.allowFork = y.getBoolean("settings.allow-fork", true);
+      c.acceptSubmissions = y.getBoolean("settings.accept-submissions", true);
       c.border = Math.max(0, y.getInt("settings.border.size", 0));
       c.borderX = num(y.get("settings.border.x"));
       c.borderZ = num(y.get("settings.border.z"));
@@ -277,6 +280,7 @@ public final class WorldConfig {
     y.set("settings.visitor-interact", visitorInteract);
     y.set("settings.inventory", inventory);
     y.set("settings.allow-fork", allowFork);
+    y.set("settings.accept-submissions", acceptSubmissions);
     if (border > 0) {
       y.set("settings.border.size", border);
       y.set("settings.border.x", borderX);
