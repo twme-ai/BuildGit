@@ -2029,12 +2029,6 @@ public final class BgCommand {
     args = rest.toArray(String[]::new);
     var o = parseNew(sender, args);
     if (o == null) return;
-    if (flags(args).contains("--edit")) {
-      // 選單裡沒辦法打字：給一行點了會填好指令的提示，名稱放最後，游標停在那裡
-      sender.send(msg().prefixed(msg().get("world-create-type-name"))
-          .clickEvent(ClickEvent.suggestCommand("/bg new " + o.args(false) + " name:" + (o.name() == null ? "" : o.name()))));
-      return;
-    }
     var pw = bg.settings().playerWorlds();
     boolean admin = sender.hasPermission("buildgit.world.admin");
     if (from != null) {
@@ -2193,12 +2187,8 @@ public final class BgCommand {
 
     /** 再執行一次 {@code new} 用的參數。 */
     String args() {
-      return args(true);
-    }
-
-    String args(boolean withName) {
       var sb = new StringJoiner(" ");
-      if (withName && name != null) sb.add("name:" + name);
+      if (name != null) sb.add("name:" + name);
       sb.add("type:" + WorldConfig.key(type)).add("terrain:" + WorldConfig.key(terrain)).add("rules:" + WorldConfig.key(rules));
       if (seed != null) sb.add("seed:" + seed);
       if (layers != null) sb.add("layers:" + layers);
@@ -2227,11 +2217,11 @@ public final class BgCommand {
       boolean ok = true;
       switch (a.substring(0, eq).toLowerCase(Locale.ROOT)) {
         case "name" -> {
-          if (name != null || value.isEmpty()) {
+          if (name != null) {
             msg().send(sender, "usage-new");
             return null;
           }
-          name = value.toLowerCase(Locale.ROOT);
+          name = value.isEmpty() ? null : value.toLowerCase(Locale.ROOT);
         }
         case "type" -> ok = (type = WorldConfig.parse(WorldConfig.Type.class, value)) != null;
         case "terrain" -> ok = (terrain = WorldConfig.parse(WorldConfig.Terrain.class, value)) != null && terrain != WorldConfig.Terrain.SERVER;
@@ -2239,7 +2229,7 @@ public final class BgCommand {
         case "seed" -> seed = value.isEmpty() ? null : value;
         case "layers" -> layers = value.isEmpty() ? null : value;
         case "block" -> block = value.isEmpty() ? null : value;
-        case "template" -> template = value.isEmpty() ? null : value.toLowerCase(Locale.ROOT);
+        case "template" -> template = value.isEmpty() || value.equals("none") ? null : value.toLowerCase(Locale.ROOT);
         default -> ok = false;
       }
       if (!ok) {
@@ -2664,9 +2654,11 @@ public final class BgCommand {
       }
       c.icon = id.equals(Menu.DEFAULT_ICON) ? null : id;
     } else if (value.isEmpty() && menu) {
-      // 選單裡沒辦法打字：給一行點了會填好指令的提示
-      sender.send(msg().prefixed(msg().get("settings-type-text", "setting", msg().get("setting-" + key)))
-          .clickEvent(ClickEvent.suggestCommand("/bg world settings " + key + " ")));
+      // 選單裡沒辦法打字：開對話框，填好執行不帶 menu 的指令（留空是清掉）
+      var current = key.equals("display-name") ? c.displayName : c.description;
+      Dialogs.open(bg, p, msg().get("setting-" + key), msg().get("setting-" + key + "-lore"),
+          List.of(Dialogs.text("value", msg().get("setting-" + key), current, key.equals("display-name") ? DISPLAY_NAME_MAX : DESCRIPTION_MAX)),
+          msg().get("dialog-save"), msg().get("dialog-cancel"), "bg world settings " + key + " $(value)");
       return;
     } else {
       int max = key.equals("display-name") ? DISPLAY_NAME_MAX : DESCRIPTION_MAX;

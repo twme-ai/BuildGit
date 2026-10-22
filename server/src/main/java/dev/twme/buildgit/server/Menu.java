@@ -106,71 +106,40 @@ final class Menu {
   }
 
   /**
-   * 建立建築世界的選單（03-worlds §3）：三排分別是類型、地形、規則，選中的打勾；點其他選項就是帶著改過的選項再執行一次
-   * {@code new}，重新打開這個選單。最下排是名稱與種子等說明（只能打指令設定），以及「建立」。選了地形「範本」時，第一排改成
-   * 範本世界，沒有規則那排（照範本）。
+   * 建立建築世界的對話框（03-worlds §3）：名稱、類型、地形、規則、種子、超平坦的層、虛空腳下的方塊一次填好，按「建立」執行
+   * {@code new … confirm}。有範本時多一個範本的選項，選了範本就照它，類型、地形、規則不看。沒開放的類型、地形不列（管理員都列）。
    */
   void openCreate(ServerPlayer p, BgCommand.NewWorld o) {
     var msg = bg.messages();
-    var items = new ArrayList<Platform.MenuItem>();
     var pw = bg.settings().playerWorlds();
     boolean admin = bg.realms().admin(p);
+    var inputs = new ArrayList<com.google.gson.JsonObject>();
+    inputs.add(Dialogs.text("name", msg.get("world-create-name"), o.name(), 32));
+    var types = new ArrayList<Dialogs.Option>();
+    for (var t : WorldConfig.Type.values())
+      if (admin || pw.allowed(t)) types.add(new Dialogs.Option(WorldConfig.key(t), msg.get("world-type-" + WorldConfig.key(t))));
+    inputs.add(Dialogs.choice("type", msg.get("world-create-type"), types, WorldConfig.key(o.type())));
+    var terrains = new ArrayList<Dialogs.Option>();
+    for (var t : WorldConfig.Terrain.values())
+      if (t != WorldConfig.Terrain.SERVER && (admin || pw.allowed(t))) terrains.add(new Dialogs.Option(WorldConfig.key(t), msg.get("world-terrain-" + WorldConfig.key(t))));
+    inputs.add(Dialogs.choice("terrain", msg.get("world-create-terrain"), terrains, WorldConfig.key(o.terrain())));
+    var rules = new ArrayList<Dialogs.Option>();
+    for (var r : WorldConfig.Rules.values()) rules.add(new Dialogs.Option(WorldConfig.key(r), msg.get("world-rules-" + WorldConfig.key(r))));
+    inputs.add(Dialogs.choice("rules", msg.get("world-create-rules"), rules, WorldConfig.key(o.rules())));
+    var command = "bg new name:$(name) type:$(type) terrain:$(terrain) rules:$(rules) seed:$(seed) layers:$(layers) block:$(block)";
     var templates = templates();
-    if (o.template() != null) {
-      label(items, 0, "structure_block", "world-create-template");
-      int at = 2;
-      for (var t : templates) {
-        if (at > 8) break;
-        var c = t.config();
-        boolean selected = t.label().equals(o.template());
-        var name = c.displayName != null ? Component.text(c.displayName) : Component.text(t.buildWorld().name());
-        var lore = new ArrayList<Component>();
-        if (c.description != null) lore.add(msg.get("worlds-item-description", "text", c.description));
-        items.add(new Platform.MenuItem(at++, selected ? "lime_stained_glass" : icon(t), msg.get(selected ? "world-option-selected" : "world-option", "text", name),
-            lore, selected ? null : "new " + o.withTemplate(t.label()).args()));
-      }
+    if (!templates.isEmpty()) {
+      var list = new ArrayList<Dialogs.Option>();
+      list.add(new Dialogs.Option("none", msg.get("world-create-no-template")));
+      for (var t : templates) list.add(new Dialogs.Option(t.label(), Component.text(t.config().displayName != null ? t.config().displayName : t.label())));
+      inputs.add(Dialogs.choice("template", msg.get("world-create-template"), list, o.template() == null ? "none" : o.template()));
+      command += " template:$(template)";
     }
-    if (o.template() == null) label(items, 0, "compass", "world-create-type");
-    for (var t : WorldConfig.Type.values()) {
-      if (o.template() != null) break;
-      if (!admin && !pw.allowed(t)) continue;
-      var icon = switch (t) {
-        case OVERWORLD -> "grass_block";
-        case NETHER -> "netherrack";
-        case END -> "end_stone";
-      };
-      option(items, 2 + (int) Arrays.stream(WorldConfig.Type.values()).limit(t.ordinal()).filter(x -> admin || pw.allowed(x)).count(), icon, "world-type-" + WorldConfig.key(t), o.type() == t, o.withType(t));
-    }
-    label(items, 9, "filled_map", "world-create-terrain");
-    int slot = 11;
-    for (var t : WorldConfig.Terrain.values()) {
-      if (t == WorldConfig.Terrain.SERVER || !admin && !pw.allowed(t)) continue;
-      if (o.type() != WorldConfig.Type.OVERWORLD && (t == WorldConfig.Terrain.LARGE_BIOMES || t == WorldConfig.Terrain.AMPLIFIED)) continue;
-      var icon = switch (t) {
-        case NORMAL -> "oak_sapling";
-        case LARGE_BIOMES -> "jungle_sapling";
-        case AMPLIFIED -> "dripstone_block";
-        case FLAT -> "smooth_stone";
-        default -> "glass";
-      };
-      option(items, slot++, icon, "world-terrain-" + WorldConfig.key(t), o.template() == null && o.terrain() == t, o.withTerrain(t));
-    }
-    if (!templates.isEmpty())
-      option(items, slot, "structure_block", "world-terrain-template", o.template() != null, o.withTemplate(templates.getFirst().label()));
-    if (o.template() == null) label(items, 18, "writable_book", "world-create-rules");
-    for (var r : WorldConfig.Rules.values())
-      if (o.template() == null) option(items, 20 + r.ordinal(), r == WorldConfig.Rules.BUILD ? "bricks" : "wheat", "world-rules-" + WorldConfig.key(r), o.rules() == r, o.withRules(r));
-    for (int c = 0; c < 9; c++) items.add(divider(27 + c));
-    var info = new ArrayList<Component>();
-    info.add(msg.get("world-create-info-name", "name", o.name() != null ? o.name() : msg.raw("world-create-auto-name")));
-    if (o.template() == null) info.add(msg.get("world-create-info-seed", "seed", o.seed() != null ? o.seed() : msg.raw("world-create-random-seed")));
-    if (o.template() == null && o.terrain() == WorldConfig.Terrain.FLAT)
-      info.add(msg.get("world-create-info-layers", "layers", o.layers() != null ? o.layers() : WorldConfig.formatLayers(WorldConfig.defaultLayers(o.type()))));
-    if (o.template() == null && o.terrain() == WorldConfig.Terrain.VOID) info.add(msg.get("world-create-info-block", "block", o.block() != null ? o.block() : "stone"));
-    info.add(msg.get("world-create-info-hint"));
-    items.add(new Platform.MenuItem(36, "name_tag", msg.get("world-create-info"), info, "new " + o.args() + " --edit"));
-    items.add(new Platform.MenuItem(40, "emerald", msg.get("world-create-confirm"), msg.get("world-create-confirm-lore"), "new " + o.args() + " confirm"));
-    bg.platform().openMenu(p, msg.get("world-create-title"), items);
+    inputs.add(Dialogs.text("seed", msg.get("world-create-seed"), o.seed(), 64));
+    inputs.add(Dialogs.text("layers", msg.get("world-create-layers"), o.layers(), 256));
+    inputs.add(Dialogs.text("block", msg.get("world-create-block"), o.block(), 64));
+    Dialogs.open(bg, p, msg.get("world-create-title"), msg.get("world-create-body"), inputs, msg.get("world-create-confirm"), msg.get("dialog-cancel"),
+        command + " confirm");
   }
 
   /** {@code player-worlds.templates} 裡找得到、版本庫開著的建築世界。 */
@@ -493,12 +462,6 @@ final class Menu {
 
   private void label(List<Platform.MenuItem> items, int slot, String item, String key) {
     items.add(new Platform.MenuItem(slot, item, bg.messages().get(key), bg.messages().get(key + "-lore"), null));
-  }
-
-  private void option(List<Platform.MenuItem> items, int slot, String item, String key, boolean selected, BgCommand.NewWorld next) {
-    var msg = bg.messages();
-    items.add(new Platform.MenuItem(slot, selected ? "lime_stained_glass" : item, msg.get(selected ? "world-option-selected" : "world-option", "text", msg.get(key)),
-        msg.get(key + "-lore"), selected ? null : "new " + next.args()));
   }
 
   /** 最後編輯時間與最近的里程碑，由新到舊、顏色漸暗。 */
