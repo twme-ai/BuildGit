@@ -118,7 +118,7 @@ public final class BgCommand {
         "seed=", "layers=", "block=", "confirm"));
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("home", null, (s, a) -> home(s), null);
-    sub("worlds", null, (s, a) -> worlds(s), null);
+    sub("worlds", null, this::worlds, (s, b) -> b.isEmpty() ? Menu.WORLD_TABS : List.of());
     sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "visibility", "rename", "transfer", "delete", "undelete", "unlist", "relist")
         : b.size() == 1 && b.getFirst().equals("transfer") ? onlineNames()
         : b.size() == 1 && b.getFirst().equals("undelete") ? deletedNames(s)
@@ -1863,10 +1863,22 @@ public final class BgCommand {
     if (p == null) return;
     var o = parseNew(sender, args);
     if (o == null) return;
+    var pw = bg.settings().playerWorlds();
+    boolean admin = sender.hasPermission("buildgit.world.admin");
     if (!flags(args).contains("confirm")) {
+      // 預設的類型、地形沒開放時，選單從開放的第一個開始
+      if (!admin && !pw.allowed(o.type()))
+        o = o.withType(Arrays.stream(WorldConfig.Type.values()).filter(pw::allowed).findFirst().orElse(o.type()));
+      if (!admin && !pw.allowed(o.terrain())) {
+        var type = o.type();
+        o = o.withTerrain(Arrays.stream(WorldConfig.Terrain.values()).filter(t -> t != WorldConfig.Terrain.SERVER && pw.allowed(t)
+            && (type == WorldConfig.Type.OVERWORLD || t != WorldConfig.Terrain.LARGE_BIOMES && t != WorldConfig.Terrain.AMPLIFIED)).findFirst().orElse(o.terrain()));
+      }
       bg.menu().openCreate(p, o);
       return;
     }
+    if (!admin && !pw.allowed(o.type())) throw new Workspace.Refused("這台伺服器沒有開放 " + WorldConfig.key(o.type()) + " 類型");
+    if (!admin && !pw.allowed(o.terrain())) throw new Workspace.Refused("這台伺服器沒有開放 " + WorldConfig.key(o.terrain()) + " 地形");
     var ws = bg.worlds().create(o.name(), p, newConfig(o), sender.hasPermission("buildgit.world.admin"));
     msg().send(sender, "world-created", "world", ws.label(), "folder", ws.buildWorld().folder());
     bg.realms().enter(p, ws);
@@ -2029,6 +2041,9 @@ public final class BgCommand {
     if (p == null) return;
     var w = words(args);
     var first = w.isEmpty() ? "" : w.getFirst();
+    // 成員選單裡點的（設定自己處理 menu）：做完再打開成員選單
+    boolean menu = !first.equals("settings") && w.size() > 1 && w.getLast().equals("menu");
+    if (menu) w = new ArrayList<>(w.subList(0, w.size() - 1));
     if (first.equals("undelete")) {
       undelete(sender, p, w);
       return;
@@ -2062,6 +2077,7 @@ public final class BgCommand {
       ws.saveConfig();
       msg().send(sender, config.open ? "world-public" : "world-private", "world", ws.label());
       roleChanged(ws);
+      if (menu) bg.menu().openMembers(p, ws);
       return;
     }
     switch (what) {
@@ -2137,7 +2153,14 @@ public final class BgCommand {
         return;
       }
     }
-    switch (w.size() < 2 ? "list" : w.get(1)) {
+    switch (w.size() < 2 ? "menu" : w.get(1)) {
+      case "menu" -> bg.menu().openMembers(p, ws);
+      case "edit" -> {
+        if (!manager) throw new Workspace.Refused("只有擁有者與管理者能調整成員");
+        var entry = w.size() == 3 ? member(config, w.get(2)) : null;
+        if (entry == null) throw new Workspace.Refused((w.size() == 3 ? w.get(2) : "") + " 不是這個世界的成員");
+        bg.menu().openMember(p, ws, entry.getKey());
+      }
       case "list" -> {
         msg().send(sender, "members-header", "world", ws.label(), "owner", ws.buildWorld().ownerName(),
             "visibility", msg().get(config.open ? "visibility-public" : "visibility-private"));
@@ -2151,16 +2174,21 @@ public final class BgCommand {
         }
         if (!manager) throw new Workspace.Refused("只有擁有者與管理者能邀人");
         var target = bg.platform().server().getPlayerList().getPlayerByName(w.get(2));
-        if (target == null) throw new Workspace.Refused("找不到線上玩家 " + w.get(2) + "（邀請時對方要在線上）");
-        if (ws.buildWorld().owner().equals(target.getUUID())) throw new Workspace.Refused(target.getScoreboardName() + " 是擁有者");
-        var old = config.members.get(target.getUUID());
+        // 已經是成員的人不在線上也能改角色
+        var existing = target == null ? member(config, w.get(2)) : null;
+        if (target == null && existing == null) throw new Workspace.Refused("找不到線上玩家 " + w.get(2) + "（邀請時對方要在線上）");
+        var uuid = target != null ? target.getUUID() : existing.getKey();
+        var name = target != null ? target.getScoreboardName() : existing.getValue().name();
+        if (ws.buildWorld().owner().equals(uuid)) throw new Workspace.Refused(name + " 是擁有者");
+        var old = config.members.get(uuid);
         if (!owner && (newRole == WorldConfig.Role.MANAGER || old != null && old.role() == WorldConfig.Role.MANAGER))
           throw new Workspace.Refused("管理者只能邀請或移除建造者");
-        config.members.put(target.getUUID(), new WorldConfig.Member(target.getScoreboardName(), newRole));
+        config.members.put(uuid, new WorldConfig.Member(name, newRole));
         ws.saveConfig();
-        msg().send(sender, "members-added", "name", target.getScoreboardName(), "role", roleName(newRole));
-        if (target != p) msg().send(bg.platform().sender(target), "members-invited", "world", ws.label(), "role", roleName(newRole));
+        msg().send(sender, "members-added", "name", name, "role", roleName(newRole));
+        if (target != null && target != p) msg().send(bg.platform().sender(target), "members-invited", "world", ws.label(), "role", roleName(newRole));
         roleChanged(ws);
+        if (menu) bg.menu().openMembers(p, ws);
       }
       case "remove" -> {
         if (w.size() != 3) {
@@ -2168,17 +2196,25 @@ public final class BgCommand {
           return;
         }
         if (!manager) throw new Workspace.Refused("只有擁有者與管理者能移除成員");
-        var entry = config.members.entrySet().stream().filter(e -> e.getValue().name().equalsIgnoreCase(w.get(2))).findFirst().orElse(null);
+        var entry = member(config, w.get(2));
         if (entry == null) throw new Workspace.Refused(w.get(2) + " 不是這個世界的成員");
         if (!owner && entry.getValue().role() == WorldConfig.Role.MANAGER) throw new Workspace.Refused("管理者只能邀請或移除建造者");
         config.members.remove(entry.getKey());
         ws.saveConfig();
         msg().send(sender, "members-removed", "name", entry.getValue().name());
         roleChanged(ws);
+        if (menu) bg.menu().openMembers(p, ws);
       }
       default -> msg().send(sender, "usage-world");
     }
   }
+
+  private static Map.Entry<UUID, WorldConfig.Member> member(WorldConfig config, String name) {
+    return config.members.entrySet().stream().filter(e -> e.getValue().name().equalsIgnoreCase(name)).findFirst().orElse(null);
+  }
+
+  /** 顯示名稱、簡介最多幾個字。 */
+  private static final int DISPLAY_NAME_MAX = 32, DESCRIPTION_MAX = 120;
 
   /**
    * {@code world settings [<設定> [值]] [menu]}（03-worlds §3）：沒給設定時打開設定選單；選單裡點一下是帶著 {@code menu} 執行，
@@ -2194,6 +2230,10 @@ public final class BgCommand {
     var c = ws.config();
     var key = a.getFirst();
     var value = a.size() == 2 ? a.get(1).toLowerCase(Locale.ROOT) : "";
+    if (Menu.TEXT_SETTINGS.contains(key) || key.equals("icon")) {
+      text(sender, p, ws, key, String.join(" ", a.subList(1, a.size())).strip(), menu);
+      return;
+    }
     boolean kit = key.startsWith("kit-");
     if (a.size() > 2 || !Menu.SETTINGS.containsKey(key) || (kit ? !value.isEmpty() && !value.equals("clear") : value.isEmpty() != Menu.SETTINGS.get(key).isEmpty())) {
       msg().send(sender, "usage-world-settings");
@@ -2264,6 +2304,43 @@ public final class BgCommand {
     else msg().send(sender, "settings-changed", "setting", msg().get("setting-" + key), "value", bg.menu().settingValue(ws, key));
   }
 
+  /**
+   * 清單上的樣子：顯示名稱、簡介是後面所有的字（沒給時清掉；從選單點的提示怎麼打），圖示沒給時是手上的物品。
+   * 玩家寫的文字一律當純文字顯示。
+   */
+  private void text(Sender sender, ServerPlayer p, Workspace ws, String key, String value, boolean menu) throws IOException {
+    var c = ws.config();
+    if (key.equals("icon")) {
+      String id;
+      if (value.isEmpty()) {
+        var hand = p.getMainHandItem();
+        if (hand.isEmpty()) throw new Workspace.Refused("手上沒有東西；拿著要當圖示的物品再點一次，或打 /bg world settings icon <物品>");
+        id = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(hand.getItem()).toString();
+      } else {
+        id = WorldConfig.id(value.toLowerCase(Locale.ROOT));
+        var key2 = net.minecraft.resources.Identifier.tryParse(id);
+        if (key2 == null || !net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(key2) || id.equals("minecraft:air"))
+          throw new Workspace.Refused("沒有這個物品：" + value);
+      }
+      c.icon = id.equals(Menu.DEFAULT_ICON) ? null : id;
+    } else if (value.isEmpty() && menu) {
+      // 選單裡沒辦法打字：給一行點了會填好指令的提示
+      sender.send(msg().prefixed(msg().get("settings-type-text", "setting", msg().get("setting-" + key)))
+          .clickEvent(ClickEvent.suggestCommand("/bg world settings " + key + " ")));
+      return;
+    } else {
+      int max = key.equals("display-name") ? DISPLAY_NAME_MAX : DESCRIPTION_MAX;
+      if (value.codePointCount(0, value.length()) > max) throw new Workspace.Refused((key.equals("display-name") ? "顯示名稱" : "簡介") + "最多 " + max + " 個字");
+      if (value.chars().anyMatch(ch -> ch == '§' || Character.isISOControl(ch))) throw new Workspace.Refused("不能有格式碼或控制字元");
+      var v = value.isEmpty() ? null : value;
+      if (key.equals("display-name")) c.displayName = v;
+      else c.description = v;
+    }
+    ws.saveConfig();
+    if (menu) bg.menu().openSettings(p, ws);
+    else msg().send(sender, "settings-changed", "setting", msg().get("setting-" + key), "value", bg.menu().settingValue(ws, key));
+  }
+
   /** 不是數字時為 -1。 */
   private static int number(String s) {
     try {
@@ -2300,7 +2377,6 @@ public final class BgCommand {
       if (bg.workspace(p.level()) == ws) bg.platform().server().getCommands().sendCommands(p);
   }
 
-  /** {@code worlds}：這個人進得去的建築世界（自己的、受邀的、公開的），點一下就進去。 */
   /** {@code world undelete [世界]}：沒給世界時列出自己在回收區裡的世界；管理員可以找回任何人的（寫 {@code 擁有者/名稱}）。 */
   private void undelete(Sender sender, ServerPlayer p, List<String> w) throws IOException {
     boolean admin = bg.realms().admin(p);
@@ -2353,7 +2429,18 @@ public final class BgCommand {
         .map(d -> admin ? d.entry().label() : d.entry().name()).toList();
   }
 
-  private void worlds(Sender sender) {
+  /** {@code worlds [mine|public|recent] [頁]}：玩家打開清單選單；主控台列出所有建築世界。 */
+  private void worlds(Sender sender, String[] args) {
+    if (sender.player() instanceof ServerPlayer p) {
+      var w = words(args);
+      var tab = w.isEmpty() ? "mine" : w.getFirst();
+      if (w.size() > 2 || !Menu.WORLD_TABS.contains(tab)) {
+        msg().send(sender, "usage-worlds");
+        return;
+      }
+      bg.menu().openWorlds(p, tab, w.size() == 2 ? Math.max(1, number(w.get(1))) : 1);
+      return;
+    }
     var all = visibleWorlds(sender);
     if (all.isEmpty()) {
       msg().send(sender, "worlds-none");

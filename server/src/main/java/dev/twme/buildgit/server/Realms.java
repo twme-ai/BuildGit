@@ -24,6 +24,8 @@ import net.minecraft.world.level.levelgen.Heightmap;
  * {@code buildgit/players/<uuid>/<世界 id>.dat}（原本的是 {@code server.dat}），再換上目標的；訪客的不保留，每次都拿起始物品。
  */
 final class Realms {
+  /** 「最近去過」記幾個。 */
+  static final int RECENT = 27;
   private final BuildGit bg;
   /** 這次在邊界外已經提醒過的訪客；回到邊界內就清掉。 */
   private final Set<UUID> warned = new HashSet<>();
@@ -32,6 +34,11 @@ final class Realms {
 
   Realms(BuildGit bg) {
     this.bg = bg;
+  }
+
+  /** 最近去過的建築世界 id，新的在前。 */
+  List<String> recent(UUID player) {
+    return load(player).getStringList("recent");
   }
 
   boolean admin(ServerPlayer p) {
@@ -59,6 +66,13 @@ final class Realms {
       save(p.getUUID(), state);
     }
     var level = ws.openMain();
+    // 最近去過（記 id，改名、轉讓後照樣對得上）
+    var state = load(p.getUUID());
+    var recent = new ArrayList<>(state.getStringList("recent"));
+    recent.remove(ws.buildWorld().id());
+    recent.addFirst(ws.buildWorld().id());
+    state.set("recent", List.copyOf(recent.subList(0, Math.min(recent.size(), RECENT))));
+    save(p.getUUID(), state);
     var sender = bg.platform().sender(p);
     ws.spawn(bg.tracker().author(p), bg.messages().raw("world-first-commit")).whenComplete((spawn, e) -> ws.sync(() -> {
       if (e != null) {

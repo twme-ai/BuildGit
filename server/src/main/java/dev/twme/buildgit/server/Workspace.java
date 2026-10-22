@@ -1077,6 +1077,7 @@ public final class Workspace {
   private ServerLevel createWorld(String name, ServerLevel template, Pending source) throws IOException {
     var world = platform.findLevel(name);
     if (world == null) {
+      if (this.world != null) registry.checkLoad();
       Platform.Synthesizer blocks = (target, rx, rz) -> synthesizer(source).blocks(target, rx, rz);
       Platform.Synthesizer entities = (target, rx, rz) -> synthesizer(source).entities(target, rx, rz);
       world = config != null && config.terrain != WorldConfig.Terrain.SERVER ? platform.openLevel(name, config.gen(), blocks, entities)

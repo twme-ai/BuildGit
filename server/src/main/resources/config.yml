@@ -82,6 +82,13 @@ player-worlds:
   allow-inventory-isolation: true
   # /bg world delete 之後在回收區保留幾天（期間可以 /bg world undelete 找回），過期才真正刪掉。
   trash-days: 7
+  # 同時載入的建築世界上限，草稿與檢視世界也各算一個（伺服器世界不算）。滿了就請玩家稍後再試；
+  # 沒人的世界過 worlds.unload-idle-seconds 會卸載。
+  max-loaded: 20
+  # 一般玩家建立時能選的類型（overworld、nether、end）與地形（normal、large-biomes、amplified、flat、void）。
+  # 空的是全部都可以；管理員不受限制。例如只開放超平坦與虛空：allowed-terrain: [flat, void]
+  allowed-types: []
+  allowed-terrain: []
   # 伺服器世界在 /bg open 等指令裡的名稱；空白時用 server.properties 的 level-name（預設 world）。
   server-world-name: ""
   # 世界資料夾的名稱。{name} 是建築世界的名稱（必須有），{owner-name} 是擁有者的玩家名稱（小寫），

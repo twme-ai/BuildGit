@@ -49,6 +49,11 @@ public interface Upgrader {
     return id;
   }
 
+  /** {@code from} 版寫下的物品 ID。 */
+  default String itemId(String id, int from) {
+    return id;
+  }
+
   /** {@code from} 版寫下的實體 NBT（正規化後）。 */
   byte[] entity(byte[] nbt, int from);
 

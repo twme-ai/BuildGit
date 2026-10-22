@@ -42,9 +42,32 @@ public record Settings(
    * @param separateInventories 所有建築世界都隔離背包
    * @param allowInventoryIsolation 擁有者能不能為自己的世界打開背包隔離
    * @param trashDays 刪除後在回收區保留幾天
+   * @param maxLoaded 同時載入的建築世界（含草稿、檢視）上限
+   * @param allowedTypes 一般玩家能選的類型；空的是全部
+   * @param allowedTerrain 一般玩家能選的地形；空的是全部
    */
   public record PlayerWorlds(boolean enabled, int maxPerPlayer, int border, int maxBorder, boolean separateInventories,
-      boolean allowInventoryIsolation, int trashDays, String serverWorldName, String worldName, String repo, String objects, String genesis) {}
+      boolean allowInventoryIsolation, int trashDays, int maxLoaded, Set<WorldConfig.Type> allowedTypes, Set<WorldConfig.Terrain> allowedTerrain,
+      String serverWorldName, String worldName, String repo, String objects, String genesis) {
+    boolean allowed(WorldConfig.Type type) {
+      return allowedTypes.isEmpty() || allowedTypes.contains(type);
+    }
+
+    boolean allowed(WorldConfig.Terrain terrain) {
+      return allowedTerrain.isEmpty() || allowedTerrain.contains(terrain);
+    }
+  }
+
+  /** 列出的選項；寫錯的略過並警告。 */
+  private static <E extends Enum<E>> Set<E> options(Yaml c, String path, Class<E> type, Logger log) {
+    var set = EnumSet.noneOf(type);
+    for (var s : c.getStringList(path)) {
+      var e = WorldConfig.parse(type, s);
+      if (e == null) log.warning(path + " 裡的 " + s + " 不認得，略過");
+      else set.add(e);
+    }
+    return Collections.unmodifiableSet(set);
+  }
 
   /** 讀取 {@code dir/config.yml}；不存在時先寫入內建的預設檔，缺少新版本的設定時補上。 */
   public static Settings load(Path dir, Logger log) {
@@ -106,6 +129,9 @@ public record Settings(
             Math.clamp(c.getInt("player-worlds.max-border", 4096), 16, 59_999_968),
             c.getBoolean("player-worlds.separate-inventories", false), c.getBoolean("player-worlds.allow-inventory-isolation", true),
             Math.max(0, c.getInt("player-worlds.trash-days", 7)),
+            Math.max(1, c.getInt("player-worlds.max-loaded", 20)),
+            options(c, "player-worlds.allowed-types", WorldConfig.Type.class, log),
+            options(c, "player-worlds.allowed-terrain", WorldConfig.Terrain.class, log),
             c.getString("player-worlds.server-world-name", "").strip(),
             c.getString("player-worlds.world-name", "bw_{owner-name}_{name}").strip(),
             c.getString("player-worlds.paths.repo", "{buildgit}/worlds/{id}").strip(),

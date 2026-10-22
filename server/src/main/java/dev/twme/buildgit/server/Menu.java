@@ -59,6 +59,11 @@ final class Menu {
     // 右：玩家與範圍
     put(items, bottom + 7, "player_head", "menu-who", "who", p, "buildgit.who");
     put(items, bottom + 8, "wooden_axe", "menu-sel", "sel show", p, "buildgit.sel");
+    // 分隔線右端：建築世界清單，在建築世界裡（擁有者與管理者）多一個設定
+    put(items, second + 8, "filled_map", "menu-worlds", "worlds", p, null);
+    var role = ws.role(p.getUUID());
+    if (ws.buildWorld() != null && (role == WorldConfig.Role.OWNER || role == WorldConfig.Role.MANAGER || bg.realms().admin(p)))
+      put(items, second + 7, "comparator", "menu-world-settings", "world settings", p, null);
     // 分隔線：最下排三組之間的直線，上一排除了情境動作以外都是橫線
     items.add(divider(bottom + 2));
     items.add(divider(bottom + 6));
@@ -107,19 +112,22 @@ final class Menu {
   void openCreate(ServerPlayer p, BgCommand.NewWorld o) {
     var msg = bg.messages();
     var items = new ArrayList<Platform.MenuItem>();
+    var pw = bg.settings().playerWorlds();
+    boolean admin = bg.realms().admin(p);
     label(items, 0, "compass", "world-create-type");
     for (var t : WorldConfig.Type.values()) {
+      if (!admin && !pw.allowed(t)) continue;
       var icon = switch (t) {
         case OVERWORLD -> "grass_block";
         case NETHER -> "netherrack";
         case END -> "end_stone";
       };
-      option(items, 2 + t.ordinal(), icon, "world-type-" + WorldConfig.key(t), o.type() == t, o.withType(t));
+      option(items, 2 + (int) Arrays.stream(WorldConfig.Type.values()).limit(t.ordinal()).filter(x -> admin || pw.allowed(x)).count(), icon, "world-type-" + WorldConfig.key(t), o.type() == t, o.withType(t));
     }
     label(items, 9, "filled_map", "world-create-terrain");
     int slot = 11;
     for (var t : WorldConfig.Terrain.values()) {
-      if (t == WorldConfig.Terrain.SERVER) continue;
+      if (t == WorldConfig.Terrain.SERVER || !admin && !pw.allowed(t)) continue;
       if (o.type() != WorldConfig.Type.OVERWORLD && (t == WorldConfig.Terrain.LARGE_BIOMES || t == WorldConfig.Terrain.AMPLIFIED)) continue;
       var icon = switch (t) {
         case NORMAL -> "oak_sapling";
@@ -173,6 +181,21 @@ final class Menu {
     // 起始物品：不帶值是存下身上的背包，clear 是清空
     SETTINGS.put("kit-member", List.of());
     SETTINGS.put("kit-visitor", List.of());
+    // 清單上的樣子：顯示名稱與簡介是文字，圖示不帶值是手上的物品
+    SETTINGS.put("display-name", List.of());
+    SETTINGS.put("description", List.of());
+    SETTINGS.put("icon", List.of());
+  }
+
+  /** 玩家寫的文字設定（值是後面所有的字，保留大小寫）。 */
+  static final Set<String> TEXT_SETTINGS = Set.of("display-name", "description");
+  static final String DEFAULT_ICON = "minecraft:grass_block";
+
+  /** 清單上的圖示；沒設、或這個版本沒有那個物品（例如降版）時是草方塊。 */
+  static String icon(Workspace ws) {
+    var icon = ws.config() == null ? null : ws.config().icon;
+    var id = icon == null ? null : net.minecraft.resources.Identifier.tryParse(icon);
+    return id != null && net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(id) ? icon : DEFAULT_ICON;
   }
 
   /** 設定目前的值，寫成 {@link #SETTINGS} 裡的寫法（固定在沒有名稱的時刻時是刻數）。 */
@@ -211,6 +234,9 @@ final class Menu {
         int n = Inventories.count(ws.kitFile(key.equals("kit-visitor")));
         yield n <= 0 ? msg.get("value-kit-empty") : msg.get("value-kit", "count", n);
       }
+      case "display-name" -> c.displayName == null ? msg.get("value-display-name-unset", "name", ws.buildWorld().name()) : Component.text(c.displayName);
+      case "description" -> c.description == null ? msg.get("value-unset") : Component.text(c.description);
+      case "icon" -> Component.text(icon(ws));
       default -> msg.get("value-" + v);
     };
   }
@@ -220,11 +246,12 @@ final class Menu {
     var msg = bg.messages();
     var items = new ArrayList<Platform.MenuItem>();
     items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), msg.get("settings-header-lore"), null));
-    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25);
+    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 29, 30, 31);
     var icons = Map.ofEntries(Map.entry("time", "clock"), Map.entry("weather", "water_bucket"), Map.entry("difficulty", "iron_sword"),
         Map.entry("mobs", "zombie_head"), Map.entry("nature", "wheat"), Map.entry("border", "barrier"), Map.entry("border-center", "compass"),
         Map.entry("spawn", "red_bed"), Map.entry("member-mode", "diamond_pickaxe"), Map.entry("visitor-mode", "ender_eye"),
-        Map.entry("visitor-interact", "lever"), Map.entry("inventory", "chest"), Map.entry("kit-member", "bundle"), Map.entry("kit-visitor", "map"));
+        Map.entry("visitor-interact", "lever"), Map.entry("inventory", "chest"), Map.entry("kit-member", "bundle"), Map.entry("kit-visitor", "map"),
+        Map.entry("display-name", "name_tag"), Map.entry("description", "writable_book"), Map.entry("icon", icon(ws)));
     int i = 0;
     for (var e : SETTINGS.entrySet()) {
       var key = e.getKey();
@@ -240,10 +267,163 @@ final class Menu {
         action = "world settings " + key + " " + next + " menu";
       }
       var lore = List.of(msg.get("settings-current", "value", settingValue(ws, key)), msg.get("setting-" + key + "-lore"),
-          key.startsWith("kit-") ? msg.get("settings-click-kit", "key", key) : msg.get(values.isEmpty() ? "settings-click-here" : "settings-click-next"));
+          key.startsWith("kit-") ? msg.get("settings-click-kit", "key", key)
+              : TEXT_SETTINGS.contains(key) ? msg.get("settings-click-text", "key", key)
+              : key.equals("icon") ? msg.get("settings-click-icon")
+              : msg.get(values.isEmpty() ? "settings-click-here" : "settings-click-next"));
       items.add(new Platform.MenuItem(slots.get(i++), icons.get(key), msg.get("setting-" + key), lore, action));
     }
+    for (int c = 36; c < 45; c++) if (c != 40) items.add(divider(c));
+    items.add(new Platform.MenuItem(40, "player_head", msg.get("settings-members"), msg.get("settings-members-lore"), "world members"));
     bg.platform().openMenu(p, msg.get("settings-title"), items);
+  }
+
+  /** {@code /bg worlds} 的分頁。 */
+  static final List<String> WORLD_TABS = List.of("mine", "public", "recent");
+
+  /**
+   * {@code /bg worlds [mine|public|recent] [頁]}（03-worlds §2.1）：最上面三排是世界，點一下進去；下一排是翻頁，
+   * 最下排左邊是分頁（我的：自己的與受邀的；公開：依最近存檔；最近去過），右邊是建立、回收區、這個世界的設定與回去。
+   */
+  void openWorlds(ServerPlayer p, String tab, int page) {
+    var msg = bg.messages();
+    var realms = bg.realms();
+    List<Workspace> list = switch (tab) {
+      case "public" -> bg.worlds().buildWorlds().stream().filter(ws -> ws.config() != null && ws.config().open)
+          .sorted(Comparator.comparingLong(Menu::lastSave).reversed()).toList();
+      case "recent" -> realms.recent(p.getUUID()).stream().map(bg.worlds()::byId)
+          .filter(ws -> ws != null && realms.canEnter(p, ws)).toList();
+      default -> bg.worlds().buildWorlds().stream().filter(ws -> {
+        var r = ws.role(p.getUUID());
+        return r != null && r != WorldConfig.Role.VISITOR;
+      }).sorted(Comparator.comparing(Workspace::label)).toList();
+    };
+    int capacity = LIST_ROWS * 9, pages = Math.max(1, Math.ceilDiv(list.size(), capacity));
+    page = Math.clamp(page, 1, pages);
+    var items = new ArrayList<Platform.MenuItem>();
+    int i = 0;
+    for (var ws : list.subList((page - 1) * capacity, Math.min(list.size(), page * capacity))) items.add(worldItem(p, ws, i++));
+    if (list.isEmpty()) items.add(new Platform.MenuItem(13, "light_gray_stained_glass_pane", msg.get("worlds-empty-" + tab), msg.get("worlds-empty-lore"), null));
+    int row = (ROWS - 2) * 9, bottom = (ROWS - 1) * 9;
+    for (int c = 0; c < 9; c++) items.add(divider(row + c));
+    if (page > 1) items.set(items.size() - 9, new Platform.MenuItem(row, "arrow", msg.get("worlds-prev"), msg.get("worlds-page", "page", page, "pages", pages), "worlds " + tab + " " + (page - 1)));
+    if (page < pages) items.set(items.size() - 1, new Platform.MenuItem(row + 8, "arrow", msg.get("worlds-next"), msg.get("worlds-page", "page", page, "pages", pages), "worlds " + tab + " " + (page + 1)));
+    var tabIcons = List.of("chest", "filled_map", "clock");
+    for (int t = 0; t < WORLD_TABS.size(); t++) {
+      var name = WORLD_TABS.get(t);
+      boolean here = name.equals(tab);
+      items.add(new Platform.MenuItem(bottom + t, here ? "lime_stained_glass" : tabIcons.get(t),
+          msg.get(here ? "world-option-selected" : "world-option", "text", msg.get("worlds-tab-" + name)), msg.get("worlds-tab-" + name + "-lore"), here ? null : "worlds " + name));
+    }
+    items.add(divider(bottom + 3));
+    var pw = bg.settings().playerWorlds();
+    if (realms.admin(p) || pw.enabled() && bg.platform().hasPermission(p, "buildgit.world.create")) put(items, bottom + 4, "emerald", "worlds-create", "new", p, null);
+    items.add(divider(bottom + 5));
+    put(items, bottom + 6, "cauldron", "worlds-trash", "world undelete", p, null);
+    var here = bg.workspace(p.level());
+    var role = here.role(p.getUUID());
+    if (here.buildWorld() != null && (role == WorldConfig.Role.OWNER || role == WorldConfig.Role.MANAGER || realms.admin(p)))
+      put(items, bottom + 7, "comparator", "menu-world-settings", "world settings", p, null);
+    if (here.buildWorld() != null) put(items, bottom + 8, "oak_door", "worlds-home", "home", p, null);
+    bg.platform().openMenu(p, msg.get("worlds-title"), items);
+  }
+
+  /** 清單上的一個世界：圖示、顯示名稱、名稱、簡介、擁有者與自己的角色、人數、最後存檔。 */
+  private Platform.MenuItem worldItem(ServerPlayer p, Workspace ws, int slot) {
+    var msg = bg.messages();
+    var c = ws.config();
+    var lore = new ArrayList<Component>();
+    lore.add(msg.get("worlds-item-label", "world", ws.label()));
+    if (c != null && c.description != null)
+      // 選單的說明不會自動換行
+      for (int at = 0; at < c.description.length(); at += DESCRIPTION_LINE)
+        lore.add(msg.get("worlds-item-description", "text", c.description.substring(at, Math.min(c.description.length(), at + DESCRIPTION_LINE))));
+    var role = ws.role(p.getUUID());
+    lore.add(msg.get("worlds-item-owner", "owner", ws.buildWorld().ownerName(), "role", msg.get("role-" + (role == null ? "visitor" : WorldConfig.key(role)))));
+    int players = 0;
+    boolean loaded = false;
+    for (var wt : ws.worktrees())
+      for (var level : wt.worlds().values()) {
+        loaded = true;
+        players += level.players().size();
+      }
+    lore.add(msg.get("worlds-item-state", "state", msg.get(!ws.isOpen() ? "worlds-broken" : loaded ? "worlds-loaded" : "worlds-unloaded"), "players", players));
+    long saved = lastSave(ws);
+    if (saved > 0) lore.add(msg.get("worlds-item-saved", "time", BgCommand.TIME.format(Instant.ofEpochMilli(saved))));
+    if (c != null && c.unlisted) lore.add(msg.get("worlds-item-unlisted"));
+    lore.add(msg.get("worlds-item-click"));
+    var name = c != null && c.displayName != null ? c.displayName : ws.buildWorld().name();
+    return new Platform.MenuItem(slot, icon(ws), msg.get("worlds-item", "name", name), lore, "open " + ws.label());
+  }
+
+  /** 選單裡簡介每行幾個字。 */
+  private static final int DESCRIPTION_LINE = 24;
+
+  /** 主世界最後一次存檔的時間；讀不到時是 0。 */
+  private static long lastSave(Workspace ws) {
+    if (!ws.isOpen()) return 0;
+    try {
+      return ws.repo().commit(ws.repo().head(Repository.MAIN)).time();
+    } catch (IOException | RuntimeException e) {
+      return 0;
+    }
+  }
+
+  /**
+   * {@code /bg world members}：最上面是世界與可見性（擁有者點一下切換），中間兩排是成員（點一下調整角色或移除），
+   * 下一排是線上還不是成員的玩家（點一下邀請成建造者），最下排回設定。
+   */
+  void openMembers(ServerPlayer p, Workspace ws) {
+    var msg = bg.messages();
+    var c = ws.config();
+    var role = ws.role(p.getUUID());
+    boolean owner = role == WorldConfig.Role.OWNER || bg.realms().admin(p);
+    boolean manager = owner || role == WorldConfig.Role.MANAGER;
+    var items = new ArrayList<Platform.MenuItem>();
+    items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()),
+        msg.get("members-menu-owner", "owner", ws.buildWorld().ownerName()), null));
+    items.add(new Platform.MenuItem(8, c.open ? "ender_eye" : "ender_pearl", msg.get(c.open ? "visibility-public" : "visibility-private"),
+        List.of(msg.get(c.open ? "members-menu-public-lore" : "members-menu-private-lore"), msg.get(owner ? "settings-click-next" : "members-menu-owner-only")),
+        owner ? "world visibility " + (c.open ? "private" : "public") + " menu" : null));
+    int slot = 9;
+    for (var m : c.members.values()) {
+      if (slot >= 27) break;
+      boolean editable = owner || manager && m.role() == WorldConfig.Role.BUILDER;
+      items.add(new Platform.MenuItem(slot++, "player_head", Component.text(m.name()),
+          List.of(msg.get("members-menu-role", "role", msg.get("role-" + WorldConfig.key(m.role()))), msg.get(editable ? "members-menu-edit" : "members-menu-owner-only")),
+          editable ? "world members edit " + m.name() : null));
+    }
+    if (c.members.isEmpty()) items.add(new Platform.MenuItem(13, "light_gray_stained_glass_pane", msg.get("members-menu-none"), msg.get("members-menu-none-lore"), null));
+    slot = 27;
+    if (manager)
+      for (var online : bg.platform().server().getPlayerList().getPlayers()) {
+        if (slot >= 36) break;
+        if (online == p || ws.buildWorld().owner().equals(online.getUUID()) || c.members.containsKey(online.getUUID())) continue;
+        items.add(new Platform.MenuItem(slot++, "player_head", Component.text(online.getScoreboardName()), msg.get("members-menu-invite"),
+            "world members add " + online.getScoreboardName() + " menu"));
+      }
+    for (int x = 36; x < 45; x++) if (x != 40) items.add(divider(x));
+    items.add(new Platform.MenuItem(40, "oak_door", msg.get("members-menu-back"), (List<Component>) null, "world settings"));
+    bg.platform().openMenu(p, msg.get("members-menu-title"), items);
+  }
+
+  /** 一位成員：設成建造者、管理者（只有擁有者能設），或移出成員。 */
+  void openMember(ServerPlayer p, Workspace ws, UUID member) {
+    var msg = bg.messages();
+    var m = ws.config().members.get(member);
+    boolean owner = ws.role(p.getUUID()) == WorldConfig.Role.OWNER || bg.realms().admin(p);
+    var items = new ArrayList<Platform.MenuItem>();
+    items.add(new Platform.MenuItem(4, "player_head", Component.text(m.name()), msg.get("members-menu-role", "role", msg.get("role-" + WorldConfig.key(m.role()))), null));
+    for (var r : List.of(WorldConfig.Role.BUILDER, WorldConfig.Role.MANAGER)) {
+      boolean selected = m.role() == r, can = owner || r == WorldConfig.Role.BUILDER;
+      items.add(new Platform.MenuItem(r == WorldConfig.Role.BUILDER ? 20 : 22, selected ? "lime_stained_glass" : r == WorldConfig.Role.BUILDER ? "iron_pickaxe" : "golden_helmet",
+          msg.get(selected ? "world-option-selected" : "world-option", "text", msg.get("role-" + WorldConfig.key(r))), msg.get("role-" + WorldConfig.key(r) + "-lore"),
+          selected || !can ? null : "world members add " + m.name() + " " + WorldConfig.key(r) + " menu"));
+    }
+    items.add(new Platform.MenuItem(24, "barrier", msg.get("members-menu-remove"), msg.get("members-menu-remove-lore"), "world members remove " + m.name() + " menu"));
+    for (int x = 36; x < 45; x++) if (x != 40) items.add(divider(x));
+    items.add(new Platform.MenuItem(40, "oak_door", msg.get("members-menu-back-list"), (List<Component>) null, "world members"));
+    bg.platform().openMenu(p, msg.get("members-menu-title"), items);
   }
 
   private void label(List<Platform.MenuItem> items, int slot, String item, String key) {

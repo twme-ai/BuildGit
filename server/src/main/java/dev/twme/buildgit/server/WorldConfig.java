@@ -75,6 +75,10 @@ public final class WorldConfig {
   public boolean open;
   /** 管理員下架（03-worlds §4）：強制私人，擁有者不能自己改回公開。 */
   public boolean unlisted;
+  /** 清單上顯示的名稱、簡介（玩家寫的文字，顯示時不當 MiniMessage）；沒有時是 null。 */
+  public String displayName, description;
+  /** 清單上的圖示（物品 id）；沒有時是 null（草方塊）。 */
+  public String icon;
   public final Map<UUID, Member> members = new LinkedHashMap<>();
 
   // ---- 名稱 ----
@@ -203,6 +207,11 @@ public final class WorldConfig {
       c.spawn = new Spawn(num(y.get("spawn.x")), num(y.get("spawn.y")), num(y.get("spawn.z")), (float) num(y.get("spawn.yaw")), (float) num(y.get("spawn.pitch")));
     c.open = "public".equals(y.getString("visibility"));
     c.unlisted = y.getBoolean("unlisted", false);
+    c.displayName = y.getString("display-name");
+    c.description = y.getString("description");
+    var icon = y.getString("icon");
+    // 物品 id 會隨版本改名（例如 grass 改成 short_grass），照存檔時的版本升級
+    c.icon = icon == null ? null : upgrader.itemId(icon, from);
     if (y.get("members") instanceof Map<?, ?> members)
       for (var e : members.entrySet()) {
         try {
@@ -272,6 +281,9 @@ public final class WorldConfig {
     }
     y.set("visibility", open ? "public" : "private");
     y.set("unlisted", unlisted ? true : null);
+    y.set("display-name", displayName);
+    y.set("description", description);
+    y.set("icon", icon);
     for (var e : members.entrySet()) {
       y.set("members." + e.getKey() + ".name", e.getValue().name());
       y.set("members." + e.getKey() + ".role", key(e.getValue().role()));

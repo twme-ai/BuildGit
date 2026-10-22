@@ -81,6 +81,11 @@ public final class BuildWorlds {
     return result;
   }
 
+  /** 以 id 找建築世界；沒有時是 null。 */
+  Workspace byId(String id) {
+    return worlds.get(id);
+  }
+
   public Collection<Workspace> buildWorlds() {
     return Collections.unmodifiableCollection(worlds.values());
   }
@@ -322,6 +327,13 @@ public final class BuildWorlds {
   }
 
   // ---- 改名、轉讓、刪除（03-worlds §5.2、§6.1） ----
+
+  /** 要再開一個建築世界的世界（主世界、草稿、檢視）前：同時載入的不能超過 {@code max-loaded}。 */
+  void checkLoad() throws Workspace.Refused {
+    int max = settings.get().playerWorlds().maxLoaded();
+    int loaded = worlds.values().stream().mapToInt(ws -> ws.levelNames().size()).sum();
+    if (loaded >= max) throw new Workspace.Refused("伺服器上同時開著的建築世界已經滿了（" + max + " 個），請稍後再試");
+  }
 
   /** 正在改名、轉讓或刪除。 */
   boolean busy(Workspace ws) {

@@ -79,6 +79,13 @@ public final class DataUpgrader implements Upgrader {
   }
 
   @Override
+  public String itemId(String id, int from) {
+    if (from >= current) return id;
+    var fixed = DataFixers.getDataFixer().update(References.ITEM_NAME, new Dynamic<>(NbtOps.INSTANCE, (Tag) StringTag.valueOf(id)), from, current);
+    return fixed.getValue().asString().orElse(id);
+  }
+
+  @Override
   public byte[] entity(byte[] nbt, int from) {
     if (from >= current) return nbt;
     return Nbt.write(Normalizer.entity(convert(fix(References.ENTITY, read(nbt), from))));
