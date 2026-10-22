@@ -147,6 +147,8 @@ LuckPerms 範例：
 | `player-worlds.max-per-player` | 3 | 每人最多擁有幾個建築世界 |
 | `player-worlds.border` | 1024 | 建築世界預設的世界邊界邊長（以 (0, 0) 為中心），也是訪客能去的範圍；擁有者可以用 `/bg world settings border` 改 |
 | `player-worlds.max-border` | 4096 | 擁有者能設定的最大邊長 |
+| `player-worlds.separate-inventories` | `false` | `true` 時所有建築世界都隔離背包（生存伺服器建議） |
+| `player-worlds.allow-inventory-isolation` | `true` | 擁有者能不能為自己的世界打開背包隔離與起始物品 |
 | `player-worlds.world-name` | `bw_{owner-name}_{name}` | 建築世界的資料夾名稱（見 §7.1）；只影響之後建立的世界 |
 | `player-worlds.paths.*` | | 建築世界的版本庫、物件、起點世界放在哪裡（見 §7.1） |
 | `tracking.*` | | 連帶變化的時間窗與距離、哪些實體不記錄；通常不用改 |
@@ -206,11 +208,14 @@ LuckPerms 範例：
 | `member-mode` | `creative`、`survival`、`adventure` | 成員進來時的遊戲模式 |
 | `visitor-mode` | `spectator`、`adventure` | 訪客進來時的遊戲模式 |
 | `visitor-interact` | `on`、`off` | 冒險模式的訪客能不能按按鈕、拉桿、開門、踩壓力板 |
+| `inventory` | `on`、`off` | 背包隔離：這個世界有自己的背包（見下面） |
+| `kit-member`／`kit-visitor` | （不用值）或 `clear` | 把自己身上的背包存成成員／訪客的起始物品，`clear` 清空；要先打開背包隔離 |
 
 - **誰能建立**：有 `buildgit.world.admin` 的人隨時可以；一般玩家要 `player-worlds.enabled: true` 並給 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）。`open`、`home`、`worlds` 所有人都能用，能進哪些世界看成員名單與可見性。
 - **角色**：在建築世界裡，BuildGit 的指令權限由那個世界的角色決定，不看你給的 `buildgit.role.*`：擁有者與管理者等於 manager，建造者等於 builder，訪客只能看（`status`、`log`、`diff`、`blame` 等），不能改方塊、不能進草稿或檢視舊版本。有 `buildgit.world.admin` 的人在任何世界都能做所有事。`init`、`reload`、`backup` 等伺服器管理照舊看權限節點。
 - 成員被移除或世界改成私人時，裡面沒資格的人會被送回伺服器世界；離線期間被移除的，上線時送回。
-- **遊戲模式**：進建築世界時換成這個世界設定的模式（預設成員創造、訪客旁觀者）；回伺服器世界時換回原本的模式。原本的模式與 `/bg home` 的位置記在 `buildgit/players/<uuid>.yml`，重啟後照樣恢復。背包目前所有世界共通。
+- **遊戲模式**：進建築世界時換成這個世界設定的模式（預設成員創造、訪客旁觀者）；回伺服器世界時換回原本的模式。原本的模式與 `/bg home` 的位置記在 `buildgit/players/<uuid>.yml`，重啟後照樣恢復。
+- **背包**：預設所有世界共通。打開背包隔離（`inventory on`，或伺服器設 `player-worlds.separate-inventories: true`）後，進這個世界時把原本的背包、終界箱、經驗、狀態效果收起來，換成自己在這個世界的那一份（第一次進來時是成員的起始物品），回伺服器世界時換回原本的。訪客的不保留，每次進來都拿訪客的起始物品。收起來的放在 `buildgit/players/<uuid>/`（原本的是 `server.dat`，各世界是 `<世界 id>.dat`），起始物品在世界的版本庫旁邊（`kit-member.dat`、`kit-visitor.dat`）；都記下資料版本，升級 Minecraft 後讀取時照樣升級物品。
 - **訪客的限制**：不能改方塊，也不能開箱子、和實體互動；WorldEdit、Axiom 的編輯會被擋下；走到世界邊界（預設 `player-worlds.border`，1024×1024）外會被拉回來。冒險模式的訪客在 `visitor-interact` 打開時可以按機關，造成的改變記成那個訪客改的，之後成員存檔時會一起存進去。
 - **傳送門**：建築世界裡的地獄門、終界門、折躍門都不能用（不然會被送到伺服器的地獄、終界）。
 - **建築用規則**（建立時選）：上面的設定預設成固定正午與晴天、和平、不生成生物、沒有自然變化；「原版」是正常流動、照伺服器的難度、生成生物、有自然變化。建立後都可以用 `/bg world settings` 改。建築世界一律關掉「旁觀者生成地形」與地獄門，終界類型沒有終界龍。

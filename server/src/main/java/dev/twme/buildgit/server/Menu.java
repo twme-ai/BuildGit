@@ -169,6 +169,10 @@ final class Menu {
     SETTINGS.put("member-mode", List.of("creative", "survival", "adventure"));
     SETTINGS.put("visitor-mode", List.of("spectator", "adventure"));
     SETTINGS.put("visitor-interact", List.of("off", "on"));
+    SETTINGS.put("inventory", List.of("off", "on"));
+    // 起始物品：不帶值是存下身上的背包，clear 是清空
+    SETTINGS.put("kit-member", List.of());
+    SETTINGS.put("kit-visitor", List.of());
   }
 
   /** 設定目前的值，寫成 {@link #SETTINGS} 裡的寫法（固定在沒有名稱的時刻時是刻數）。 */
@@ -185,6 +189,7 @@ final class Menu {
       case "member-mode" -> c.memberMode.getName();
       case "visitor-mode" -> c.visitorMode.getName();
       case "visitor-interact" -> c.visitorInteract ? "on" : "off";
+      case "inventory" -> ws.isolated() ? "on" : "off";
       default -> "";
     };
   }
@@ -201,6 +206,11 @@ final class Menu {
           (long) Math.floor(c.border == 0 ? 0 : c.borderZ));
       case "spawn" -> c.spawn == null ? msg.get("value-spawn-unset")
           : msg.get("value-position", "x", (long) Math.floor(c.spawn.x()), "z", (long) Math.floor(c.spawn.z()));
+      case "inventory" -> bg.settings().playerWorlds().separateInventories() ? msg.get("value-inventory-forced") : msg.get("value-" + v);
+      case "kit-member", "kit-visitor" -> {
+        int n = Inventories.count(ws.kitFile(key.equals("kit-visitor")));
+        yield n <= 0 ? msg.get("value-kit-empty") : msg.get("value-kit", "count", n);
+      }
       default -> msg.get("value-" + v);
     };
   }
@@ -210,11 +220,11 @@ final class Menu {
     var msg = bg.messages();
     var items = new ArrayList<Platform.MenuItem>();
     items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), msg.get("settings-header-lore"), null));
-    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22);
+    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25);
     var icons = Map.ofEntries(Map.entry("time", "clock"), Map.entry("weather", "water_bucket"), Map.entry("difficulty", "iron_sword"),
         Map.entry("mobs", "zombie_head"), Map.entry("nature", "wheat"), Map.entry("border", "barrier"), Map.entry("border-center", "compass"),
         Map.entry("spawn", "red_bed"), Map.entry("member-mode", "diamond_pickaxe"), Map.entry("visitor-mode", "ender_eye"),
-        Map.entry("visitor-interact", "lever"));
+        Map.entry("visitor-interact", "lever"), Map.entry("inventory", "chest"), Map.entry("kit-member", "bundle"), Map.entry("kit-visitor", "map"));
     int i = 0;
     for (var e : SETTINGS.entrySet()) {
       var key = e.getKey();
@@ -230,7 +240,7 @@ final class Menu {
         action = "world settings " + key + " " + next + " menu";
       }
       var lore = List.of(msg.get("settings-current", "value", settingValue(ws, key)), msg.get("setting-" + key + "-lore"),
-          msg.get(values.isEmpty() ? "settings-click-here" : "settings-click-next"));
+          key.startsWith("kit-") ? msg.get("settings-click-kit", "key", key) : msg.get(values.isEmpty() ? "settings-click-here" : "settings-click-next"));
       items.add(new Platform.MenuItem(slots.get(i++), icons.get(key), msg.get("setting-" + key), lore, action));
     }
     bg.platform().openMenu(p, msg.get("settings-title"), items);

@@ -39,8 +39,11 @@ public record Settings(
   /**
    * @param enabled 一般玩家能不能建立建築世界；@param maxPerPlayer 每人最多擁有幾個；@param border 世界邊界預設的邊長；
    * @param maxBorder 擁有者能設定的上限
+   * @param separateInventories 所有建築世界都隔離背包
+   * @param allowInventoryIsolation 擁有者能不能為自己的世界打開背包隔離
    */
-  public record PlayerWorlds(boolean enabled, int maxPerPlayer, int border, int maxBorder, String serverWorldName, String worldName, String repo, String objects, String genesis) {}
+  public record PlayerWorlds(boolean enabled, int maxPerPlayer, int border, int maxBorder, boolean separateInventories,
+      boolean allowInventoryIsolation, String serverWorldName, String worldName, String repo, String objects, String genesis) {}
 
   /** 讀取 {@code dir/config.yml}；不存在時先寫入內建的預設檔，缺少新版本的設定時補上。 */
   public static Settings load(Path dir, Logger log) {
@@ -100,6 +103,7 @@ public record Settings(
         new PlayerWorlds(c.getBoolean("player-worlds.enabled", false), Math.max(0, c.getInt("player-worlds.max-per-player", 3)),
             Math.clamp(c.getInt("player-worlds.border", 1024), 16, 59_999_968),
             Math.clamp(c.getInt("player-worlds.max-border", 4096), 16, 59_999_968),
+            c.getBoolean("player-worlds.separate-inventories", false), c.getBoolean("player-worlds.allow-inventory-isolation", true),
             c.getString("player-worlds.server-world-name", "").strip(),
             c.getString("player-worlds.world-name", "bw_{owner-name}_{name}").strip(),
             c.getString("player-worlds.paths.repo", "{buildgit}/worlds/{id}").strip(),

@@ -15,10 +15,13 @@ import net.minecraft.world.level.levelgen.Heightmap;
 
 /**
  * 進出建築世界（03-worlds §2）：誰能進去、傳送到出生點、回伺服器世界、失去資格的人送回去，以及遊戲模式：
- * 在建築世界裡照這個世界的設定（預設成員創造、訪客旁觀者），回到伺服器世界時恢復原本的模式。
+ * 在建築世界裡照這個世界的設定（預設成員創造、訪客旁觀者），回到伺服器世界時恢復原本的模式；打開背包隔離的世界換上這個世界的背包。
  *
  * <p>每個玩家一個 {@code buildgit/players/<uuid>.yml}：進建築世界前在伺服器世界的模式與位置。重啟、當機、離線時被移出都照這份恢復，
  * 所以只要玩家人在伺服器世界、檔案裡還有模式，就換回去。模式與世界寫名稱（{@code creative}、{@code minecraft:overworld}），不隨版本變。
+ *
+ * <p>背包隔離（03-worlds §2.2）：{@code inventory} 記著身上穿的是哪個建築世界的背包（沒有就是原本的）。換到別的背包時先把身上的收進
+ * {@code buildgit/players/<uuid>/<世界 id>.dat}（原本的是 {@code server.dat}），再換上目標的；訪客的不保留，每次都拿起始物品。
  */
 final class Realms {
   private final BuildGit bg;
@@ -91,6 +94,7 @@ final class Realms {
   void apply(ServerPlayer p) {
     var ws = bg.workspace(p.level());
     var state = load(p.getUUID());
+    inventory(p, ws, state);
     var saved = GameType.byName(state.getString("gamemode", ""), null);
     if (ws.buildWorld() == null) {
       if (saved == null) return;
@@ -105,6 +109,41 @@ final class Realms {
     }
     var mode = visitor(p, ws) ? ws.config().visitorMode : ws.config().memberMode;
     if (p.gameMode() != mode) p.setGameMode(mode);
+  }
+
+  /** 照所在的世界換背包；換不了（寫不進檔案）時維持原狀。 */
+  private void inventory(ServerPlayer p, Workspace ws, Yaml state) {
+    var target = ws.buildWorld() != null && ws.isolated() ? ws.buildWorld().id() : null;
+    var worn = state.getString("inventory");
+    if (Objects.equals(target, worn)) return;
+    try {
+      if (worn == null) Inventories.write(inventoryFile(p.getUUID(), "server"), Inventories.capture(p));
+      else if (state.getBoolean("inventory-keep", false)) Inventories.write(inventoryFile(p.getUUID(), worn), Inventories.capture(p));
+    } catch (IOException e) {
+      bg.platform().log().log(Level.WARNING, "無法收起玩家 " + p.getScoreboardName() + " 的背包", e);
+      return;
+    }
+    boolean visitor = target != null && visitor(p, ws);
+    state.set("inventory", target);
+    state.set("inventory-keep", target != null && !visitor ? true : null);
+    save(p.getUUID(), state);
+    var upgrader = bg.workspace().upgrader();
+    if (target == null) {
+      var file = inventoryFile(p.getUUID(), "server");
+      Inventories.restore(p, Inventories.read(file), upgrader);
+      try {
+        Files.deleteIfExists(file);
+      } catch (IOException e) {
+        // 下次收起時會覆蓋
+      }
+      return;
+    }
+    var own = visitor ? null : Inventories.read(inventoryFile(p.getUUID(), target));
+    Inventories.restore(p, own != null ? own : Inventories.read(ws.kitFile(visitor)), upgrader);
+  }
+
+  private Path inventoryFile(UUID player, String name) {
+    return bg.platform().repoDir().resolve("players").resolve(player.toString()).resolve(name + ".dat");
   }
 
   /** 在這個建築世界（含草稿、檢視世界）裡、已經沒有資格的人送回伺服器世界；留下的人照新的角色換模式（成員、可見性或遊戲模式的設定變了時）。 */

@@ -65,6 +65,8 @@ public final class WorldConfig {
   public GameType visitorMode = GameType.SPECTATOR;
   /** 冒險模式的訪客能不能按按鈕、拉桿、開門、踩壓力板。 */
   public boolean visitorInteract;
+  /** 背包隔離（03-worlds §2.2）；伺服器設定 {@code separate-inventories} 時一律隔離。 */
+  public boolean inventory;
   /** 世界邊界的邊長；0 是伺服器的預設（{@code player-worlds.border}）。 */
   public int border;
   public double borderX, borderZ;
@@ -190,6 +192,7 @@ public final class WorldConfig {
       c.memberMode = mode(y.getString("settings.member-mode"), MEMBER_MODES, GameType.CREATIVE);
       c.visitorMode = mode(y.getString("settings.visitor-mode"), VISITOR_MODES, GameType.SPECTATOR);
       c.visitorInteract = y.getBoolean("settings.visitor-interact", false);
+      c.inventory = y.getBoolean("settings.inventory", false);
       c.border = Math.max(0, y.getInt("settings.border.size", 0));
       c.borderX = num(y.get("settings.border.x"));
       c.borderZ = num(y.get("settings.border.z"));
@@ -251,6 +254,7 @@ public final class WorldConfig {
     y.set("settings.member-mode", memberMode.getName());
     y.set("settings.visitor-mode", visitorMode.getName());
     y.set("settings.visitor-interact", visitorInteract);
+    y.set("settings.inventory", inventory);
     if (border > 0) {
       y.set("settings.border.size", border);
       y.set("settings.border.x", borderX);

@@ -121,7 +121,7 @@ public final class BgCommand {
     sub("worlds", null, (s, a) -> worlds(s), null);
     sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "visibility")
         : b.size() == 1 && b.getFirst().equals("settings") ? List.copyOf(Menu.SETTINGS.keySet())
-        : b.size() == 2 && b.getFirst().equals("settings") ? Menu.SETTINGS.getOrDefault(b.get(1), List.of())
+        : b.size() == 2 && b.getFirst().equals("settings") ? b.get(1).startsWith("kit-") ? List.of("clear") : Menu.SETTINGS.getOrDefault(b.get(1), List.of())
         : b.size() == 1 && b.getFirst().equals("members") ? List.of("list", "add", "remove")
         : b.size() == 1 && b.getFirst().equals("visibility") ? List.of("public", "private")
         : b.size() == 2 && b.get(1).equals("add") ? onlineNames()
@@ -2111,7 +2111,8 @@ public final class BgCommand {
     var c = ws.config();
     var key = a.getFirst();
     var value = a.size() == 2 ? a.get(1).toLowerCase(Locale.ROOT) : "";
-    if (a.size() > 2 || !Menu.SETTINGS.containsKey(key) || value.isEmpty() != Menu.SETTINGS.get(key).isEmpty()) {
+    boolean kit = key.startsWith("kit-");
+    if (a.size() > 2 || !Menu.SETTINGS.containsKey(key) || (kit ? !value.isEmpty() && !value.equals("clear") : value.isEmpty() != Menu.SETTINGS.get(key).isEmpty())) {
       msg().send(sender, "usage-world-settings");
       return;
     }
@@ -2142,6 +2143,19 @@ public final class BgCommand {
         modes = true;
       }
       case "visitor-interact" -> c.visitorInteract = onOff(value, key);
+      case "inventory" -> {
+        var pw = bg.settings().playerWorlds();
+        if (pw.separateInventories()) throw new Workspace.Refused("伺服器設定所有建築世界都隔離背包，不能關掉");
+        if (!pw.allowInventoryIsolation()) throw new Workspace.Refused("伺服器不允許擁有者打開背包隔離");
+        c.inventory = onOff(value, key);
+        modes = true;
+      }
+      case "kit-member", "kit-visitor" -> {
+        if (!ws.isolated()) throw new Workspace.Refused("要先打開背包隔離（/bg world settings inventory on），才能設定起始物品");
+        var file = ws.kitFile(key.equals("kit-visitor"));
+        if (value.equals("clear")) java.nio.file.Files.deleteIfExists(file);
+        else Inventories.write(file, Inventories.items(p));
+      }
       case "border" -> {
         int max = bg.settings().playerWorlds().maxBorder();
         if (value.equals("default")) c.border = 0;

@@ -66,6 +66,11 @@ public final class DataUpgrader implements Upgrader {
     return new Cell(state, be);
   }
 
+  /** 一個物品（{@code ItemStack} 的 NBT），用在隔離的背包與起始物品。 */
+  public CompoundTag item(CompoundTag item, int from) {
+    return from >= current ? item : fix(References.ITEM_STACK, item, from);
+  }
+
   @Override
   public String biome(String id, int from) {
     if (from >= current) return id;

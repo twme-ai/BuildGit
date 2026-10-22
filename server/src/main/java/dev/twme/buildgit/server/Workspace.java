@@ -1097,6 +1097,17 @@ public final class Workspace {
     for (var level : sources.keySet()) if (loaded(level)) applyRules(level);
   }
 
+  /** 這個建築世界有沒有自己的背包：伺服器強制，或擁有者打開（伺服器允許時）。 */
+  boolean isolated() {
+    var pw = tracker.settings().playerWorlds();
+    return config != null && (pw.separateInventories() || pw.allowInventoryIsolation() && config.inventory);
+  }
+
+  /** 成員或訪客的起始物品，放在版本庫旁邊（跟著這個世界走）。 */
+  Path kitFile(boolean visitor) {
+    return dir.resolve(visitor ? "kit-visitor.dat" : "kit-member.dat");
+  }
+
   /** 世界邊界的邊長：自己設的（不超過伺服器的上限），沒設時是伺服器的預設。 */
   int borderSize() {
     var pw = tracker.settings().playerWorlds();
