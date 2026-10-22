@@ -1,6 +1,7 @@
 package dev.twme.buildgit.server;
 
 import dev.twme.buildgit.core.model.*;
+import dev.twme.buildgit.core.nbt.Nbt;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
 import dev.twme.buildgit.core.sync.Bundle;
@@ -312,6 +313,16 @@ final class Sync {
           if (!verdict.computeIfAbsent(cells[i], c -> LiveWriter.allowed(registries, c, gameMaster))) {
             cells[i] = original.cells()[i];
             dropped++;
+          }
+        // 不能用管理方塊的人：方塊實體的點擊事件清掉（告示牌的點擊指令以管理員權限執行）
+        if (!gameMaster)
+          for (int i = 0; i < cells.length; i++) {
+            var be = cells[i].blockEntity();
+            // 取出時就有的（例如管理員做的告示牌）不動
+            if (be == null || cells[i].state().equals(original.cells()[i].state()) && Arrays.equals(be, original.cells()[i].blockEntity())) continue;
+            var nbt = Nbt.read(be);
+            var cleaned = WorldUpload.withoutClicks(nbt);
+            if (!cleaned.equals(nbt)) cells[i] = new Cell(cells[i].state(), Nbt.write(cleaned));
           }
         var ours = original.entityMap().keySet();
         var overlay = ws.repo().reader(base).entities(dimension);

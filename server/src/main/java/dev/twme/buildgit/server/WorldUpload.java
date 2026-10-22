@@ -330,8 +330,8 @@ final class WorldUpload {
     return true;
   }
 
-  /** 拿掉文字裡的點擊事件（告示牌的點擊指令以管理員權限執行）。 */
-  private static Nbt.Compound withoutClicks(Nbt.Compound c) {
+  /** 拿掉文字裡的點擊事件（告示牌的點擊指令以管理員權限執行）。{@code push} 送回的方塊實體也用。 */
+  static Nbt.Compound withoutClicks(Nbt.Compound c) {
     var out = new Nbt.Compound();
     c.forEach((k, v) -> {
       if (!k.equals("click_event") && !k.equals("clickEvent")) out.put(k, withoutClicks(v));
