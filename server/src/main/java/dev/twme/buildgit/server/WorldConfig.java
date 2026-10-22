@@ -73,6 +73,8 @@ public final class WorldConfig {
   /** 第一次進來的人出現的地方；還沒決定（剛建立、還沒有人進去）時為 null。 */
   public Spawn spawn;
   public boolean open;
+  /** 管理員下架（03-worlds §4）：強制私人，擁有者不能自己改回公開。 */
+  public boolean unlisted;
   public final Map<UUID, Member> members = new LinkedHashMap<>();
 
   // ---- 名稱 ----
@@ -200,6 +202,7 @@ public final class WorldConfig {
     if (y.contains("spawn.x"))
       c.spawn = new Spawn(num(y.get("spawn.x")), num(y.get("spawn.y")), num(y.get("spawn.z")), (float) num(y.get("spawn.yaw")), (float) num(y.get("spawn.pitch")));
     c.open = "public".equals(y.getString("visibility"));
+    c.unlisted = y.getBoolean("unlisted", false);
     if (y.get("members") instanceof Map<?, ?> members)
       for (var e : members.entrySet()) {
         try {
@@ -268,6 +271,7 @@ public final class WorldConfig {
       y.set("spawn.pitch", (double) spawn.pitch());
     }
     y.set("visibility", open ? "public" : "private");
+    y.set("unlisted", unlisted ? true : null);
     for (var e : members.entrySet()) {
       y.set("members." + e.getKey() + ".name", e.getValue().name());
       y.set("members." + e.getKey() + ".role", key(e.getValue().role()));

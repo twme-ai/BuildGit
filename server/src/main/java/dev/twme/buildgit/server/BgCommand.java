@@ -119,7 +119,10 @@ public final class BgCommand {
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("home", null, (s, a) -> home(s), null);
     sub("worlds", null, (s, a) -> worlds(s), null);
-    sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "visibility")
+    sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "visibility", "rename", "transfer", "delete", "undelete", "unlist", "relist")
+        : b.size() == 1 && b.getFirst().equals("transfer") ? onlineNames()
+        : b.size() == 1 && b.getFirst().equals("undelete") ? deletedNames(s)
+        : b.size() == 1 && (b.getFirst().equals("unlist") || b.getFirst().equals("relist")) ? worldNames(s)
         : b.size() == 1 && b.getFirst().equals("settings") ? List.copyOf(Menu.SETTINGS.keySet())
         : b.size() == 2 && b.getFirst().equals("settings") ? b.get(1).startsWith("kit-") ? List.of("clear") : Menu.SETTINGS.getOrDefault(b.get(1), List.of())
         : b.size() == 1 && b.getFirst().equals("members") ? List.of("list", "add", "remove")
@@ -2024,9 +2027,18 @@ public final class BgCommand {
   private void world(Sender sender, String[] args) throws IOException {
     var p = player(sender);
     if (p == null) return;
+    var w = words(args);
+    var first = w.isEmpty() ? "" : w.getFirst();
+    if (first.equals("undelete")) {
+      undelete(sender, p, w);
+      return;
+    }
+    if (first.equals("unlist") || first.equals("relist")) {
+      unlist(sender, p, w);
+      return;
+    }
     var ws = bg.workspace(p.level());
     if (ws.buildWorld() == null || ws.config() == null) throw new Workspace.Refused("要在建築世界裡才能管理它（伺服器世界的成員還沒有）");
-    var w = words(args);
     var role = ws.role(p.getUUID());
     boolean owner = role == WorldConfig.Role.OWNER || bg.realms().admin(p);
     boolean manager = owner || role == WorldConfig.Role.MANAGER;
@@ -2044,15 +2056,86 @@ public final class BgCommand {
         return;
       }
       if (!owner) throw new Workspace.Refused("只有擁有者能改可見性");
+      if (config.unlisted && v == Visibility.PUBLIC && !bg.realms().admin(p))
+        throw new Workspace.Refused("這個世界被管理員下架了，不能改成公開；請找管理員");
       config.open = v == Visibility.PUBLIC;
       ws.saveConfig();
       msg().send(sender, config.open ? "world-public" : "world-private", "world", ws.label());
       roleChanged(ws);
       return;
     }
-    if (!what.equals("members")) {
-      msg().send(sender, "usage-world");
-      return;
+    switch (what) {
+      case "rename" -> {
+        if (w.size() != 2) {
+          msg().send(sender, "usage-world");
+          return;
+        }
+        if (!owner) throw new Workspace.Refused("只有擁有者能改名");
+        var old = ws.label();
+        var e = ws.buildWorld();
+        bg.worlds().checkRelocate(ws, w.get(1), e.owner(), e.ownerName());
+        bg.realms().evictAll(ws, "world-moving", "world", old);
+        bg.worlds().rename(ws, w.get(1)).whenComplete((renamed, ex) -> {
+          if (ex != null) msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+          else msg().send(sender, "world-renamed", "old", old, "world", renamed.label());
+        });
+        return;
+      }
+      case "transfer" -> {
+        if (w.size() != 2) {
+          msg().send(sender, "usage-world");
+          return;
+        }
+        if (!flags(args).contains("confirm")) {
+          msg().send(sender, "world-transfer-confirm", "world", ws.label(), "name", w.get(1));
+          return;
+        }
+        if (!owner) throw new Workspace.Refused("只有擁有者能轉讓");
+        var target = bg.platform().server().getPlayerList().getPlayerByName(w.get(1));
+        if (target == null) throw new Workspace.Refused("找不到線上玩家 " + w.get(1) + "（轉讓時對方要在線上）");
+        var e = ws.buildWorld();
+        if (e.owner().equals(target.getUUID())) throw new Workspace.Refused(target.getScoreboardName() + " 已經是擁有者");
+        var pw = bg.settings().playerWorlds();
+        long owned = bg.worlds().buildWorlds().stream().filter(o -> o.buildWorld().owner().equals(target.getUUID())).count();
+        if (owned >= pw.maxPerPlayer() && !bg.realms().admin(target))
+          throw new Workspace.Refused(target.getScoreboardName() + " 已經有 " + owned + " 個建築世界（每人最多 " + pw.maxPerPlayer() + " 個）");
+        bg.worlds().checkRelocate(ws, e.name(), target.getUUID(), target.getScoreboardName());
+        // 原本的擁有者留下來當管理者
+        config.members.remove(target.getUUID());
+        config.members.put(e.owner(), new WorldConfig.Member(e.ownerName(), WorldConfig.Role.MANAGER));
+        ws.saveConfig();
+        var old = ws.label();
+        bg.realms().evictAll(ws, "world-moving", "world", old);
+        bg.worlds().transfer(ws, target.getUUID(), target.getScoreboardName()).whenComplete((moved, ex) -> {
+          if (ex != null) {
+            msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+            return;
+          }
+          msg().send(sender, "world-transferred", "old", old, "world", moved.label(), "name", target.getScoreboardName());
+          if (target != p) msg().send(bg.platform().sender(target), "world-received", "world", moved.label(), "from", p.getScoreboardName());
+        });
+        return;
+      }
+      case "delete" -> {
+        if (!owner) throw new Workspace.Refused("只有擁有者能刪除");
+        if (!flags(args).contains("confirm")) {
+          msg().send(sender, "world-delete-confirm", "world", ws.label(), "days", bg.settings().playerWorlds().trashDays());
+          return;
+        }
+        var label = ws.label();
+        var name = ws.buildWorld().name();
+        bg.realms().evictAll(ws, "world-deleted-evict", "world", label);
+        bg.worlds().delete(ws).whenComplete((v, ex) -> {
+          if (ex != null) msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+          else msg().send(sender, "world-deleted", "world", label, "days", bg.settings().playerWorlds().trashDays(), "name", name);
+        });
+        return;
+      }
+      case "members" -> {}
+      default -> {
+        msg().send(sender, "usage-world");
+        return;
+      }
     }
     switch (w.size() < 2 ? "list" : w.get(1)) {
       case "list" -> {
@@ -2218,6 +2301,58 @@ public final class BgCommand {
   }
 
   /** {@code worlds}：這個人進得去的建築世界（自己的、受邀的、公開的），點一下就進去。 */
+  /** {@code world undelete [世界]}：沒給世界時列出自己在回收區裡的世界；管理員可以找回任何人的（寫 {@code 擁有者/名稱}）。 */
+  private void undelete(Sender sender, ServerPlayer p, List<String> w) throws IOException {
+    boolean admin = bg.realms().admin(p);
+    if (w.size() == 1) {
+      var mine = bg.worlds().trash().stream().filter(d -> admin || d.entry().owner().equals(p.getUUID())).toList();
+      if (mine.isEmpty()) {
+        msg().send(sender, "trash-empty");
+        return;
+      }
+      long days = bg.settings().playerWorlds().trashDays();
+      for (var d : mine) {
+        long left = Math.max(0, Math.ceilDiv(d.time() + days * 86_400_000L - System.currentTimeMillis(), 86_400_000L));
+        var spec = admin ? d.entry().label() : d.entry().name();
+        var line = msg().prefixed(msg().get("trash-entry", "world", d.entry().label(), "days", left));
+        sender.send(line.clickEvent(ClickEvent.runCommand("/bg world undelete " + spec)));
+      }
+      return;
+    }
+    if (w.size() != 2) {
+      msg().send(sender, "usage-world");
+      return;
+    }
+    var d = bg.worlds().findDeleted(w.get(1), p.getUUID());
+    if (d == null || !admin && !d.entry().owner().equals(p.getUUID())) throw new Workspace.Refused("回收區裡沒有 " + w.get(1));
+    var ws = bg.worlds().undelete(d);
+    msg().send(sender, "world-undeleted", "world", ws.label());
+  }
+
+  /** {@code world unlist|relist [世界]}：管理員下架（強制私人並鎖住）或解除；沒給世界時是所在的世界。 */
+  private void unlist(Sender sender, ServerPlayer p, List<String> w) throws IOException {
+    if (!bg.realms().admin(p)) throw new Workspace.Refused("只有管理員能下架");
+    var ws = w.size() == 2 ? bg.worlds().find(w.get(1), p.getUUID()) : bg.workspace(p.level());
+    if (w.size() > 2 || ws == null || ws.buildWorld() == null || ws.config() == null) {
+      msg().send(sender, "usage-world");
+      return;
+    }
+    boolean unlist = w.getFirst().equals("unlist");
+    ws.config().unlisted = unlist;
+    if (unlist) ws.config().open = false;
+    ws.saveConfig();
+    msg().send(sender, unlist ? "world-unlisted" : "world-relisted", "world", ws.label());
+    if (unlist) roleChanged(ws);
+  }
+
+  private List<String> deletedNames(Sender s) {
+    var p = s.player();
+    if (p == null) return List.of();
+    boolean admin = bg.realms().admin(p);
+    return bg.worlds().trash().stream().filter(d -> admin || d.entry().owner().equals(p.getUUID()))
+        .map(d -> admin ? d.entry().label() : d.entry().name()).toList();
+  }
+
   private void worlds(Sender sender) {
     var all = visibleWorlds(sender);
     if (all.isEmpty()) {

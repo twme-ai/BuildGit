@@ -149,6 +149,7 @@ LuckPerms 範例：
 | `player-worlds.max-border` | 4096 | 擁有者能設定的最大邊長 |
 | `player-worlds.separate-inventories` | `false` | `true` 時所有建築世界都隔離背包（生存伺服器建議） |
 | `player-worlds.allow-inventory-isolation` | `true` | 擁有者能不能為自己的世界打開背包隔離與起始物品 |
+| `player-worlds.trash-days` | 7 | 刪除的建築世界在回收區保留幾天；過期的在啟動時與每天檢查一次後真正刪掉（回收區記在 `buildgit/trash.yml`） |
 | `player-worlds.world-name` | `bw_{owner-name}_{name}` | 建築世界的資料夾名稱（見 §7.1）；只影響之後建立的世界 |
 | `player-worlds.paths.*` | | 建築世界的版本庫、物件、起點世界放在哪裡（見 §7.1） |
 | `tracking.*` | | 連帶變化的時間窗與距離、哪些實體不記錄；通常不用改 |
@@ -193,6 +194,11 @@ LuckPerms 範例：
 | `/bg worlds` | 列出自己進得去的建築世界（自己的、受邀的、公開的）、是否載入、裡面幾個人；點一下進去 |
 | `/bg world members [list\|add <玩家> [builder\|manager]\|remove <玩家>]` | 在建築世界裡管理成員：擁有者可以加、移除建造者與管理者；管理者只能加、移除建造者。邀請時對方要在線上 |
 | `/bg world visibility public\|private` | 擁有者把世界改成公開（所有人都能進來參觀）或私人（只有成員，預設） |
+| `/bg world rename <新名稱>` | 擁有者改名；世界資料夾、草稿資料夾跟著改。裡面的人先被送回伺服器世界，好了以後再 `/bg open` |
+| `/bg world transfer <玩家> confirm` | 擁有者把世界轉讓給線上的玩家，自己留下來當管理者；資料夾名稱有擁有者時跟著改 |
+| `/bg world delete confirm` | 擁有者刪除：裡面的人送回伺服器世界，世界、草稿、版本庫原地改名放進回收區（`player-worlds.trash-days` 天後真正刪掉） |
+| `/bg world undelete [名稱]` | 列出自己在回收區裡的世界，或找回一個（管理員寫 `擁有者/名稱` 找回任何人的） |
+| `/bg world unlist\|relist [世界]` | 管理員下架（強制私人，擁有者不能改回公開）或解除；沒給世界時是所在的世界 |
 | `/bg world settings [<設定> <值>]` | 擁有者與管理者改這個世界的設定（下表）；只打 `/bg world settings` 開設定選單，點一下換下一個值。改了馬上生效 |
 
 | 設定 | 值 | 說明 |

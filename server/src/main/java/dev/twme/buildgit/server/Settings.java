@@ -41,9 +41,10 @@ public record Settings(
    * @param maxBorder 擁有者能設定的上限
    * @param separateInventories 所有建築世界都隔離背包
    * @param allowInventoryIsolation 擁有者能不能為自己的世界打開背包隔離
+   * @param trashDays 刪除後在回收區保留幾天
    */
   public record PlayerWorlds(boolean enabled, int maxPerPlayer, int border, int maxBorder, boolean separateInventories,
-      boolean allowInventoryIsolation, String serverWorldName, String worldName, String repo, String objects, String genesis) {}
+      boolean allowInventoryIsolation, int trashDays, String serverWorldName, String worldName, String repo, String objects, String genesis) {}
 
   /** 讀取 {@code dir/config.yml}；不存在時先寫入內建的預設檔，缺少新版本的設定時補上。 */
   public static Settings load(Path dir, Logger log) {
@@ -104,6 +105,7 @@ public record Settings(
             Math.clamp(c.getInt("player-worlds.border", 1024), 16, 59_999_968),
             Math.clamp(c.getInt("player-worlds.max-border", 4096), 16, 59_999_968),
             c.getBoolean("player-worlds.separate-inventories", false), c.getBoolean("player-worlds.allow-inventory-isolation", true),
+            Math.max(0, c.getInt("player-worlds.trash-days", 7)),
             c.getString("player-worlds.server-world-name", "").strip(),
             c.getString("player-worlds.world-name", "bw_{owner-name}_{name}").strip(),
             c.getString("player-worlds.paths.repo", "{buildgit}/worlds/{id}").strip(),

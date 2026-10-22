@@ -51,6 +51,7 @@ final class Realms {
 
   /** 傳送到建築世界的出生點（第一次有人進來時才決定，擁有者可以改）。從伺服器世界進來時記下位置給 {@link #home}。 */
   void enter(ServerPlayer p, Workspace ws) throws IOException {
+    if (bg.worlds().busy(ws)) throw new Workspace.Refused("這個世界正在改名、轉讓或刪除，請稍後再試");
     if (bg.workspace(p.level()).buildWorld() == null) {
       var state = load(p.getUUID());
       state.set("home.world", p.level().dimension().identifier().toString());
@@ -68,6 +69,24 @@ final class Realms {
       bg.platform().teleport(p, level, spawn.x(), spawn.y(), spawn.z(), spawn.yaw(), spawn.pitch());
       bg.messages().send(sender, "world-entered", "world", ws.label());
     }));
+  }
+
+  /** 同 {@link #home}，但立刻傳送（之後要卸載世界時）。 */
+  private void homeNow(ServerPlayer p) {
+    var state = load(p.getUUID());
+    var server = bg.platform().server();
+    var id = Identifier.tryParse(state.getString("home.world", ""));
+    var saved = id == null ? null : server.getLevel(ResourceKey.create(Registries.DIMENSION, id));
+    if (saved != null && bg.workspace(saved).buildWorld() == null && state.get("home.pos") instanceof List<?> pos && pos.size() == 5) {
+      double[] v = new double[5];
+      for (int i = 0; i < 5; i++) v[i] = pos.get(i) instanceof Number n ? n.doubleValue() : 0;
+      Workspace.teleportNow(p, saved, v[0], v[1], v[2], (float) v[3], (float) v[4]);
+    } else {
+      var level = server.overworld();
+      level.getChunk(0, 0);
+      Workspace.teleportNow(p, level, 0.5, level.getHeight(Heightmap.Types.MOTION_BLOCKING, 0, 0), 0.5, p.getYRot(), p.getXRot());
+    }
+    apply(p);
   }
 
   /** 回到進入建築世界之前的位置；不知道、或那個世界沒載入時到伺服器主世界的 (0, 0)。模式由 {@link #apply} 在換世界後恢復。 */
@@ -152,6 +171,15 @@ final class Realms {
       if (bg.workspace(p.level()) == ws) {
         if (canEnter(p, ws)) apply(p);
         else evict(p, ws);
+      }
+  }
+
+  /** 世界要改名、轉讓、刪除：裡面的人（含草稿、檢視世界）立刻送回伺服器世界。 */
+  void evictAll(Workspace ws, String key, Object... args) {
+    for (var p : List.copyOf(bg.platform().server().getPlayerList().getPlayers()))
+      if (bg.workspace(p.level()) == ws) {
+        bg.messages().send(bg.platform().sender(p), key, args);
+        homeNow(p);
       }
   }
 

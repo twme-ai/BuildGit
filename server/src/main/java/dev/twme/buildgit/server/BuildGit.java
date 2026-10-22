@@ -154,6 +154,7 @@ public final class BuildGit {
     }
     if (!workspace().isOpen() && openError == null) platform.log().info("尚未初始化版本控制；用 /bg init 開始");
     worlds.open();
+    worlds.purge();
     backup.start();
   }
 
@@ -203,6 +204,7 @@ public final class BuildGit {
     realms.tick();
     sync.tick();
     for (var ws : worlds.all()) ws.unloadIdleTick(settings.unloadIdleTicks());
+    if (ticks % (20L * 3600 * 24) == 0) worlds.purge();
   }
 
   /** 指令執行前：其他插件或模組晚註冊的指令也包上原因。 */

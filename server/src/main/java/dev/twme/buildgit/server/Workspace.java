@@ -571,13 +571,38 @@ public final class Workspace {
   }
 
   public void close() {
+    closeRepo();
+    tracker.detachAll();
+  }
+
+  /**
+   * 建築世界改名、轉讓、刪除前（主執行緒）：卸載它所有的世界（主世界、草稿、整合、檢視）並關閉版本庫，之後由登記表換成新的
+   * {@link Workspace}。裡面的人要先送走；正在存檔或併回時拒絕。
+   */
+  void shutdown() throws Refused {
+    for (var wt : worktrees())
+      if (wt.isCommitting()) throw new Refused("這個世界正在存檔或併回，請稍後再試");
+    for (var w : List.copyOf(views.keySet())) if (loaded(w)) discardWorld(w, null);
+    for (var wt : List.copyOf(worktrees()))
+      if (!wt.worlds().isEmpty() && !unload(wt)) throw new Refused("無法卸載 " + label() + " 的世界，請稍後再試");
+    closeRepo();
+  }
+
+  /** 這個版本庫載入中的世界名稱（主世界、草稿、整合、檢視）。 */
+  List<String> levelNames() {
+    var names = new ArrayList<String>();
+    for (var wt : worktrees()) for (var w : wt.worlds().values()) names.add(platform.levelName(w));
+    for (var w : views.keySet()) names.add(platform.levelName(w));
+    return names;
+  }
+
+  private void closeRepo() {
     for (var world : List.copyOf(views.keySet())) if (loaded(world)) discardWorld(world, null);
     views.clear();
     worktrees.values().forEach(Worktree::close);
     worktrees.clear();
     owners.clear();
     sources.clear();
-    tracker.detachAll();
     copies.clear(); // 複製執行緒會繼續寫完；沒寫完的下次啟動補完
     upgrade = null; // 沒升級完的檔案維持原樣，讀取時照舊升級
     if (genesisRecorder != null) genesisRecorder.close();
