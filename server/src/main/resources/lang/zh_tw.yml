@@ -283,6 +283,8 @@ sync-push-received: "<gray>已收到</gray> <aqua><name></aqua><gray>，正在�
 sync-push-nochange: "<gray>範圍</gray> <aqua><name></aqua> <gray>和取出時一樣，沒有建立草稿。</gray>"
 sync-pushed: "<green>已把</green> <aqua><name></aqua> <green>存成草稿</green> <light_purple><draft></light_purple><gray>：</gray><white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體。到草稿裡確認後用 /bg publish 併回。</gray>"
 sync-push-dropped: "<yellow>有 <count> 個方塊或實體不接受（無法解析、管理員方塊、範圍外），維持取出時的樣子。</yellow>"
+sync-pushed-world: "<green>已把</green> <aqua><name></aqua> <green>存成建築世界</green> <white><world></white> <green>的草稿</green> <light_purple><draft></light_purple><gray>：</gray><white><cells></white> <gray>格、</gray><white><entities></white> <gray>個實體。進去後 /bg go <draft> 確認，再用 /bg publish 併回。</gray>"
+sync-open-world-button: "<aqua>[進入 <world>]</aqua>"
 sync-go-button: "<aqua>[前往草稿 <draft>]</aqua>"
 sync-failed: "<red>同步失敗：<error></red>"
 sync-load-singleplayer: "<red>/bg load 只能在單人世界使用。</red>"

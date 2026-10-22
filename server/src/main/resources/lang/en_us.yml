@@ -283,6 +283,8 @@ sync-push-received: "<gray>Received</gray> <aqua><name></aqua><gray>, comparing 
 sync-push-nochange: "<gray>Area</gray> <aqua><name></aqua> <gray>is unchanged; no draft created.</gray>"
 sync-pushed: "<green>Saved</green> <aqua><name></aqua> <green>as draft</green> <light_purple><draft></light_purple><gray>:</gray> <white><cells></white> <gray>blocks,</gray> <white><entities></white> <gray>entities. Check it in the draft, then /bg publish.</gray>"
 sync-push-dropped: "<yellow><count> blocks or entities were rejected (unparseable, game master blocks, outside the area) and kept as pulled.</yellow>"
+sync-pushed-world: "<green>Saved</green> <aqua><name></aqua> <green>as a draft</green> <light_purple><draft></light_purple> <green>of build world</green> <white><world></white><gray>:</gray> <white><cells></white> <gray>blocks,</gray> <white><entities></white> <gray>entities. Go in, /bg go <draft> to check it, then /bg publish.</gray>"
+sync-open-world-button: "<aqua>[Enter <world>]</aqua>"
 sync-go-button: "<aqua>[Go to draft <draft>]</aqua>"
 sync-failed: "<red>Sync failed: <error></red>"
 sync-load-singleplayer: "<red>/bg load only works in single-player.</red>"

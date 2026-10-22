@@ -41,6 +41,8 @@ public final class PermissionSets {
   static volatile Function<ServerPlayer, WorldConfig.Role> roles = p -> null;
   /** 在伺服器世界裡、成員名單上的角色（03-worlds §4.2）；加在伺服器給的節點之上。不在名單上、或在建築世界時為 null。 */
   static volatile Function<ServerPlayer, WorldConfig.Role> serverRoles = p -> null;
+  /** 所在的建築世界允許複製：訪客也能 {@code pull} 到單人世界（03-worlds §3）。 */
+  static volatile Predicate<ServerPlayer> visitorCopy = p -> false;
 
   /** 節點 → 有了就算有這個節點的所有節點（含自己），先具體後寬鬆。 */
   private static final Map<String, Set<String>> GRANTED_BY = new HashMap<>();
@@ -71,6 +73,7 @@ public final class PermissionSets {
       var member = player == null ? null : serverRoles.apply(player);
       return member != null && allows(member, permission) || check(has, permission);
     }
+    if (role == WorldConfig.Role.VISITOR && permission.equals("buildgit.pull") && visitorCopy.test(player)) return true;
     return allows(role, permission) || check(has, "buildgit.world.admin");
   }
 

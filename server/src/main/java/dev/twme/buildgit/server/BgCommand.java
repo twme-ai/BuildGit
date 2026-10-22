@@ -97,7 +97,7 @@ public final class BgCommand {
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("back", "buildgit.back", (s, a) -> back(s), null);
     sub("pull", "buildgit.pull", this::pull, null);
-    sub("push", "buildgit.push", this::push, (s, b) -> b.isEmpty() && s.player() instanceof ServerPlayer p ? bg.sync().names(p) : List.of());
+    sub("push", null, this::push, (s, b) -> b.isEmpty() && s.player() instanceof ServerPlayer p ? bg.sync().names(p) : List.of());
     sub("load", null, this::load, (s, b) -> b.isEmpty() && bg.platform().syncFolder() != null ? LocalSync.names(bg.platform().syncFolder()) : List.of());
     sub("view", "buildgit.view", this::view, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm", "cancel"), s.isPlayer() ? List.of() : draftNames(s)));
@@ -1007,7 +1007,6 @@ public final class BgCommand {
       msg().send(s(p), "sync-not-branch");
       return;
     }
-    if (ws.buildWorld() != null) throw new Workspace.Refused("建築世界還不能帶到單人世界");
     var selected = sel.isPresent() ? sel.get().box() : null;
     if (selected != null && Bundle.volume(selected) > bg.settings().syncMaxBlocks()) {
       msg().send(s(p), "sync-too-big", "max", bg.settings().syncMaxBlocks());
@@ -1020,7 +1019,7 @@ public final class BgCommand {
     int px = p.getBlockX(), pz = p.getBlockZ(), minY = level.getMinY(), maxY = level.getMaxY();
     autosaveThen(sender, wt, () -> {
       if (selected != null) {
-        bg.sync().pull(p, name, wt.branch(), dimension, selected);
+        bg.sync().pull(p, ws, name, wt.branch(), dimension, selected);
         return;
       }
       ws.async(() -> {
@@ -1035,7 +1034,7 @@ public final class BgCommand {
               msg().send(s(p), changed == null ? "sync-too-big" : "sync-draft-too-big", "max", bg.settings().syncMaxBlocks());
               return;
             }
-            bg.sync().pull(p, name, wt.branch(), dimension, box);
+            bg.sync().pull(p, ws, name, wt.branch(), dimension, box);
           });
         } catch (IOException | RuntimeException e) {
           ws.sync(() -> failed(sender, e));
@@ -1046,7 +1045,6 @@ public final class BgCommand {
 
   /** {@code push <名稱> [草稿名稱]}：收回單人世界改過的範圍，存成草稿。 */
   private void push(Sender sender, String[] args) throws IOException {
-    var ws = ws(sender);
     var p = player(sender);
     if (p == null) return;
     var w = words(args);
@@ -1055,13 +1053,7 @@ public final class BgCommand {
       msg().send(s(p), "usage-push");
       return;
     }
-    String draft = w.size() == 2 ? w.get(1).toLowerCase(Locale.ROOT) : name;
-    // 沒指定草稿名稱：同一個範圍可能已經送回過，加上編號
-    for (int i = 2; w.size() == 1 && ws.branches().containsKey(draft); i++) draft = name + "-" + i;
-    if (draft.equals(Repository.MAIN) || Workspace.isScratch(draft) || !Workspace.BRANCH_NAME.matcher(draft).matches()) {
-      msg().send(s(p), "branch-bad-name");
-      return;
-    }
+    String draft = w.size() == 2 ? w.get(1).toLowerCase(Locale.ROOT) : null;
     if (!bg.platform().canSync(p)) {
       msg().send(s(p), "sync-no-client");
       return;

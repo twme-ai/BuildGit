@@ -55,6 +55,10 @@ public final class BuildGit {
       return role != null ? role : WorldConfig.Role.VISITOR;
     };
     PermissionSets.serverRoles = p -> realms.inServerWorld(p.level()) ? worlds.server().serverRole(p.getUUID()) : null;
+    PermissionSets.visitorCopy = p -> {
+      var ws = worlds.of(p.level());
+      return ws.buildWorld() != null && ws.config() != null && ws.config().allowFork;
+    };
   }
 
   public Platform platform() {

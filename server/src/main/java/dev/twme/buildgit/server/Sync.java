@@ -22,6 +22,9 @@ import net.minecraft.server.level.ServerPlayer;
  * {@code push} 收回改過的範圍，和當初取出的存檔比較後存成草稿，之後照一般流程併回。
  * 用戶端連上時會列出改過、還沒送回的範圍，這裡附上送回的按鈕。
  *
+ * <p>建築世界也一樣（03-worlds §2.1）：取出紀錄記著是哪個世界，送回時存成那個世界的草稿，
+ * 權限照那個世界的角色（建造者以上），不看玩家現在在哪裡。
+ *
  * <p>上傳的內容不可信任，資源用量都有上限：只收伺服器要求過的上傳、壓縮後與解壓後的大小、
  * 實體數、等待時間，而且每位玩家同時只能有一個 pull 或 push 在進行。
  */
@@ -41,14 +44,15 @@ final class Sync {
   /** 正在 pull 或 push 的玩家（主執行緒）。 */
   private final Set<UUID> busy = new HashSet<>();
 
-  private record Upload(String name, String draft, Frame.Assembler parts, long since) {}
+  private record Upload(Workspace ws, String name, String draft, Frame.Assembler parts, long since) {}
 
   Sync(BuildGit bg) {
     this.bg = bg;
   }
 
-  private Workspace ws() {
-    return bg.workspace();
+  /** 取出紀錄放在伺服器世界的版本庫裡（範圍名稱是每位玩家一份，不分世界）。 */
+  private Path syncDir() {
+    return bg.workspace().dir().resolve("sync");
   }
 
   private Messages msg() {
@@ -65,12 +69,12 @@ final class Sync {
 
   /** 取出紀錄：分支、存檔、維度與範圍。push 只接受同一個範圍。 */
   private Path record(UUID player, String name) {
-    return ws().dir().resolve("sync").resolve(player.toString()).resolve(name + ".yml");
+    return syncDir().resolve(player.toString()).resolve(name + ".yml");
   }
 
   /** 玩家取出過的範圍名稱。 */
   List<String> names(ServerPlayer p) {
-    var dir = ws().dir().resolve("sync").resolve(p.getUUID().toString());
+    var dir = syncDir().resolve(p.getUUID().toString());
     var result = new ArrayList<String>();
     try (var files = Files.list(dir)) {
       files.forEach(f -> {
@@ -95,16 +99,17 @@ final class Sync {
   // ---- pull ----
 
   /** 把分支最新存檔在範圍內的內容送給玩家（呼叫前已存檔）。 */
-  void pull(ServerPlayer p, String name, String branch, String dimension, Box box) {
+  void pull(ServerPlayer p, Workspace ws, String name, String branch, String dimension, Box box) {
     var uuid = p.getUUID();
     if (!begin(p)) return;
     msg().send(s(p), "sync-pulling", "name", name);
-    ws().async(() -> {
+    ws.async(() -> {
       try {
-        ws().awaitGenesis();
-        var base = ws().repo().head(branch);
-        var data = capture(name, dimension, box, base).encode();
+        ws.awaitGenesis();
+        var base = ws.repo().head(branch);
+        var data = capture(ws, name, dimension, box, base).encode();
         var y = new Yaml();
+        if (ws.buildWorld() != null) y.set("world", ws.buildWorld().id());
         y.set("branch", branch);
         y.set("base", base.hex());
         y.set("dimension", dimension);
@@ -113,7 +118,7 @@ final class Sync {
         var file = record(uuid, name);
         Files.createDirectories(file.getParent());
         y.save(file);
-        ws().sync(() -> send(uuid, Frame.split(Frame.BUNDLE, name, data, Frame.SERVER_PART), () -> {
+        ws.sync(() -> send(uuid, Frame.split(Frame.BUNDLE, name, data, Frame.SERVER_PART), () -> {
           busy.remove(uuid);
           var player = online(uuid);
           if (player == null) return;
@@ -122,15 +127,15 @@ final class Sync {
           s(player).send(msg().get("sync-open-button").clickEvent(ClickEvent.runCommand("/bgc open " + name)));
         }));
       } catch (IOException | RuntimeException e) {
-        ws().sync(() -> failed(uuid, e));
+        ws.sync(() -> failed(uuid, e));
       }
     });
   }
 
-  private Bundle capture(String name, String dimension, Box box, ObjectId commit) throws IOException {
+  private Bundle capture(Workspace ws, String name, String dimension, Box box, ObjectId commit) throws IOException {
     var tracker = bg.tracker();
-    return Bundle.capture(name, dimension, box, LiveReader.dataVersion(), commit.hex(), ws().repo().reader(commit),
-        ws().genesis(), ws().genesis().entities(dimension), e -> tracker.isBuildEntity(e.type()));
+    return Bundle.capture(name, dimension, box, LiveReader.dataVersion(), commit.hex(), ws.repo().reader(commit),
+        ws.genesis(), ws.genesis().entities(dimension), e -> tracker.isBuildEntity(e.type()));
   }
 
   /** 分批送出，避免一次塞滿連線。 */
@@ -148,7 +153,10 @@ final class Sync {
 
   // ---- push ----
 
-  /** 請用戶端送回改過的範圍，收齊後存成草稿 {@code draft}。 */
+  /**
+   * 請用戶端送回改過的範圍，收齊後存成取出的那個世界的草稿 {@code draft}；null 時用範圍名稱，
+   * 已經有這個草稿就加上編號（同一個範圍可能已經送回過）。
+   */
   void push(ServerPlayer p, String name, String draft) throws IOException {
     if (busy.contains(p.getUUID())) {
       msg().send(s(p), "sync-busy");
@@ -158,11 +166,20 @@ final class Sync {
       msg().send(s(p), "sync-unknown", "name", name);
       return;
     }
-    if (ws().branches().containsKey(draft)) {
+    var ws = target(p, Yaml.load(record(p.getUUID(), name)));
+    if (draft == null) {
+      draft = name;
+      for (int i = 2; ws.branches().containsKey(draft); i++) draft = name + "-" + i;
+    }
+    if (draft.equals(Repository.MAIN) || Workspace.isScratch(draft) || !Workspace.BRANCH_NAME.matcher(draft).matches()) {
+      msg().send(s(p), "branch-bad-name");
+      return;
+    }
+    if (ws.branches().containsKey(draft)) {
       msg().send(s(p), "sync-draft-exists", "name", draft);
       return;
     }
-    uploads.put(p.getUUID(), new Upload(name, draft, new Frame.Assembler(name, MAX_UPLOAD), bg.platform().tick()));
+    uploads.put(p.getUUID(), new Upload(ws, name, draft, new Frame.Assembler(name, MAX_UPLOAD), bg.platform().tick()));
     bg.platform().sendSync(p, new Frame(Frame.PUSH, name, 0, 0, new byte[0]).encode());
     msg().send(s(p), "sync-push-waiting", "name", name);
   }
@@ -202,11 +219,37 @@ final class Sync {
     if (begin(p)) accept(p, up, data);
   }
 
-  /** 用戶端連上時列出的改過範圍：這台伺服器取出過的，附上送回的按鈕。 */
+  /**
+   * 送回的目標：取出紀錄記的世界。建築世界要是那裡的建造者以上（或管理員），不看現在在哪裡；
+   * 伺服器世界要在伺服器世界裡、有 {@code buildgit.push}（在建築世界裡權限是那個世界的角色）。
+   */
+  private Workspace target(ServerPlayer p, Yaml record) throws Workspace.Refused {
+    var id = record.getString("world");
+    if (id == null) {
+      if (!bg.realms().inServerWorld(p.level())) throw new Workspace.Refused("這個範圍是從伺服器世界取出的：請先回伺服器世界（/bg home）再送回");
+      if (!bg.platform().hasPermission(p, "buildgit.push")) throw new Workspace.Refused("你沒有送回伺服器世界的權限");
+      return bg.workspace();
+    }
+    var ws = bg.worlds().byId(id);
+    if (ws == null || !ws.isOpen()) throw new Workspace.Refused("取出這個範圍的建築世界已經不在了（被刪除，或正在改名、還原）");
+    if (bg.worlds().busy(ws)) throw new Workspace.Refused("建築世界 " + ws.label() + " 正在處理其他事，請稍後再試");
+    var role = ws.role(p.getUUID());
+    if (!bg.realms().admin(p) && (role == null || role == WorldConfig.Role.VISITOR))
+      throw new Workspace.Refused("你在建築世界 " + ws.label() + " 不是建造者以上，不能送回（可以用 /bg fork 複製一份自己的）");
+    return ws;
+  }
+
+  /** 用戶端連上時列出的改過範圍：這台伺服器取出過、現在能送回的，附上送回的按鈕。 */
   private void edited(ServerPlayer p, String list) {
-    if (!bg.platform().hasPermission(p, "buildgit.push")) return;
     var known = new HashSet<>(names(p));
-    var found = Arrays.stream(list.split("\n")).limit(64).filter(known::contains).toList();
+    var found = Arrays.stream(list.split("\n")).limit(64).filter(known::contains).filter(n -> {
+      try {
+        target(p, Yaml.load(record(p.getUUID(), n)));
+        return true;
+      } catch (IOException e) {
+        return false;
+      }
+    }).toList();
     if (found.isEmpty()) return;
     msg().send(s(p), "sync-edited", "count", found.size());
     Component line = Component.empty();
@@ -237,8 +280,9 @@ final class Sync {
     boolean gameMaster = p.canUseGameMasterBlocks();
     var registries = p.level().registryAccess();
     var record = Yaml.load(record(uuid, up.name()));
+    var ws = up.ws();
     msg().send(s(p), "sync-push-received", "name", up.name());
-    ws().async(() -> {
+    ws.async(() -> {
       try {
         String branch = record.getString("branch"), dimension = record.getString("dimension");
         var base = ObjectId.parse(record.getString("base"));
@@ -246,15 +290,15 @@ final class Sync {
         var box = new Box(b.get(0), b.get(1), b.get(2), b.get(3), b.get(4), b.get(5));
         Bundle edited;
         try {
-          edited = Bundle.decode(data, ws().upgrader(), Bundle.maxRaw(box));
+          edited = Bundle.decode(data, ws.upgrader(), Bundle.maxRaw(box));
         } catch (IOException | RuntimeException e) {
           throw new Workspace.Refused("送回的資料無效：" + e.getMessage());
         }
         if (!edited.dimension().equals(dimension) || !edited.box().equals(box))
           throw new Workspace.Refused("送回的範圍與取出時不同，請重新 /bg pull");
         if (edited.entities().size() > MAX_ENTITIES) throw new Workspace.Refused("實體太多（最多 " + MAX_ENTITIES + " 個）");
-        ws().awaitGenesis();
-        var original = capture(up.name(), dimension, box, base);
+        ws.awaitGenesis();
+        var original = capture(ws, up.name(), dimension, box, base);
 
         // 不接受的格子與實體維持取出時的樣子
         int dropped = 0;
@@ -266,74 +310,78 @@ final class Sync {
             dropped++;
           }
         var ours = original.entityMap().keySet();
-        var overlay = ws().repo().reader(base).entities(dimension);
+        var overlay = ws.repo().reader(base).entities(dimension);
         var entities = new ArrayList<EntityState>();
         for (var e : edited.entities()) {
           var type = e.type();
           boolean ok = bg.tracker().isBuildEntity(type) && Bundle.inside(box, e)
               && (gameMaster || !type.equals("minecraft:command_block_minecart"))
               // 範圍外已有同一個 UUID 的實體：不能借此改到範圍外
-              && (ours.contains(e.uuid()) || !exists(overlay, dimension, e.uuid()));
+              && (ours.contains(e.uuid()) || !exists(ws, overlay, dimension, e.uuid()));
           if (ok) entities.add(e);
           else dropped++;
         }
         var cleaned = new Bundle(up.name(), dimension, box, edited.dataVersion(), base.hex(), cells, entities);
         var marks = cleaned.marks(author, ours);
         int droppedCount = dropped;
-        ws().sync(() -> commit(uuid, up, branch, base, cleaned, marks, author, droppedCount));
+        ws.sync(() -> commit(uuid, up, branch, base, cleaned, marks, author, droppedCount));
       } catch (IOException | RuntimeException e) {
-        ws().sync(() -> failed(uuid, e));
+        ws.sync(() -> failed(uuid, e));
       }
     });
   }
 
-  private boolean exists(Map<UUID, Optional<EntityState>> overlay, String dimension, UUID uuid) throws IOException {
+  private static boolean exists(Workspace ws, Map<UUID, Optional<EntityState>> overlay, String dimension, UUID uuid) throws IOException {
     if (overlay.containsKey(uuid)) return overlay.get(uuid).isPresent();
-    return ws().genesis().readEntity(dimension, uuid).isPresent();
+    return ws.genesis().readEntity(dimension, uuid).isPresent();
   }
 
   private void commit(UUID uuid, Upload up, String from, ObjectId base, Bundle edited, dev.twme.buildgit.core.track.Marks marks,
       Author author, int dropped) {
+    var ws = up.ws();
     try {
-      ws().createBranch(up.draft(), from, base, false, edited.dimension());
+      ws.createBranch(up.draft(), from, base, false, edited.dimension());
     } catch (IOException e) {
       failed(uuid, e);
       return;
     }
-    ws().async(() -> {
+    ws.async(() -> {
       try {
-        var repo = ws().repo();
-        var id = repo.commit(new Repository.CommitRequest(up.draft(), base, marks, edited.source(), ws().genesis(), author,
+        var repo = ws.repo();
+        var id = repo.commit(new Repository.CommitRequest(up.draft(), base, marks, edited.source(), ws.genesis(), author,
             System.currentTimeMillis(), "單人世界：" + up.name(), 0, new TreeMap<>()));
         var changes = id.isEmpty() ? null : repo.changeset(repo.commit(id.get()).changeset());
-        ws().sync(() -> {
+        ws.sync(() -> {
           busy.remove(uuid);
           var p = online(uuid);
           // 用戶端刪掉改過的範圍檔，下次連上就不再提示
           if (p != null) bg.platform().sendSync(p, new Frame(Frame.DONE, up.name(), 0, 0, new byte[0]).encode());
           if (changes == null) {
-            deleteDraft(up.draft());
+            deleteDraft(ws, up.draft());
             if (p != null) msg().send(s(p), "sync-push-nochange", "name", up.name());
             return;
           }
           if (p == null) return;
-          msg().send(s(p), "sync-pushed", "name", up.name(), "draft", up.draft(),
+          msg().send(s(p), ws.buildWorld() == null ? "sync-pushed" : "sync-pushed-world", "name", up.name(), "draft", up.draft(), "world", ws.label(),
               "cells", changes.cells().size(), "entities", changes.entities().size());
           if (dropped > 0) msg().send(s(p), "sync-push-dropped", "count", dropped);
-          s(p).send(msg().get("sync-go-button", "draft", up.draft()).clickEvent(ClickEvent.runCommand("/bg go " + up.draft())));
+          // 在別的世界時要先進去才能 /bg go
+          if (ws == bg.worlds().of(p.level()))
+            s(p).send(msg().get("sync-go-button", "draft", up.draft()).clickEvent(ClickEvent.runCommand("/bg go " + up.draft())));
+          else s(p).send(msg().get("sync-open-world-button", "world", ws.label()).clickEvent(ClickEvent.runCommand("/bg open " + ws.label())));
         });
       } catch (IOException | RuntimeException e) {
-        ws().sync(() -> {
-          deleteDraft(up.draft());
+        ws.sync(() -> {
+          deleteDraft(ws, up.draft());
           failed(uuid, e);
         });
       }
     });
   }
 
-  private void deleteDraft(String name) {
+  private void deleteDraft(Workspace ws, String name) {
     try {
-      ws().deleteBranch(name, true);
+      ws.deleteBranch(name, true);
     } catch (IOException e) {
       bg.platform().log().log(Level.WARNING, "無法刪除草稿 " + name, e);
     }
