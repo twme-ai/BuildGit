@@ -294,7 +294,7 @@ player-worlds:
      - 世界資料夾備份不帶建築世界的草稿（可以從版本重建）。異地備份在第三階段涵蓋了建築世界。
 2. **玩家建築世界**：`new`（建立選單、三種類型、三種地形、規則預設）、`open`、`home`、`worlds`、成員與角色、私人與公開、進出時切遊戲模式（與選用的背包分開）、訪客的旁觀者限制、傳送門關閉。
    - 已實作：建立（`/bg new`）。
-     - 選單是一個畫面：三排分別選類型、地形（一般、大型生態域、巨型化、超平坦、虛空）、規則，按「建立」。名稱、種子、超平坦的層、虛空腳下的方塊用指令選項寫（`/bg new castle type=nether terrain=flat layers=bedrock,3*netherrack;minecraft:crimson_forest`），選單會帶著這些選項。
+     - 選單是一個畫面：三排分別選類型、地形（一般、大型生態域、巨型化、超平坦、虛空）、規則，按「建立」。名稱、種子、超平坦的層、虛空腳下的方塊用指令選項寫（`/bg new name:castle type:nether terrain:flat layers:bedrock,3*netherrack;minecraft:crimson_forest`），選單會帶著這些選項。點選單左下的名牌，聊天欄出現一行「點這裡輸入世界名稱」，點了把目前的選項填進聊天欄、游標停在 `name:` 後面。Tab 補全先列選項名稱（`type:`、`terrain:`…，寫過的不再列），打了冒號才列能填的值（`block:` 列方塊）。選項只認冒號，`type=` 這種寫法不收。
      - 一般玩家要 `player-worlds.enabled: true` 加上 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）；`buildgit.world.admin` 不受限制。
      - Fabric 用原版的世界預設與超平坦設定；Paper 的一般地形用 `WorldCreator`，超平坦與虛空用 BuildGit 自己的產生器（Paper 只能讓主世界類型用原版超平坦）。超平坦不生成結構；範本在第三階段做了（見下面）。
      - 建築用規則：遊戲規則每次載入都設定（Fabric 的世界不記），時間停在正午（26.x 是暫停的時鐘；地獄類型沒有時鐘）、和平。所有建築世界都關掉旁觀者生成地形與地獄門。終界類型沒有終界龍。
@@ -350,7 +350,7 @@ player-worlds:
      - 起點世界複製一份（不能硬連結：起點世界的 region 檔之後還會補 chunk）；物件位置相同時不複製，不同時整個物件目錄用硬連結複製（不支援時才真的複製）。不另外算「用得到的物件」，簡單起見全部連結，硬連結幾乎不佔空間。
      - 跨版本：`data-version` 直接複製，所以 `legacy` 照來源的；起點 chunk 與物件照原本的資料版本，讀取時升級。同一台伺服器上的來源一定不比伺服器新。
      - 世界資料夾第一次載入時照起點世界＋main 的存檔合成（和刪掉世界資料夾後一樣）。
-     - 範本：`player-worlds.templates` 列出 `擁有者/名稱`。建立選單的地形多一個「範本」，選了之後第一排換成範本（最多 7 個），沒有規則那排；指令是 `/bg new [名稱] template=<擁有者/名稱> confirm`。從範本建立等於 fork（記 `fork.template: true`，清單上不顯示「複製自」），不受 `allowed-types`、`allowed-terrain` 限制，範本本身是私人的也可以；名稱照一般建立自動編號。
+     - 範本：`player-worlds.templates` 列出 `擁有者/名稱`。建立選單的地形多一個「範本」，選了之後第一排換成範本（最多 7 個），沒有規則那排；指令是 `/bg new [name:名稱] template:<擁有者/名稱> confirm`。從範本建立等於 fork（記 `fork.template: true`，清單上不顯示「複製自」），不受 `allowed-types`、`allowed-terrain` 限制，範本本身是私人的也可以；名稱照一般建立自動編號。
      - 清單上 fork 的世界多一行「複製自 擁有者/名稱」（來源被刪掉後不顯示）。訪客的提示列在允許複製時顯示 `/bg fork 複製`。
    - 已實作：提出併回（§5.4）。
      - 分支叫 `submit-<玩家>-<編號>`（草稿名稱不能有 `/`）；玩家不能自己用 `submit-` 開頭命名草稿。提出的資料（fork 的 id、提出的人、說明、時間）記在來源 `branches.yml` 那個分支的 `submit` 底下。
@@ -386,7 +386,7 @@ player-worlds:
      - 連上時的提示只列現在能送回的範圍；送回建築世界後，人不在那裡時按鈕改成「進入那個世界」。
      - 跨版本：範圍檔記著寫入時的資料版本，送回時照現有規則用 DataFixer 升級；生態域不帶（和伺服器世界相同）。
    - 已實作：把單人世界上傳成新的建築世界。
-     - `/bg new <名稱> from=<存檔>`（`from=` 寫在最後，存檔名稱可以有空格）：玩家要裝 BuildGit 用戶端，伺服器要設定 `player-worlds.upload.connection`（`s3.yml` 的連線）；只能是主世界類型，地形沒指定時是虛空，其他選項照 `/bg new`。
+     - `/bg new name:<名稱> from:<存檔>`（`from:` 寫在最後，存檔名稱可以有空格）：玩家要裝 BuildGit 用戶端，伺服器要設定 `player-worlds.upload.connection`（`s3.yml` 的連線）；只能是主世界類型，地形沒指定時是虛空，其他選項照 `/bg new`。
      - 傳輸不走遊戲連線：伺服器請用戶端打包存檔的主世界（`region`、`entities`，26.1 起的 `dimensions/minecraft/overworld` 也認得；不壓縮），用戶端回報大小與 SHA-256；伺服器發 15 分鐘有效、綁定大小的預簽 PUT 網址（隨機的 `uploads/<UUID>/<id>`，主機是 `public-endpoint`），用戶端直接上傳；伺服器下載（有上限，預設 512 MB）、核對、刪掉。
      - 上傳的內容不可信任：解開時只取符合檔名的 region 與 `.mcc`，總量有上限；逐個 chunk 讀（有大小、深度、節點數上限）、升級到目前的版本、檢查位置與生成狀態，不收的略過並計數。不能用管理方塊的人上傳的管理方塊換成空氣（調色盤換成還沒用到的空氣，不重複）、方塊實體拿掉，其他方塊實體的點擊事件清掉，指令方塊礦車（含乘客）拿掉；`ignored-entities` 列的實體不收。
      - 檢查過的 chunk 直接當起點世界，第一個存檔是空的「建立」，不帶歷史。

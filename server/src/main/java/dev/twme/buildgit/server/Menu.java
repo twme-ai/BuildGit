@@ -168,7 +168,7 @@ final class Menu {
       info.add(msg.get("world-create-info-layers", "layers", o.layers() != null ? o.layers() : WorldConfig.formatLayers(WorldConfig.defaultLayers(o.type()))));
     if (o.template() == null && o.terrain() == WorldConfig.Terrain.VOID) info.add(msg.get("world-create-info-block", "block", o.block() != null ? o.block() : "stone"));
     info.add(msg.get("world-create-info-hint"));
-    items.add(new Platform.MenuItem(36, "name_tag", msg.get("world-create-info"), info, null));
+    items.add(new Platform.MenuItem(36, "name_tag", msg.get("world-create-info"), info, "new " + o.args() + " --edit"));
     items.add(new Platform.MenuItem(40, "emerald", msg.get("world-create-confirm"), msg.get("world-create-confirm-lore"), "new " + o.args() + " confirm"));
     bg.platform().openMenu(p, msg.get("world-create-title"), items);
   }

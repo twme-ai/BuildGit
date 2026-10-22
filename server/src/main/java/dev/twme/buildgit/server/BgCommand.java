@@ -116,9 +116,7 @@ public final class BgCommand {
     sub("revert", "buildgit.revert", this::revert, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("restore", "buildgit.restore", this::restore, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--selection", "confirm"));
     // 建築世界（03-worlds）：進出、列出所有人都能用，能不能進去看成員名單與可見性
-    sub("new", "buildgit.world.create|buildgit.world.admin", this::newWorld, (s, b) -> List.of("type=overworld", "type=nether", "type=end",
-        "terrain=normal", "terrain=large-biomes", "terrain=amplified", "terrain=flat", "terrain=void", "rules=build", "rules=vanilla",
-        "seed=", "layers=", "block=", "template=", "from=", "confirm"));
+    sub("new", "buildgit.world.create|buildgit.world.admin", this::newWorld, this::newOptions);
     sub("submit", "buildgit.world.create|buildgit.world.admin", this::submit, null);
     sub("fork", "buildgit.world.create|buildgit.world.admin", this::fork, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
@@ -292,9 +290,14 @@ public final class BgCommand {
     var before = done.isEmpty() ? List.<String>of() : Arrays.asList(done.split(" +"));
     var current = typed.substring(space + 1).toLowerCase(Locale.ROOT);
     var b = builder.createOffset(start + space + 1);
+    // new 的選項：還沒打冒號時只列「type:」這些名稱，打了冒號才列能填的值
+    boolean keys = sub.names().contains("new") && current.indexOf(':') < 0;
+    var seen = new HashSet<String>();
     try {
-      for (var option : sub.suggester().suggest(sender, before))
-        if (option.toLowerCase(Locale.ROOT).startsWith(current)) b.suggest(option);
+      for (var option : sub.suggester().suggest(sender, before)) {
+        if (keys && option.indexOf(':') > 0) option = option.substring(0, option.indexOf(':') + 1);
+        if (option.toLowerCase(Locale.ROOT).startsWith(current) && seen.add(option)) b.suggest(option);
+      }
     } catch (RuntimeException e) {
       // 補全失敗不影響指令
     }
@@ -2009,31 +2012,37 @@ public final class BgCommand {
 
   /** {@code new <名稱>}：建立自己的建築世界並進去。 */
   /**
-   * {@code new [名稱] [type=…] [terrain=…] [rules=…] [seed=…] [layers=…] [block=…] [confirm]}：沒有 {@code confirm} 時打開建立選單，
+   * {@code new [名稱] [type:…] [terrain:…] [rules:…] [seed:…] [layers:…] [block:…] [confirm]}：沒有 {@code confirm} 時打開建立選單，
    * 選單裡點選就是帶著改過的選項再執行一次；按「建立」才真的建立並傳送進去。
    */
   private void newWorld(Sender sender, String[] args) throws IOException {
     var p = player(sender);
     if (p == null) return;
-    // from=<存檔>：上傳單人世界（03-worlds §7），不經過選單。寫在最後，存檔名稱可以有空格
+    // from:<存檔>：上傳單人世界（03-worlds §7），不經過選單。寫在最後，存檔名稱可以有空格
     String from = null;
     var rest = new ArrayList<String>();
     for (var a : args) {
-      if (from == null && a.toLowerCase(Locale.ROOT).startsWith("from=")) from = a.substring(5);
+      if (from == null && optionKey(a).equals("from")) from = a.substring(5);
       else if (from != null && !a.startsWith("--") && !a.equals("confirm")) from += " " + a;
       else rest.add(a);
     }
     args = rest.toArray(String[]::new);
     var o = parseNew(sender, args);
     if (o == null) return;
+    if (flags(args).contains("--edit")) {
+      // 選單裡沒辦法打字：給一行點了會填好指令的提示，名稱放最後，游標停在那裡
+      sender.send(msg().prefixed(msg().get("world-create-type-name"))
+          .clickEvent(ClickEvent.suggestCommand("/bg new " + o.args(false) + " name:" + (o.name() == null ? "" : o.name()))));
+      return;
+    }
     var pw = bg.settings().playerWorlds();
     boolean admin = sender.hasPermission("buildgit.world.admin");
     if (from != null) {
-      if (o.template() != null) throw new Workspace.Refused("from= 不能和 template= 一起用");
+      if (o.template() != null) throw new Workspace.Refused("from: 不能和 template: 一起用");
       if (o.type() != WorldConfig.Type.OVERWORLD) throw new Workspace.Refused("上傳的單人世界只帶主世界，類型只能是 overworld");
       // 存檔以外的地方：沒指定地形時是虛空
-      if (Arrays.stream(args).noneMatch(a -> a.toLowerCase(Locale.ROOT).startsWith("terrain="))) o = o.withTerrain(WorldConfig.Terrain.VOID);
-      if (!admin && !pw.allowed(o.terrain())) throw new Workspace.Refused("這台伺服器沒有開放 " + WorldConfig.key(o.terrain()) + " 地形，請用 terrain= 指定其他的");
+      if (Arrays.stream(args).noneMatch(a -> optionKey(a).equals("terrain"))) o = o.withTerrain(WorldConfig.Terrain.VOID);
+      if (!admin && !pw.allowed(o.terrain())) throw new Workspace.Refused("這台伺服器沒有開放 " + WorldConfig.key(o.terrain()) + " 地形，請用 terrain: 指定其他的");
       if (!bg.platform().canSync(p)) {
         msg().send(sender, "sync-no-client");
         return;
@@ -2184,13 +2193,17 @@ public final class BgCommand {
 
     /** 再執行一次 {@code new} 用的參數。 */
     String args() {
+      return args(true);
+    }
+
+    String args(boolean withName) {
       var sb = new StringJoiner(" ");
-      if (name != null) sb.add(name);
-      sb.add("type=" + WorldConfig.key(type)).add("terrain=" + WorldConfig.key(terrain)).add("rules=" + WorldConfig.key(rules));
-      if (seed != null) sb.add("seed=" + seed);
-      if (layers != null) sb.add("layers=" + layers);
-      if (block != null) sb.add("block=" + block);
-      if (template != null) sb.add("template=" + template);
+      if (withName && name != null) sb.add("name:" + name);
+      sb.add("type:" + WorldConfig.key(type)).add("terrain:" + WorldConfig.key(terrain)).add("rules:" + WorldConfig.key(rules));
+      if (seed != null) sb.add("seed:" + seed);
+      if (layers != null) sb.add("layers:" + layers);
+      if (block != null) sb.add("block:" + block);
+      if (template != null) sb.add("template:" + template);
       return sb.toString();
     }
   }
@@ -2201,7 +2214,7 @@ public final class BgCommand {
     var terrain = WorldConfig.Terrain.NORMAL;
     var rules = WorldConfig.Rules.BUILD;
     for (var a : words(args)) {
-      int eq = a.indexOf('=');
+      int eq = a.indexOf(':');
       if (eq < 0) {
         if (name != null) {
           msg().send(sender, "usage-new");
@@ -2213,6 +2226,13 @@ public final class BgCommand {
       var value = a.substring(eq + 1);
       boolean ok = true;
       switch (a.substring(0, eq).toLowerCase(Locale.ROOT)) {
+        case "name" -> {
+          if (name != null || value.isEmpty()) {
+            msg().send(sender, "usage-new");
+            return null;
+          }
+          name = value.toLowerCase(Locale.ROOT);
+        }
         case "type" -> ok = (type = WorldConfig.parse(WorldConfig.Type.class, value)) != null;
         case "terrain" -> ok = (terrain = WorldConfig.parse(WorldConfig.Terrain.class, value)) != null && terrain != WorldConfig.Terrain.SERVER;
         case "rules" -> ok = (rules = WorldConfig.parse(WorldConfig.Rules.class, value)) != null;
@@ -2228,6 +2248,27 @@ public final class BgCommand {
       }
     }
     return new NewWorld(name, type, terrain, rules, seed, layers, block, template);
+  }
+
+  /** {@code new} 的選項，寫成「名稱:值」；已經寫過的不再列。 */
+  private List<String> newOptions(Sender sender, List<String> before) {
+    var used = before.stream().map(BgCommand::optionKey).collect(java.util.stream.Collectors.toSet());
+    var list = new ArrayList<>(List.of("name:", "seed:", "layers:", "from:"));
+    for (var t : WorldConfig.Type.values()) list.add("type:" + WorldConfig.key(t));
+    for (var t : WorldConfig.Terrain.values()) if (t != WorldConfig.Terrain.SERVER) list.add("terrain:" + WorldConfig.key(t));
+    for (var r : WorldConfig.Rules.values()) list.add("rules:" + WorldConfig.key(r));
+    for (var t : bg.menu().templates()) list.add("template:" + t.label());
+    for (var id : net.minecraft.core.registries.BuiltInRegistries.BLOCK.keySet())
+      list.add("block:" + (id.getNamespace().equals("minecraft") ? id.getPath() : id.toString()));
+    list.removeIf(o -> used.contains(o.substring(0, o.indexOf(':'))));
+    list.add("confirm");
+    return list;
+  }
+
+  /** 選項的名稱；沒有冒號的是世界名稱。 */
+  private static String optionKey(String a) {
+    int at = a.indexOf(':');
+    return at < 0 ? "name" : a.substring(0, at).toLowerCase(Locale.ROOT);
   }
 
   /** 把選項變成建築世界的設定，檢查方塊與生態域存在、層數放得下。 */
