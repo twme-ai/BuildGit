@@ -42,6 +42,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.event.server.ServerLoadEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
@@ -254,6 +255,14 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     if (bg.workspace(((CraftWorld) e.getFrom().getWorld()).getHandle()).buildWorld() == null) return;
     e.setCancelled(true);
     bg.portalRefused(handle(e.getPlayer()));
+  }
+
+  /** 死後重生的地方（這時玩家還在死掉的世界）：建築世界改成那個世界的出生點。 */
+  @EventHandler
+  public void onRespawn(PlayerRespawnEvent e) {
+    if (e.getRespawnReason() != PlayerRespawnEvent.RespawnReason.DEATH) return;
+    var r = bg.respawn(PaperPlatform.level(e.getPlayer().getWorld()), PaperPlatform.level(e.getRespawnLocation().getWorld()));
+    if (r != null) e.setRespawnLocation(new org.bukkit.Location(r.level().getWorld(), r.x(), r.y(), r.z(), r.yaw(), r.pitch()));
   }
 
   @EventHandler(ignoreCancelled = true)

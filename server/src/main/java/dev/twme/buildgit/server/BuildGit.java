@@ -142,6 +142,22 @@ public final class BuildGit {
     return realms;
   }
 
+  /** 重生的地方。 */
+  public record Respawn(ServerLevel level, double x, double y, double z, float yaw, float pitch) {}
+
+  /**
+   * 平台決定死後重生的地方時呼叫（{@code target} 是原版選的世界）：死在建築世界（含草稿）、那個世界打開 {@code respawn}、
+   * 原版選的不在這個世界（沒有在這裡的床、重生錨）時，改成死掉的那個世界的出生點；其他照原版（null）。
+   */
+  public Respawn respawn(ServerLevel died, ServerLevel target) {
+    var ws = worlds.of(died);
+    if (ws.buildWorld() == null || ws.config() == null || !ws.config().respawn || worlds.of(target) == ws) return null;
+    var s = ws.config().spawn;
+    if (s != null) return new Respawn(died, s.x(), s.y(), s.z(), s.yaw(), s.pitch());
+    died.getChunk(0, 0);
+    return new Respawn(died, 0.5, died.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0), 0.5, 0, 0);
+  }
+
   /** 平台擋下建築世界裡的傳送門時呼叫：提醒玩家（有節制）。 */
   public void portalRefused(ServerPlayer player) {
     realms.portalRefused(player);

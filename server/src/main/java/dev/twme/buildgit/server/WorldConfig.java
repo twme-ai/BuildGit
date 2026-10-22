@@ -74,8 +74,10 @@ public final class WorldConfig {
   /** 世界邊界的邊長；0 是伺服器的預設（{@code player-worlds.border}）。 */
   public int border;
   public double borderX, borderZ;
-  /** 第一次進來的人出現的地方；還沒決定（剛建立、還沒有人進去）時為 null。 */
+  /** 傳送進來時出現的地方；還沒決定（剛建立、還沒有人進去）時為 null。 */
   public Spawn spawn;
+  /** 死在這個世界的人在出生點重生（自己的床、重生錨在這個世界時照原版）；關掉時照原版回伺服器世界。 */
+  public boolean respawn = true;
   public boolean open;
   /** 管理員下架（03-worlds §4）：強制私人，擁有者不能自己改回公開。 */
   public boolean unlisted;
@@ -116,11 +118,13 @@ public final class WorldConfig {
   }
 
   /** 每種類型的超平坦預設（和原版「經典平坦」相同的想法）。 */
+  /** 預設的層：地面在 y=64（主世界從 -64、地獄與終界從 0 往上疊）。 */
   static List<Layer> defaultLayers(Type type) {
     return switch (type) {
-      case OVERWORLD -> List.of(new Layer("minecraft:bedrock", 1), new Layer("minecraft:dirt", 2), new Layer("minecraft:grass_block", 1));
-      case NETHER -> List.of(new Layer("minecraft:bedrock", 1), new Layer("minecraft:netherrack", 3));
-      case END -> List.of(new Layer("minecraft:end_stone", 3));
+      case OVERWORLD -> List.of(new Layer("minecraft:bedrock", 1), new Layer("minecraft:stone", 124), new Layer("minecraft:dirt", 3),
+          new Layer("minecraft:grass_block", 1));
+      case NETHER -> List.of(new Layer("minecraft:bedrock", 1), new Layer("minecraft:netherrack", 64));
+      case END -> List.of(new Layer("minecraft:end_stone", 65));
     };
   }
 
@@ -208,6 +212,7 @@ public final class WorldConfig {
       c.inventory = y.getBoolean("settings.inventory", false);
       c.allowFork = y.getBoolean("settings.allow-fork", true);
       c.acceptSubmissions = y.getBoolean("settings.accept-submissions", true);
+      c.respawn = y.getBoolean("settings.respawn", true);
       c.border = Math.max(0, y.getInt("settings.border.size", 0));
       c.borderX = num(y.get("settings.border.x"));
       c.borderZ = num(y.get("settings.border.z"));
@@ -302,6 +307,7 @@ public final class WorldConfig {
     y.set("settings.inventory", inventory);
     y.set("settings.allow-fork", allowFork);
     y.set("settings.accept-submissions", acceptSubmissions);
+    y.set("settings.respawn", respawn);
     if (border > 0) {
       y.set("settings.border.size", border);
       y.set("settings.border.x", borderX);

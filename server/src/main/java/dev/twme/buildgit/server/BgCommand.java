@@ -189,7 +189,7 @@ public final class BgCommand {
           if (next != null) arg.then(next);
           if (rest != null) arg.then(rest);
           next = arg;
-          rest = i == names.length - 1 ? null : argument(sub, name, sender, names[i] + "…", StringArgumentType.greedyString());
+          rest = i == names.length - 1 ? null : fallback(sub, name, sender, names[i] + "…");
         }
         var literal = LiteralArgumentBuilder.<S>literal(name)
             .requires(src -> sub.permission() == null || anyPermission(sender.apply(src), sub.permission()))
@@ -204,6 +204,15 @@ public final class BgCommand {
   private <S> RequiredArgumentBuilder<S, String> argument(Sub sub, String name, Function<S, Sender> sender, String label, StringArgumentType type) {
     return RequiredArgumentBuilder.<S, String>argument(label, type)
         .suggests((ctx, builder) -> suggest(sub, argsStart(ctx, name), sender.apply(ctx.getSource()), builder))
+        .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), args(ctx, name)));
+  }
+
+  /**
+   * 吃下剩下全部的備用節點：不提供補全。同一個位置兩個節點都向伺服器要補全時，原版用戶端只等最後一個請求，
+   * 另一個永遠不會完成，補全就整個不出現。
+   */
+  private <S> RequiredArgumentBuilder<S, String> fallback(Sub sub, String name, Function<S, Sender> sender, String label) {
+    return RequiredArgumentBuilder.<S, String>argument(label, StringArgumentType.greedyString())
         .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), args(ctx, name)));
   }
 
@@ -2502,6 +2511,7 @@ public final class BgCommand {
       }
       case "visitor-interact" -> c.visitorInteract = onOff(value, key);
       case "allow-fork" -> c.allowFork = onOff(value, key);
+      case "respawn" -> c.respawn = onOff(value, key);
       case "accept-submissions" -> c.acceptSubmissions = onOff(value, key);
       case "inventory" -> {
         var pw = bg.settings().playerWorlds();

@@ -203,6 +203,7 @@ final class Menu {
     SETTINGS.put("border", List.of("256", "512", "1024", "2048", "4096", "default"));
     SETTINGS.put("border-center", List.of());
     SETTINGS.put("spawn", List.of());
+    SETTINGS.put("respawn", List.of("off", "on"));
     SETTINGS.put("member-mode", List.of("creative", "survival", "adventure"));
     SETTINGS.put("visitor-mode", List.of("spectator", "adventure"));
     SETTINGS.put("visitor-interact", List.of("off", "on"));
@@ -245,6 +246,7 @@ final class Menu {
       case "visitor-interact" -> c.visitorInteract ? "on" : "off";
       case "inventory" -> ws.isolated() ? "on" : "off";
       case "allow-fork" -> c.allowFork ? "on" : "off";
+      case "respawn" -> c.respawn ? "on" : "off";
       case "accept-submissions" -> c.acceptSubmissions ? "on" : "off";
       default -> "";
     };
@@ -281,10 +283,10 @@ final class Menu {
     var header = new ArrayList<>(List.of(msg.get("settings-header-lore")));
     if (!bg.worlds().kept(ws).isEmpty()) header.add(msg.get("settings-kept", "branches", String.join("、", bg.worlds().kept(ws))));
     items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), header, null));
-    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 29, 30, 31, 32, 33);
+    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 28, 29, 30, 31, 32, 33);
     var icons = Map.ofEntries(Map.entry("time", "clock"), Map.entry("weather", "water_bucket"), Map.entry("difficulty", "iron_sword"),
         Map.entry("mobs", "zombie_head"), Map.entry("nature", "wheat"), Map.entry("border", "barrier"), Map.entry("border-center", "compass"),
-        Map.entry("spawn", "red_bed"), Map.entry("member-mode", "diamond_pickaxe"), Map.entry("visitor-mode", "ender_eye"),
+        Map.entry("spawn", "red_bed"), Map.entry("respawn", "respawn_anchor"), Map.entry("member-mode", "diamond_pickaxe"), Map.entry("visitor-mode", "ender_eye"),
         Map.entry("visitor-interact", "lever"), Map.entry("inventory", "chest"), Map.entry("kit-member", "bundle"), Map.entry("kit-visitor", "map"),
         Map.entry("display-name", "name_tag"), Map.entry("description", "writable_book"), Map.entry("icon", icon(ws)),
         Map.entry("allow-fork", "cartography_table"), Map.entry("accept-submissions", "hopper"));

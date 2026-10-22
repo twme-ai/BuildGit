@@ -228,7 +228,8 @@ LuckPerms 範例：
 | `nature` | `on`、`off` | 隨機刻（作物、冰、樹葉）、火焰蔓延、生物破壞方塊、藤蔓蔓延 |
 | `border` | 16～`player-worlds.max-border`，或 `default` | 世界邊界的邊長 |
 | `border-center` | （不用值） | 邊界中心設成自己站的位置 |
-| `spawn` | （不用值） | 第一次進來的人出現的地方設成自己站的位置 |
+| `spawn` | （不用值） | 傳送進來時出現的地方（也是死後重生的地方）設成自己站的位置 |
+| `respawn` | `on`／`off`（預設 `on`） | 死在這個世界的人在出生點重生（自己的床、重生錨在這個世界時照原版）；關掉時照原版回伺服器世界 |
 | `member-mode` | `creative`、`survival`、`adventure` | 成員進來時的遊戲模式 |
 | `visitor-mode` | `spectator`、`adventure` | 訪客進來時的遊戲模式 |
 | `visitor-interact` | `on`、`off` | 冒險模式的訪客能不能按按鈕、拉桿、開門、踩壓力板 |
