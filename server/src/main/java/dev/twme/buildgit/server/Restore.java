@@ -33,7 +33,7 @@ import java.util.logging.Logger;
  */
 final class Restore {
   static final String PLAN = "restore.yml";
-  private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
+  static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
 
   private Restore() {}
 
@@ -89,10 +89,12 @@ final class Restore {
     var pointer = repoDir.resolve("genesis-dir");
     if (Files.exists(pointer)) Files.copy(pointer, staging.resolve("genesis-dir"));
 
-    // 物件：從快照的 refs 走訪，只下載用得到的，邊下載邊驗證雜湊
-    var store = new ObjectStore(staging.resolve("objects"));
+    // 物件：從快照的 refs 走訪，只下載用得到的，邊下載邊驗證雜湊。直接寫進現在的物件目錄（只增不減）：
+    // 建築世界共用它，整個換掉會讓它們缺物件
+    var objectsDir = ws.objectsDir().toAbsolutePath().normalize();
+    var store = new ObjectStore(objectsDir);
     int objects = ObjectFetch.fetch(store, heads, false, source(s3, prefix), pool);
-    var repo = Repository.open(staging, upgrader);
+    var repo = Repository.open(staging, objectsDir, upgrader);
     var walk = ObjectWalk.collect(repo, heads, Set.of());
     var main = repo.refs().get(Repository.MAIN).orElseThrow(() -> new IOException("快照沒有 main 分支"));
     var mainTree = repo.commit(main).tree();
@@ -139,7 +141,7 @@ final class Restore {
       }
 
       // 主世界由「起點世界＋main 最新存檔」先合成好
-      var out = staging.resolve("worlds").resolve(dim.replace(':', '_'));
+      var out = staging.resolve("restore-worlds").resolve(dim.replace(':', '_'));
       var synth = new RegionSynthesizer(genesisDir, null, new OverlayReader(repo.overlays(), mainTree), dim, upgrader);
       for (var name2 : mcaNames(genesisDir.resolve("region"))) {
         int[] r = regionPos(name2);
@@ -174,7 +176,7 @@ final class Restore {
     }
     int n = 0;
     for (var e : levelFiles.entrySet()) {
-      var source = staging.resolve("level").resolve(String.valueOf(n++));
+      var source = staging.resolve("restore-level").resolve(String.valueOf(n++));
       fetch(s3, prefix, e.getValue(), source);
       plan.add(move(e.getKey().toAbsolutePath().normalize(), source));
     }
@@ -186,21 +188,136 @@ final class Restore {
     if (!genesisInside) plan.add(move(genesisRoot.toAbsolutePath().normalize(), genesisStaging.toAbsolutePath().normalize()));
 
     // 本機的上傳紀錄：還原之後的第一次備份不必重傳、也不必重算雜湊
-    var commits = new ArrayList<String>();
+    // 上傳過的存檔是整個工作共用的（建築世界的也在裡面）：沿用本機的再加上快照的
+    var commits = new LinkedHashSet<String>();
+    var liveCommits = job.state.resolve("commits");
+    if (Files.exists(liveCommits)) commits.addAll(Files.readAllLines(liveCommits));
     for (var c : walk.commits()) commits.add(c.hex());
     Files.write(state.resolve("commits"), commits);
+    if (Files.isDirectory(job.state.resolve("worlds"))) plan.add(move(state.resolve("worlds").toAbsolutePath().normalize(), job.state.resolve("worlds").toAbsolutePath().normalize()));
     try (var w = Files.newBufferedWriter(state.resolve("files.properties"))) {
       index.store(w, "BuildGit backup: genesis file -> size mtime sha256");
     }
     Files.write(state.resolve("last.yml"), snapshotBytes);
 
-    plan.add(move(repoDir.toAbsolutePath().normalize(), staging.toAbsolutePath().normalize())); // 最後換版本庫
+    // 版本庫資料夾裡不屬於伺服器世界版本的（建築世界的版本庫與登記、共用的物件、玩家資料、其他備份工作的紀錄）搬進新的版本庫
+    var replaced = new HashSet<>(List.of("refs", "branches.yml", "data-version", "genesis-dir", "worktree", "merge", "players.yml", "restored.yml",
+        "backup", PLAN));
+    if (genesisInside) replaced.add("genesis");
+    var absRepo = repoDir.toAbsolutePath().normalize();
+    var absStaging = staging.toAbsolutePath().normalize();
+    if (Files.isDirectory(absRepo))
+      try (var s = Files.list(absRepo)) {
+        for (var p : s.toList()) {
+          var f = p.getFileName().toString();
+          if (!replaced.contains(f) && !f.contains(".before-restore-")) plan.add(move(absStaging.resolve(f), p));
+        }
+      }
+    if (Files.isDirectory(absRepo.resolve("backup")))
+      try (var s = Files.list(absRepo.resolve("backup"))) {
+        for (var p : s.toList())
+          if (!p.getFileName().toString().equals(job.name)) plan.add(move(absStaging.resolve("backup").resolve(p.getFileName().toString()), p));
+      }
+    plan.add(move(absRepo, absStaging)); // 最後換版本庫
     var y = new Yaml();
     y.set("snapshot", name);
     y.set("replace", plan);
     y.save(staging.resolve(PLAN + ".tmp"));
     Files.move(staging.resolve(PLAN + ".tmp"), staging.resolve(PLAN), StandardCopyOption.ATOMIC_MOVE);
     return new Result(name, objects, files, warnings);
+  }
+
+  /** 下載好的建築世界還原：登記、版本庫與它的暫存、在版本庫外面的起點世界與它的暫存（在裡面時為 null）。 */
+  record Prepared(BuildWorlds.Entry entry, Path repo, Path staging, Path genesis, Path genesisStaging, Result result) {}
+
+  /**
+   * 還原一個建築世界的版本紀錄（03-worlds §6.3）：下載到版本庫旁邊的 {@code <版本庫>-restore}，之後由 {@link BuildWorlds#restore}
+   * 在主執行緒卸載、換上，不必重新啟動。物件寫進它的物件目錄（只增不減）；世界資料夾之後照起點世界與存檔重建。
+   *
+   * @param local 本機的登記；這台伺服器沒有這個世界時為 null，照快照記的登記放回去
+   * @param name 快照名稱；null 為最新的一份
+   */
+  static Prepared downloadBuild(BuildGit bg, Backup.Job job, ExecutorService pool, String id, BuildWorlds.Entry local, String name) throws Exception {
+    var store = job.store;
+    var prefix = Backup.worldPrefix(job, id);
+    var upgrader = bg.workspace().upgrader();
+    var names = snapshots(store, prefix);
+    if (names.isEmpty()) throw new Workspace.Refused("遠端沒有這個建築世界的快照");
+    if (name == null) name = names.getLast();
+    else if (!names.contains(name)) throw new Workspace.Refused("沒有快照 " + name);
+    var bytes = store.get(prefix + "snapshots/" + name + ".yml");
+    if (bytes == null) throw new IOException("讀不到快照 " + name);
+    var snapshot = Yaml.load(new ByteArrayInputStream(bytes));
+    checkVersion(snapshot.getString("data-version", ""), upgrader.current());
+    var entry = local != null ? local : BuildWorlds.entry(snapshot, "entry", id);
+    var loc = bg.worlds().locations(entry);
+    Path repoDir = loc[0], objectsDir = loc[1], genesisRoot = loc[2];
+    if (repoDir.startsWith(bg.platform().levelFolder(entry.folder()).toAbsolutePath().normalize()))
+      throw new Workspace.Refused("版本庫放在世界資料夾裡，不能單獨還原這個世界");
+    var staging = staging(repoDir);
+    boolean genesisInside = genesisRoot.startsWith(repoDir);
+    var genesisStaging = genesisInside ? staging.resolve(repoDir.relativize(genesisRoot).toString())
+        : genesisRoot.resolveSibling(genesisRoot.getFileName() + "-restore");
+    delete(staging);
+    delete(genesisStaging);
+    Files.createDirectories(staging);
+
+    var refs = new RefStore(staging.resolve("refs").resolve("branches"));
+    var heads = new ArrayList<ObjectId>();
+    if (snapshot.get("refs") instanceof Map<?, ?> m)
+      for (var e : m.entrySet()) {
+        var oid = ObjectId.parse(String.valueOf(e.getValue()));
+        refs.compareAndSet(String.valueOf(e.getKey()), null, oid);
+        heads.add(oid);
+      }
+    Files.writeString(staging.resolve("branches.yml"), snapshot.getString("branches", ""));
+    Files.writeString(staging.resolve("data-version"), snapshot.getString("data-version", ""));
+    int files = 0;
+    for (var line : strings(snapshot.get("repo-files"))) {
+      String hash = line.substring(0, line.indexOf(' ')), file = line.substring(line.indexOf(' ') + 1);
+      if (!Backup.REPO_FILES.contains(file)) continue;
+      fetch(store, prefix, hash, staging.resolve(file));
+      files++;
+    }
+    // 物件在版本庫裡時跟著換，不然直接寫進共用的物件目錄
+    var objectsTarget = objectsDir.startsWith(repoDir) ? staging.resolve(repoDir.relativize(objectsDir).toString()) : objectsDir;
+    int objects = ObjectFetch.fetch(new ObjectStore(objectsTarget), heads, false, source(store, job.prefix), pool);
+    // 這些存檔已經在遠端：記進整個工作共用的紀錄，下次備份不重傳
+    var walk = ObjectWalk.collect(Repository.open(staging, objectsTarget, upgrader), heads, Set.of());
+    var commits = new ArrayList<String>();
+    for (var c : walk.commits()) commits.add(c.hex());
+    Files.createDirectories(job.state);
+    Files.write(job.state.resolve("commits"), commits, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+
+    // 起點世界與本機的備份紀錄（之後的備份不必重算雜湊）
+    var index = new Properties();
+    for (var entry2 : list(snapshot.get("dimensions"))) {
+      String dim = String.valueOf(entry2.get("id"));
+      int colon = dim.indexOf(':');
+      var genesisDir = genesisStaging.resolve(dim.substring(0, colon)).resolve(dim.substring(colon + 1));
+      Files.createDirectories(genesisDir);
+      var downloads = new ArrayList<Future<?>>();
+      for (var line : strings(entry2.get("files"))) {
+        String hash = line.substring(0, line.indexOf(' ')), rel = line.substring(line.indexOf(' ') + 1);
+        var target = genesisDir.resolve(rel);
+        downloads.add(pool.submit(() -> {
+          fetch(store, prefix, hash, target);
+          var attrs = Files.readAttributes(target, BasicFileAttributes.class);
+          synchronized (index) {
+            index.setProperty(dim + "/" + rel, attrs.size() + " " + attrs.lastModifiedTime().toMillis() + " " + hash);
+          }
+          return null;
+        }));
+      }
+      for (var f : downloads) f.get();
+      files += downloads.size();
+    }
+    var state = job.state.resolve("worlds").resolve(id);
+    Files.createDirectories(state);
+    Backup.saveIndex(index, state.resolve("files.properties"), "BuildGit backup: genesis file -> size mtime sha256");
+    Files.write(state.resolve("last.yml"), bytes);
+    var result = new Result(name, objects, files, List.of());
+    return new Prepared(entry, repoDir, staging, genesisInside ? null : genesisRoot, genesisInside ? null : genesisStaging, result);
   }
 
   /**
@@ -293,10 +410,10 @@ final class Restore {
    * 從最新一份有這個分支的快照取回它的物件（不重新啟動、不動其他分支）。物件寫進目前的版本庫；
    * 建立分支由呼叫端在主執行緒做。
    */
-  static Fetched fetchBranch(BuildGit bg, Backup.Job job, ExecutorService pool, String branch) throws Exception {
+  static Fetched fetchBranch(BuildGit bg, Backup.Job job, ExecutorService pool, Workspace ws, String branch) throws Exception {
     var s3 = job.store;
-    var prefix = job.prefix;
-    var ws = bg.workspace();
+    // 建築世界的快照在 worlds/<id>/，物件共用
+    var prefix = ws.buildWorld() == null ? job.prefix : Backup.worldPrefix(job, ws.buildWorld().id());
     if (!ws.isOpen()) throw new Workspace.Refused("還沒有開始版本控制");
     var names = snapshots(s3, prefix);
     for (int i = names.size() - 1; i >= 0; i--) {
@@ -311,7 +428,7 @@ final class Restore {
       boolean check = Files.exists(marker);
       Files.createDirectories(marker.getParent());
       Files.writeString(marker, branch);
-      int objects = ObjectFetch.fetch(ws.repo().overlays().objects(), List.of(head), check, source(s3, prefix), pool);
+      int objects = ObjectFetch.fetch(ws.repo().overlays().objects(), List.of(head), check, source(s3, job.prefix), pool);
       Files.delete(marker);
       var meta = Yaml.load(new ByteArrayInputStream(snapshot.getString("branches", "").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
       return new Fetched(names.get(i), head, objects, meta.getString(branch + ".source", Repository.MAIN), meta.getString(branch + ".dimension", null));
@@ -410,8 +527,8 @@ final class Restore {
       }
       if (Files.exists(repoDir.resolve(PLAN))) { // 換上了整個版本庫（版本紀錄的還原）
         Files.move(repoDir.resolve(PLAN), repoDir.resolve("restored.yml"), StandardCopyOption.REPLACE_EXISTING);
-        delete(repoDir.resolve("worlds"));
-        delete(repoDir.resolve("level"));
+        delete(repoDir.resolve("restore-worlds"));
+        delete(repoDir.resolve("restore-level"));
       } else { // 世界資料夾的還原：版本庫留著，只換了裡面的幾個檔案
         Files.createDirectories(repoDir);
         Files.move(planFile, repoDir.resolve("restored.yml"), StandardCopyOption.REPLACE_EXISTING);

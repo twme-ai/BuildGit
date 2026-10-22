@@ -49,7 +49,7 @@ public final class BgCommand {
   private static final int OUTLINE_SECONDS = 60;
   private static final int HERE_RADIUS = 8;
   /** 不需要版本庫已經開啟的子指令。 */
-  private static final Set<String> WORLDLESS = Set.of("init", "reload", "help", "load", "new", "open", "home", "worlds", "world");
+  private static final Set<String> WORLDLESS = Set.of("init", "reload", "help", "load", "new", "open", "home", "worlds", "world", "backup");
 
   private interface Handler {
     void run(Sender sender, String[] args) throws IOException;
@@ -1319,8 +1319,17 @@ public final class BgCommand {
     }));
   }
 
-  /** {@code /bg backup [status|now [工作]|list [工作]|restore <工作> [快照]|fetch <分支> [新名稱]]}：備份工作（設計 §2.5～§2.7）。 */
+  /**
+   * {@code /bg backup [status|now [工作]|list [工作]|restore <工作> [快照]|fetch <分支> [新名稱]] [world=<世界>]}：備份工作
+   * （設計 §2.5～§2.7）。{@code world=} 指定建築世界（03-worlds §6.3），沒給是伺服器世界。
+   */
   private void backup(Sender sender, String[] args) {
+    String world = null;
+    var rest = new ArrayList<String>();
+    for (var a : args)
+      if (a.startsWith("world=")) world = a.substring(6);
+      else rest.add(a);
+    args = rest.toArray(String[]::new);
     var ws = bg.workspace();
     var backup = bg.backup();
     String action = args.length == 0 ? "status" : args[0];
@@ -1346,6 +1355,48 @@ public final class BgCommand {
         return;
       }
       jobs = List.of(job);
+    }
+    if (world != null && !List.of("list", "restore", "fetch").contains(action)) {
+      msg().send(sender, "usage-backup");
+      return;
+    }
+    // 還沒有版本庫（新主機）或開不了時，只能看狀態、列快照、還原伺服器世界（不必先 /bg init）
+    if (!ws.isOpen() && !(List.of("status", "list").contains(action) && world == null || action.equals("restore") && world == null)) {
+      if (bg.openError() != null) msg().send(sender, "open-failed", "error", bg.openError());
+      else msg().send(sender, "not-initialized");
+      return;
+    }
+    Workspace target = null;
+    if (world != null && !action.equals("restore")) {
+      target = bg.worlds().find(world, sender.isPlayer() ? sender.player().getUUID() : null);
+      if (target == null) {
+        msg().send(sender, "world-unknown", "world", world);
+        return;
+      }
+      if (target.buildWorld() == null) target = null;
+    }
+    if (world != null && action.equals("restore")) {
+      if (sender.isPlayer()) {
+        msg().send(sender, "backup-restore-console");
+        return;
+      }
+      var job = jobs.getFirst();
+      msg().send(sender, "backup-restore-started");
+      backup.restoreWorld(job, world, args.length > 2 ? args[2] : null).whenComplete((p, e) -> ws.sync(() -> {
+        try {
+          if (e != null) throw Workspace.unwrap(e);
+          var live = bg.worlds().byId(p.entry().id());
+          if (live != null) bg.realms().evictAll(live, "world-restoring", "world", live.label());
+          bg.worlds().restore(p).whenComplete((w, e2) -> ws.sync(() -> {
+            if (e2 != null) msg().send(sender, "backup-restore-failed", "error", String.valueOf(Workspace.unwrap(e2).getMessage()));
+            else msg().send(sender, "backup-restore-world-done", "world", w.label(), "snapshot", p.result().snapshot(), "objects",
+                p.result().objects(), "files", p.result().files());
+          }));
+        } catch (Throwable t) {
+          msg().send(sender, "backup-restore-failed", "error", String.valueOf(t.getMessage()));
+        }
+      }));
+      return;
     }
     switch (action) {
       case "status" -> {
@@ -1381,21 +1432,22 @@ public final class BgCommand {
         }
       }
       case "fetch" -> {
-        String branch = args[1], target = args.length > 2 ? args[2] : args[1];
+        var into = target != null ? target : ws;
+        String branch = args[1], name = args.length > 2 ? args[2] : args[1];
         try {
-          if (!Workspace.BRANCH_NAME.matcher(target).matches() || Workspace.isScratch(target)) throw new Workspace.Refused("名稱只能用小寫英數、底線、連字號：" + target);
-          if (ws.branches().containsKey(target)) throw new Workspace.Refused("已經有分支 " + target + "：請給一個新名稱，例如 /bg backup fetch " + branch + " " + branch + "-backup");
+          if (!Workspace.BRANCH_NAME.matcher(name).matches() || Workspace.isScratch(name)) throw new Workspace.Refused("名稱只能用小寫英數、底線、連字號：" + name);
+          if (into.branches().containsKey(name)) throw new Workspace.Refused("已經有分支 " + name + "：請給一個新名稱，例如 /bg backup fetch " + branch + " " + branch + "-backup");
         } catch (IOException e) {
           msg().send(sender, "backup-fetch-failed", "error", String.valueOf(e.getMessage()));
           return;
         }
         msg().send(sender, "backup-fetch-started", "branch", branch);
-        backup.fetch(branch).whenComplete((r, e) -> ws.sync(() -> {
+        backup.fetch(into, branch).whenComplete((r, e) -> into.sync(() -> {
           try {
             if (e != null) throw Workspace.unwrap(e);
-            String from = ws.branches().containsKey(r.source()) ? r.source() : Repository.MAIN;
-            ws.createBranch(target, from, r.head(), false, r.dimension());
-            msg().send(sender, "backup-fetch-done", "branch", target, "snapshot", r.snapshot(), "objects", r.objects());
+            String from = into.branches().containsKey(r.source()) ? r.source() : Repository.MAIN;
+            into.createBranch(name, from, r.head(), false, r.dimension());
+            msg().send(sender, "backup-fetch-done", "branch", name, "snapshot", r.snapshot(), "objects", r.objects());
           } catch (Throwable t) {
             msg().send(sender, "backup-fetch-failed", "error", String.valueOf(t.getMessage()));
           }
@@ -1421,7 +1473,10 @@ public final class BgCommand {
       default -> {
         for (var job : jobs) {
           if (job.store == null) continue;
-          backup.snapshots(job).whenComplete((names, e) -> ws.sync(() -> {
+          var list = target == null ? backup.snapshots(job)
+              : job.what == Backup.What.HISTORY ? backup.snapshots(job, target.buildWorld().id()) : null;
+          if (list == null) continue;
+          list.whenComplete((names, e) -> ws.sync(() -> {
             if (e != null) {
               msg().send(sender, "backup-failed", "job", job.name, "error", String.valueOf(Workspace.unwrap(e).getMessage()));
               return;

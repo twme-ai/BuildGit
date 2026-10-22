@@ -307,7 +307,7 @@ final class WorldBackup {
   }
 
   /** 排到主執行緒執行。 */
-  private static <T> CompletableFuture<T> onMain(BuildGit bg, Callable<T> task) {
+  static <T> CompletableFuture<T> onMain(BuildGit bg, Callable<T> task) {
     var f = new CompletableFuture<T>();
     bg.platform().sync(() -> {
       try {

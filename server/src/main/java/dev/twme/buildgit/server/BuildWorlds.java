@@ -178,7 +178,7 @@ public final class BuildWorlds {
       }
   }
 
-  private static Entry entry(Yaml yaml, String key, String id) {
+  static Entry entry(Yaml yaml, String key, String id) {
     var e = new Entry(id, yaml.getString(key + ".name"), UUID.fromString(yaml.getString(key + ".owner")), yaml.getString(key + ".owner-name"),
         yaml.getString(key + ".folder"), yaml.getString(key + ".paths.repo"), yaml.getString(key + ".paths.objects"),
         yaml.getString(key + ".paths.genesis"), yaml.getLong(key + ".created", 0));
@@ -195,6 +195,12 @@ public final class BuildWorlds {
   private Workspace workspace(Entry e) {
     var repo = path(e.repo(), e, null);
     return new Workspace(platform, tracker, this, e, repo, path(e.objects(), e, repo), path(e.genesis(), e, repo));
+  }
+
+  /** 版本庫、物件、起點世界的位置（還原時算）。 */
+  Path[] locations(Entry e) {
+    var repo = path(e.repo(), e, null);
+    return new Path[] {repo, path(e.objects(), e, repo), path(e.genesis(), e, repo)};
   }
 
   /** 把執行時才算的佔位符代進去。 */
@@ -389,7 +395,7 @@ public final class BuildWorlds {
     else t.save(file);
   }
 
-  private static void put(Yaml yaml, String key, Entry e) {
+  static void put(Yaml yaml, String key, Entry e) {
     yaml.set(key + ".name", e.name());
     yaml.set(key + ".owner", e.owner().toString());
     yaml.set(key + ".owner-name", e.ownerName());
@@ -398,6 +404,42 @@ public final class BuildWorlds {
     yaml.set(key + ".paths.objects", e.objects());
     yaml.set(key + ".paths.genesis", e.genesis());
     yaml.set(key + ".created", e.created());
+  }
+
+  // ---- 還原（03-worlds §6.3） ----
+
+  /**
+   * 換上下載好的建築世界還原（主執行緒）：卸載，世界資料夾、草稿資料夾、版本庫（與在外面的起點世界）改名為
+   * {@code <名稱>.before-restore-<時間>} 留著，換上下載的；世界資料夾之後照起點世界與存檔重建。
+   * 這台伺服器沒有這個世界時照快照的登記放回去。裡面的人要先送走。
+   */
+  java.util.concurrent.CompletableFuture<Workspace> restore(Restore.Prepared p) throws IOException {
+    var e = p.entry();
+    var ws = worlds.get(e.id());
+    if (ws != null) return afterShutdown(ws, () -> swapIn(p));
+    if (trash.containsKey(e.id())) throw new Workspace.Refused("這個世界在回收區裡：先用 /bg world undelete 找回來，再還原");
+    checkName(e.name(), e.owner(), e.id());
+    checkFolder(e.folder(), e.id());
+    return java.util.concurrent.CompletableFuture.completedFuture(swapIn(p));
+  }
+
+  private Workspace swapIn(Restore.Prepared p) throws IOException {
+    var e = p.entry();
+    var suffix = ".before-restore-" + Restore.STAMP.format(java.time.Instant.now());
+    var aside = new ArrayList<Path>(List.of(platform.levelFolder(e.folder()).toAbsolutePath().normalize(), p.repo()));
+    for (var name : platform.levelFolders())
+      if (name.startsWith(e.folder() + "-") && !name.contains(".before-restore-") && !name.contains(".deleted-"))
+        aside.add(platform.levelFolder(name).toAbsolutePath().normalize());
+    if (p.genesis() != null) aside.add(p.genesis());
+    for (var path : aside) move(path, path.resolveSibling(path.getFileName() + suffix));
+    move(p.staging(), p.repo());
+    if (p.genesis() != null) move(p.genesisStaging(), p.genesis());
+    var replaced = workspace(e);
+    replaced.open();
+    worlds.put(e.id(), replaced);
+    save();
+    platform.log().info("建築世界 " + e.label() + " 從備份還原：" + p.result().snapshot() + "（原本的資料改名為 *" + suffix + "）");
+    return replaced;
   }
 
   // ---- 持續載入（03-worlds §4.3） ----

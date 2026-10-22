@@ -427,11 +427,46 @@ final class Backup {
   }
 
   /** 從版本紀錄的備份取回一個分支的物件（{@link Restore#fetchBranch}）。 */
-  CompletableFuture<Restore.Fetched> fetch(String branch) {
+  CompletableFuture<Restore.Fetched> fetch(Workspace ws, String branch) {
     var job = history();
     if (job == null) return CompletableFuture.failedFuture(new Workspace.Refused("沒有設定好的版本紀錄備份工作"));
     var pool = uploads;
-    return submit(job, () -> Restore.fetchBranch(bg, job, pool, branch));
+    return submit(job, () -> Restore.fetchBranch(bg, job, pool, ws, branch));
+  }
+
+  /**
+   * 下載一個建築世界的版本紀錄準備還原（{@link Restore#downloadBuild}）。{@code spec} 先找本機的世界，
+   * 找不到時照遠端的清單（{@code worlds.yml}）找「擁有者/名稱」或 id。
+   */
+  CompletableFuture<Restore.Prepared> restoreWorld(Job job, String spec, String name) {
+    if (job.what != What.HISTORY) return CompletableFuture.failedFuture(new Workspace.Refused("只有版本紀錄的工作能還原單一建築世界"));
+    var local = bg.worlds().find(spec, null);
+    var entry = local == null ? null : local.buildWorld();
+    if (local != null && entry == null) return CompletableFuture.failedFuture(new Workspace.Refused("伺服器世界不用 world= 還原"));
+    var pool = uploads;
+    return submit(job, () -> {
+      String id = entry != null ? entry.id() : null;
+      if (id == null) {
+        var bytes = job.store.get(job.prefix + "worlds.yml");
+        var list = bytes == null ? new Yaml() : Yaml.load(new java.io.ByteArrayInputStream(bytes));
+        for (var k : list.keys()) if (k.equals(spec) || spec.equalsIgnoreCase(list.getString(k))) id = k;
+      }
+      if (id == null) throw new Workspace.Refused("這台伺服器與備份裡都找不到建築世界 " + spec);
+      return Restore.downloadBuild(bg, job, pool, id, entry, name);
+    });
+  }
+
+  /** 建築世界的快照名稱，舊的在前（{@code /bg backup list <工作> world=…}）。 */
+  CompletableFuture<List<String>> snapshots(Job job, String id) {
+    var pool = uploads;
+    if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("工作 " + job.name + " 的目的地還沒設定"));
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return Restore.snapshots(job.store, worldPrefix(job, id));
+      } catch (IOException e) {
+        throw new CompletionException(e);
+      }
+    }, pool);
   }
 
   // ---- 一次執行（只在 worker 執行緒） ----
@@ -479,16 +514,69 @@ final class Backup {
     Files.deleteIfExists(dir.resolve("commits"));
   }
 
-  /** 版本紀錄的備份（設計 §2.5）：有變化時把版本庫增量上傳，寫一份快照。 */
+  /** 建築世界的版本紀錄在遠端的位置（03-worlds §6.3）。 */
+  static String worldPrefix(Job job, String id) {
+    return job.prefix + "worlds/" + id + "/";
+  }
+
+  /** 建築世界跟著快照備份的檔案（設定、玩家位置、起始物品）；{@code players.yml} 一直在變，不算變化。 */
+  static final List<String> REPO_FILES = List.of(WorldConfig.FILE, "players.yml", "kit-member.dat", "kit-visitor.dat");
+
+  /**
+   * 版本紀錄的備份（設計 §2.5、03-worlds §6.3）：伺服器世界與每個建築世界各自有變化時增量上傳、寫一份快照。
+   * 建築世界的快照在 {@code worlds/<id>/} 底下；物件共用 {@code objects/}，上傳過的存檔也共用一份紀錄，所以 fork 不會多傳。
+   * 一個建築世界失敗不影響其他的，最後再報錯。
+   */
   private Result history(Job job) throws Exception {
-    var ws = bg.workspace();
-    if (!ws.isOpen()) throw new Workspace.Refused("還沒有開始版本控制");
+    var server = bg.workspace();
+    if (!server.isOpen()) throw new Workspace.Refused("還沒有開始版本控制");
+    var builds = WorldBackup.onMain(bg, () -> bg.worlds().buildWorlds().stream().filter(ws -> ws.isOpen() && !bg.worlds().busy(ws)).toList())
+        .get(10, TimeUnit.MINUTES);
+    var missing = new ArrayList<String>();
+    var total = historyOf(job, server, job.prefix, job.state, missing);
+    String snapshot = total.snapshot();
+    int objects = total.objects(), files = total.files();
+    var failed = new ArrayList<String>();
+    // 遠端的建築世界清單（id → 擁有者/名稱）：新主機上照名稱找；刪掉的世界留著，還能照 id 還原
+    var listKey = job.prefix + "worlds.yml";
+    var listBytes = job.store.get(listKey);
+    var list = listBytes == null ? new Yaml() : Yaml.load(new java.io.ByteArrayInputStream(listBytes));
+    boolean listChanged = false;
+    for (var ws : builds) {
+      var e = ws.buildWorld();
+      if (!e.label().equals(list.getString(e.id()))) {
+        list.set(e.id(), e.label());
+        listChanged = true;
+      }
+      try {
+        var r = historyOf(job, ws, worldPrefix(job, e.id()), job.state.resolve("worlds").resolve(e.id()), missing);
+        objects += r.objects();
+        files += r.files();
+        if (snapshot == null) snapshot = r.snapshot();
+      } catch (Exception ex) {
+        bg.platform().log().log(Level.WARNING, "備份 " + job.name + "：建築世界 " + e.label() + " 失敗：" + Workspace.unwrap(ex).getMessage(),
+            ex instanceof IOException ? null : ex);
+        failed.add(e.label());
+      }
+    }
+    if (listChanged) {
+      var tmp = job.state.resolve("worlds.yml.tmp");
+      list.save(tmp);
+      job.store.putFile(listKey, tmp);
+      Files.delete(tmp);
+    }
+    job.incomplete = List.copyOf(missing);
+    if (!failed.isEmpty()) throw new IOException(failed.size() + " 個建築世界沒有備份成功：" + String.join("、", failed));
+    return new Result(job, snapshot, objects, files, 0, List.of());
+  }
+
+  /** 一個版本庫的備份：{@code prefix}、{@code state} 是它自己的快照位置與本機紀錄；物件與上傳過的存檔是整個工作共用的。 */
+  private Result historyOf(Job job, Workspace ws, String prefix, Path state, List<String> missing) throws Exception {
+    boolean build = ws.buildWorld() != null;
     var store = job.store;
     var repo = ws.repo();
-    var state = job.state;
     Files.createDirectories(state);
     var last = Yaml.load(state.resolve("last.yml"));
-    String prefix = job.prefix;
 
     // 1. 先記下 refs：之後讀到的起點世界只會比它新
     var refs = repo.refs().list();
@@ -504,17 +592,16 @@ final class Backup {
     }
     var remoteFiles = new HashSet<>(store.list(prefix + "files/"));
     var dims = new ArrayList<Map<String, Object>>();
-    var missing = new ArrayList<String>();
     int files = 0;
     var tmp = state.resolve("upload.tmp");
     for (var dim : ws.trackedDimensions()) {
       var dir = ws.genesisDir(dim);
       if (ws.copying(dim) || GenesisCopy.unfinished(dir)) {
-        missing.add(dim);
+        missing.add(build ? ws.label() + " " + dim : dim);
         continue;
       }
       boolean lazy = ws.lazySource(dim) != null;
-      if (lazy) missing.add(dim);
+      if (lazy) missing.add(build ? ws.label() + " " + dim : dim);
       var list = new ArrayList<String>();
       for (var sub : List.of("region", "entities")) {
         var d = dir.resolve(sub);
@@ -554,28 +641,41 @@ final class Backup {
     }
     Files.deleteIfExists(tmp);
     saveIndex(index, indexFile, "BuildGit backup: genesis file -> size mtime sha256");
-    job.incomplete = List.copyOf(missing);
+
+    // 建築世界：設定、起始物品等小檔案與登記（還原時照這些重建世界，03-worlds §6.3）
+    var repoFiles = new ArrayList<String>();
+    if (build)
+      for (var f : REPO_FILES) {
+        var file = ws.dir().resolve(f);
+        if (!Files.isRegularFile(file)) continue;
+        var bytes = Files.readAllBytes(file);
+        String hash = S3.hex(S3.sha256(bytes));
+        repoFiles.add(hash + " " + f);
+      }
+    var e = ws.buildWorld();
+    String entryText = build ? e.label() + " " + e.folder() : "";
 
     // 3. 物件
-    var commitsFile = state.resolve("commits");
+    var commitsFile = job.state.resolve("commits");
     var uploaded = new HashSet<ObjectId>();
     if (Files.exists(commitsFile)) for (var line : Files.readAllLines(commitsFile)) if (!line.isBlank()) uploaded.add(ObjectId.parse(line.strip()));
     var snapshots = Restore.snapshots(store, prefix);
     // 本機的紀錄遺失、遠端卻已有備份，或上次上傳到一半中斷：先列出遠端已有的物件，不重傳
-    var uploading = state.resolve("uploading");
+    var uploading = job.state.resolve("uploading");
     var remote = (!Files.exists(commitsFile) && !snapshots.isEmpty()) || Files.exists(uploading)
-        ? new HashSet<>(store.list(prefix + "objects/")) : Set.<String>of();
+        ? new HashSet<>(store.list(job.prefix + "objects/")) : Set.<String>of();
     var walk = ObjectWalk.collect(repo, refs.values(), uploaded);
 
     boolean changed = !walk.commits().isEmpty() || !refMap.equals(last.get("refs")) || !branches.equals(last.getString("branches", ""))
-        || !dataVersion.equals(last.getString("data-version", "")) || !content(dims).equals(content(last.get("dimensions")));
+        || !dataVersion.equals(last.getString("data-version", "")) || !content(dims).equals(content(last.get("dimensions")))
+        || !settled(repoFiles).equals(settled(last.getStringList("repo-files"))) || !entryText.equals(last.getString("entry-text", ""));
     if (!changed) return new Result(job, null, 0, 0, 0, List.of());
 
     Files.writeString(uploading, "");
     var objects = repo.overlays().objects();
     var futures = new ArrayList<Future<Boolean>>();
     for (var id : walk.objects()) {
-      String hex = id.hex(), key = prefix + "objects/" + hex.substring(0, 2) + "/" + hex.substring(2);
+      String hex = id.hex(), key = job.prefix + "objects/" + hex.substring(0, 2) + "/" + hex.substring(2);
       futures.add(uploads.submit(() -> {
         if (remote.contains(key)) return false;
         store.putFile(key, objects.file(id));
@@ -584,10 +684,17 @@ final class Backup {
     }
     int sent = 0;
     for (var f : futures) if (f.get()) sent++;
+    for (var line : repoFiles) {
+      String hash = line.substring(0, line.indexOf(' '));
+      if (remoteFiles.add(prefix + "files/" + hash)) {
+        store.putFile(prefix + "files/" + hash, ws.dir().resolve(line.substring(line.indexOf(' ') + 1)));
+        files++;
+      }
+    }
 
-    // level.dat 與種子設定：一直在變（時間、天氣），只在有其他變化時才帶上
+    // level.dat 與種子設定：一直在變（時間、天氣），只在有其他變化時才帶上。建築世界照生成設定重建，不帶
     var root = bg.platform().server().getServerDirectory().toAbsolutePath().normalize();
-    for (var entry : dims) {
+    for (var entry : build ? List.<Map<String, Object>>of() : dims) {
       String dim = (String) entry.get("id");
       var levelDir = ws.mainLevelDirectory(dim);
       if (levelDir != null) {
@@ -623,6 +730,11 @@ final class Backup {
     snapshot.set("branches", branches);
     snapshot.set("data-version", dataVersion);
     snapshot.set("dimensions", dims);
+    if (build) {
+      BuildWorlds.put(snapshot, "entry", e);
+      snapshot.set("entry-text", entryText);
+      snapshot.set("repo-files", repoFiles);
+    }
     var file = state.resolve("snapshot.tmp");
     snapshot.save(file);
     store.putFile(prefix + "snapshots/" + name + ".yml", file);
@@ -633,21 +745,26 @@ final class Backup {
     Files.delete(uploading);
 
     snapshots.add(name);
-    prune(job, snapshots);
+    prune(job, prefix, snapshots);
     return new Result(job, name, sent, files, 0, List.of());
   }
 
+  /** 判斷有沒有變化用的小檔案：不含一直在變的 {@code players.yml}。 */
+  private static List<String> settled(List<String> repoFiles) {
+    return repoFiles.stream().filter(l -> !l.endsWith(" players.yml")).toList();
+  }
+
   /** 只留最近 keep 份快照；之後刪掉沒有快照用到的檔案。物件不刪。 */
-  private static void prune(Job job, List<String> snapshots) throws IOException {
+  private static void prune(Job job, String prefix, List<String> snapshots) throws IOException {
     if (snapshots.size() <= job.keep) return;
     var store = job.store;
-    String prefix = job.prefix;
     for (var old : snapshots.subList(0, snapshots.size() - job.keep)) purge(store, prefix + "snapshots/" + old + ".yml");
     var used = new HashSet<String>();
     for (var name : snapshots.subList(snapshots.size() - job.keep, snapshots.size())) {
       var bytes = store.get(prefix + "snapshots/" + name + ".yml");
       if (bytes == null) throw new IOException("讀不到快照 " + name + "，這次不清理檔案");
       var y = Yaml.load(new java.io.ByteArrayInputStream(bytes));
+      for (var f : y.getStringList("repo-files")) used.add(f.split(" ")[0]);
       if (y.get("dimensions") instanceof List<?> dims)
         for (var d : dims)
           if (d instanceof Map<?, ?> m) {
