@@ -576,6 +576,7 @@ public final class Workspace {
     c.members.clear();
     c.open = false;
     c.unlisted = false;
+    c.template = false;
     c.forkId = source.world.id();
     c.forkCommit = head.hex();
     c.forkTemplate = template;

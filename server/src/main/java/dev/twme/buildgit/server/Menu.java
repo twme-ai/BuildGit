@@ -142,13 +142,15 @@ final class Menu {
         command + " confirm");
   }
 
-  /** {@code player-worlds.templates} 裡找得到、版本庫開著的建築世界。 */
+  /** {@code player-worlds.templates} 裡找得到的，以及管理員設成範本的建築世界；版本庫要開著。 */
   List<Workspace> templates() {
     var result = new ArrayList<Workspace>();
     for (var spec : bg.settings().playerWorlds().templates()) {
       var ws = spec.contains("/") ? bg.worlds().find(spec, null) : null;
       if (ws != null && ws.buildWorld() != null && ws.isOpen() && !result.contains(ws)) result.add(ws);
     }
+    for (var ws : bg.worlds().buildWorlds())
+      if (ws.isOpen() && ws.config() != null && ws.config().template && !result.contains(ws)) result.add(ws);
     return result;
   }
 

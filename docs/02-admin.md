@@ -153,7 +153,7 @@ LuckPerms 範例：
 | `player-worlds.allow-inventory-isolation` | `true` | 擁有者能不能為自己的世界打開背包隔離與起始物品 |
 | `player-worlds.max-loaded` | 20 | 同時載入的建築世界上限，草稿與檢視世界各算一個（伺服器世界不算）；滿了玩家要開新的世界時被拒絕，請他稍後再試 |
 | `player-worlds.allowed-types`／`allowed-terrain` | `[]`（全部） | 一般玩家建立時能選的類型（`overworld`、`nether`、`end`）與地形（`normal`、`large-biomes`、`amplified`、`flat`、`void`）；管理員不受限制 |
-| `player-worlds.templates` | `[]` | 可以當範本的建築世界（`擁有者/名稱`）；建立對話框多一個「範本」，從範本建立等於 fork 它，不受 allowed-* 限制 |
+| `player-worlds.templates` | `[]` | 可以當範本的建築世界（`擁有者/名稱`）；也可以在遊戲裡用 `/bg world template on|off [世界]` 設定（記在那個世界的 `repo.yml`）；建立對話框多一個「範本」，從範本建立等於 fork 它，不受 allowed-* 限制 |
 | `player-worlds.trash-days` | 7 | 刪除的建築世界在回收區保留幾天；過期的在啟動時與每天檢查一次後真正刪掉（回收區記在 `buildgit/trash.yml`） |
 | `player-worlds.world-name` | `bw_{owner-name}_{name}` | 建築世界的資料夾名稱（見 §7.1）；只影響之後建立的世界 |
 | `player-worlds.paths.*` | | 建築世界的版本庫、物件、起點世界放在哪裡（見 §7.1） |
@@ -217,6 +217,7 @@ LuckPerms 範例：
 | `/bg world delete confirm` | 擁有者刪除：裡面的人送回伺服器世界，世界、草稿、版本庫原地改名放進回收區（`player-worlds.trash-days` 天後真正刪掉） |
 | `/bg world undelete [名稱]` | 列出自己在回收區裡的世界，或找回一個（管理員寫 `擁有者/名稱` 找回任何人的） |
 | `/bg world unlist\|relist [世界]` | 管理員下架（強制私人，擁有者不能改回公開）或解除；沒給世界時是所在的世界 |
+| `/bg world template on\|off [世界]` | 管理員把建築世界設成範本或取消；沒給世界時是所在的世界。範本出現在建立對話框，從它建立等於 fork（歷史一起帶過去）；`player-worlds.templates` 列的不受影響 |
 | `/bg world settings [<設定> <值>]` | 擁有者與管理者改這個世界的設定（下表）；只打 `/bg world settings` 開設定選單，點一下換下一個值。改了馬上生效 |
 
 | 設定 | 值 | 說明 |

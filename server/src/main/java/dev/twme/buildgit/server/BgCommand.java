@@ -122,10 +122,12 @@ public final class BgCommand {
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("home", null, (s, a) -> home(s), null);
     sub("worlds", null, this::worlds, (s, b) -> b.isEmpty() ? Menu.WORLD_TABS : List.of());
-    sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "submissions", "visibility", "rename", "transfer", "delete", "undelete", "unlist", "relist")
+    sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "submissions", "visibility", "rename", "transfer", "delete", "undelete", "unlist", "relist", "template")
         : b.size() == 1 && b.getFirst().equals("transfer") ? onlineNames()
         : b.size() == 1 && b.getFirst().equals("undelete") ? deletedNames(s)
         : b.size() == 1 && (b.getFirst().equals("unlist") || b.getFirst().equals("relist")) ? worldNames(s)
+        : b.size() == 1 && b.getFirst().equals("template") ? List.of("on", "off")
+        : b.size() == 2 && b.getFirst().equals("template") ? worldNames(s)
         : b.size() == 1 && b.getFirst().equals("settings") ? List.copyOf(Menu.SETTINGS.keySet())
         : b.size() == 2 && b.getFirst().equals("settings") ? b.get(1).startsWith("kit-") ? List.of("clear") : Menu.SETTINGS.getOrDefault(b.get(1), List.of())
         : b.size() == 1 && b.getFirst().equals("members") ? List.of("list", "add", "remove")
@@ -2366,6 +2368,10 @@ public final class BgCommand {
       unlist(sender, p, w);
       return;
     }
+    if (first.equals("template")) {
+      template(sender, p, w);
+      return;
+    }
     var ws = bg.workspace(p.level());
     // 伺服器世界（03-worlds §4.2）只有成員與可見性；管理員當擁有者
     boolean server = ws.buildWorld() == null;
@@ -2752,6 +2758,19 @@ public final class BgCommand {
     ws.saveConfig();
     msg().send(sender, unlist ? "world-unlisted" : "world-relisted", "world", ws.label());
     if (unlist) roleChanged(ws);
+  }
+
+  /** {@code world template on|off [世界]}：管理員把建築世界設成範本或取消；沒給世界時是所在的世界。 */
+  private void template(Sender sender, ServerPlayer p, List<String> w) throws IOException {
+    if (!bg.realms().admin(p)) throw new Workspace.Refused("只有管理員能設定範本");
+    var ws = w.size() == 3 ? bg.worlds().find(w.get(2), p.getUUID()) : bg.workspace(p.level());
+    if (w.size() < 2 || w.size() > 3 || !w.get(1).equals("on") && !w.get(1).equals("off") || ws == null || ws.buildWorld() == null || ws.config() == null) {
+      msg().send(sender, "usage-world");
+      return;
+    }
+    ws.config().template = w.get(1).equals("on");
+    ws.saveConfig();
+    msg().send(sender, ws.config().template ? "world-template-on" : "world-template-off", "world", ws.label());
   }
 
   private List<String> deletedNames(Sender s) {

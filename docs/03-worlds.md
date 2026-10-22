@@ -350,7 +350,7 @@ player-worlds:
      - 起點世界複製一份（不能硬連結：起點世界的 region 檔之後還會補 chunk）；物件位置相同時不複製，不同時整個物件目錄用硬連結複製（不支援時才真的複製）。不另外算「用得到的物件」，簡單起見全部連結，硬連結幾乎不佔空間。
      - 跨版本：`data-version` 直接複製，所以 `legacy` 照來源的；起點 chunk 與物件照原本的資料版本，讀取時升級。同一台伺服器上的來源一定不比伺服器新。
      - 世界資料夾第一次載入時照起點世界＋main 的存檔合成（和刪掉世界資料夾後一樣）。
-     - 範本：`player-worlds.templates` 列出 `擁有者/名稱`。建立對話框多一個「範本」選項（預設「不用範本」），選了範本就照它，類型、地形、規則不看；指令是 `/bg new [name:名稱] template:<擁有者/名稱> confirm`。從範本建立等於 fork（記 `fork.template: true`，清單上不顯示「複製自」），不受 `allowed-types`、`allowed-terrain` 限制，範本本身是私人的也可以；名稱照一般建立自動編號。
+     - 範本：`player-worlds.templates` 列出 `擁有者/名稱`，或管理員在遊戲裡 `/bg world template on|off [世界]`（記在 `repo.yml` 的 `template: true`；舊版沒有這個鍵，讀到時當作不是範本；fork 出來的不帶）。建立對話框多一個「範本」選項（預設「不用範本」），選了範本就照它，類型、地形、規則不看；指令是 `/bg new [name:名稱] template:<擁有者/名稱> confirm`。從範本建立等於 fork（記 `fork.template: true`，清單上不顯示「複製自」），不受 `allowed-types`、`allowed-terrain` 限制，範本本身是私人的也可以；名稱照一般建立自動編號。
      - 清單上 fork 的世界多一行「複製自 擁有者/名稱」（來源被刪掉後不顯示）。訪客的提示列在允許複製時顯示 `/bg fork 複製`。
    - 已實作：提出併回（§5.4）。
      - 分支叫 `submit-<玩家>-<編號>`（草稿名稱不能有 `/`）；玩家不能自己用 `submit-` 開頭命名草稿。提出的資料（fork 的 id、提出的人、說明、時間）記在來源 `branches.yml` 那個分支的 `submit` 底下。

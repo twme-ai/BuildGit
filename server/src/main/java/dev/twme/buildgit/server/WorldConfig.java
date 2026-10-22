@@ -81,6 +81,8 @@ public final class WorldConfig {
   public boolean open;
   /** 管理員下架（03-worlds §4）：強制私人，擁有者不能自己改回公開。 */
   public boolean unlisted;
+  /** 管理員設成範本（{@code /bg world template on}）：和 {@code player-worlds.templates} 列的一樣出現在建立對話框。 */
+  public boolean template;
   /** 清單上顯示的名稱、簡介（玩家寫的文字，顯示時不當 MiniMessage）；沒有時是 null。 */
   public String displayName, description;
   /** 清單上的圖示（物品 id）；沒有時是 null（草方塊）。 */
@@ -221,6 +223,7 @@ public final class WorldConfig {
       c.spawn = new Spawn(num(y.get("spawn.x")), num(y.get("spawn.y")), num(y.get("spawn.z")), (float) num(y.get("spawn.yaw")), (float) num(y.get("spawn.pitch")));
     c.open = "public".equals(y.getString("visibility"));
     c.unlisted = y.getBoolean("unlisted", false);
+    c.template = y.getBoolean("template", false);
     c.displayName = y.getString("display-name");
     c.description = y.getString("description");
     var icon = y.getString("icon");
@@ -322,6 +325,7 @@ public final class WorldConfig {
     }
     y.set("visibility", open ? "public" : "private");
     y.set("unlisted", unlisted ? true : null);
+    y.set("template", template ? true : null);
     y.set("display-name", displayName);
     y.set("description", description);
     y.set("icon", icon);
