@@ -29,7 +29,7 @@ help: |-
   <aqua>/bg sel pos1|pos2|show|clear</aqua> <gray>— 選取範圍（有 WorldEdit 時用它的選取）</gray>
   <aqua>/bg who</aqua> <gray>— 誰在哪個草稿</gray>
   <aqua>/bg mark <x1> <y1> <z1> <x2> <y2> <z2></aqua> <gray>— 手動補記一個範圍</gray>
-  <aqua>/bg disk</aqua> <gray>— BuildGit 用掉的磁碟空間（管理）</gray>
+  <aqua>/bg disk</aqua> <gray>[clean]</gray> <gray>— BuildGit 用掉的磁碟空間、回收沒人用的物件（管理）</gray>
   <aqua>/bg genesis upgrade</aqua> <gray>— 升級 Minecraft 後，把起點世界改寫成新版的格式（管理）</gray>
   <aqua>/bg backup [status|now|list|fetch|restore]</aqua> <gray>— 備份到 S3 或本機資料夾（管理）</gray>
   <aqua>/bg init</aqua> <gray>／</gray><aqua>/bg reload</aqua> <gray>— 管理</gray>
@@ -167,6 +167,8 @@ disk-objects: "版本紀錄（所有分支共用）"
 disk-genesis: "起點世界副本"
 disk-other: "標記日誌、整合與設定"
 disk-views: "<gray>檢視舊版本的暫時世界</gray>"
+disk-cleaning: "<gray>在背景回收沒人用的物件…</gray>"
+disk-cleaned: "<green>回收了 <count> 個沒人用的物件，釋放 <yellow><size></yellow>。</green>"
 go-done: "<gray>已到</gray> <branch>"
 not-in-draft: "<red>你不在草稿世界裡。</red>"
 view-opened: "<aqua>正在看存檔 <id></aqua><gray>（唯讀）。用</gray> <aqua>/bg back</aqua> <gray>回去。</gray>"
@@ -315,6 +317,7 @@ params-branch: "list|create|delete 名稱 來源|--force"
 params-merge: "分支|list|view|conflicts|goto|take|continue|abort 選項 範圍"
 params-revert: "存檔"
 params-new: "名稱 選項"
+params-disk: "clean"
 params-open: "世界"
 params-fork: "世界與新名稱"
 params-submit: "說明"

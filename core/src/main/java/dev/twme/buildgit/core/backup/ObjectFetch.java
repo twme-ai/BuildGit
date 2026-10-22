@@ -36,7 +36,7 @@ public final class ObjectFetch {
     int count = 0;
     while (!frontier.isEmpty()) {
       var downloads = new LinkedHashMap<ObjectId, Future<?>>();
-      for (var id : frontier) if (!Files.exists(store.file(id))) downloads.put(id, pool.submit(() -> download(store, id, source)));
+      for (var id : frontier) if (!store.contains(id)) downloads.put(id, pool.submit(() -> download(store, id, source)));
       for (var f : downloads.values())
         try {
           f.get();

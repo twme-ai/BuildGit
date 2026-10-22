@@ -89,7 +89,10 @@ public final class BgCommand {
     sub("mark", "buildgit.mark", this::mark, this::suggestMark);
     sub("sel", "buildgit.sel", this::sel, (s, b) -> b.isEmpty() ? List.of("pos1", "pos2", "show", "clear") : List.of());
     sub("who", "buildgit.who", (s, a) -> who(s), null);
-    sub("disk", "buildgit.disk", (s, a) -> disk(s), null);
+    sub("disk", "buildgit.disk", (s, a) -> {
+      if (a.length > 0 && a[0].equals("clean")) clean(s);
+      else disk(s);
+    }, (s, b) -> b.isEmpty() ? List.of("clean") : List.of());
     sub("genesis", "buildgit.genesis", this::genesis, (s, b) -> b.isEmpty() ? List.of("upgrade") : List.of());
     sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list", "restore", "fetch")
         : b.size() == 1 && List.of("now", "list", "restore").contains(b.getFirst()) ? bg.backup().jobs().stream().map(j -> j.name).toList() : List.of());
@@ -175,24 +178,33 @@ public final class BgCommand {
     });
     for (var sub : subs)
       for (var name : sub.names()) {
-        // 每個參數一個節點，玩家輸入時看得到要填什麼（名稱在語言檔 params-<子指令>）；最後一個吃下剩下的全部
+        // 每個參數一個節點，玩家輸入時看得到要填什麼（名稱在語言檔 params-<子指令>）；最後一個吃下剩下的全部。
+        // word 只收英數字與 _-.+：旁邊另放一個吃下剩下全部的節點，參數含 =（new 的選項）或中文時走它。
+        // 兩條路都從原始輸入切參數，結果一樣。
         var params = msg().raw("params-" + sub.names().getFirst()).trim();
         var names = params.isEmpty() ? new String[0] : params.split(" +");
-        ArgumentBuilder<S, ?> next = null;
+        ArgumentBuilder<S, ?> next = null, rest = null;
         for (int i = names.length - 1; i >= 0; i--) {
-          var arg = RequiredArgumentBuilder.<S, String>argument(names[i], i == names.length - 1 ? StringArgumentType.greedyString() : StringArgumentType.word())
-              .suggests((ctx, builder) -> suggest(sub, argsStart(ctx, name), sender.apply(ctx.getSource()), builder))
-              .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), args(ctx, name)));
+          var arg = argument(sub, name, sender, names[i], i == names.length - 1 ? StringArgumentType.greedyString() : StringArgumentType.word());
           if (next != null) arg.then(next);
+          if (rest != null) arg.then(rest);
           next = arg;
+          rest = i == names.length - 1 ? null : argument(sub, name, sender, names[i] + "…", StringArgumentType.greedyString());
         }
         var literal = LiteralArgumentBuilder.<S>literal(name)
             .requires(src -> sub.permission() == null || anyPermission(sender.apply(src), sub.permission()))
             .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), new String[0]));
         if (next != null) literal.then(next);
+        if (rest != null) literal.then(rest);
         root.then(literal);
       }
     return root.build();
+  }
+
+  private <S> RequiredArgumentBuilder<S, String> argument(Sub sub, String name, Function<S, Sender> sender, String label, StringArgumentType type) {
+    return RequiredArgumentBuilder.<S, String>argument(label, type)
+        .suggests((ctx, builder) -> suggest(sub, argsStart(ctx, name), sender.apply(ctx.getSource()), builder))
+        .executes(ctx -> dispatch(sub, sender.apply(ctx.getSource()), args(ctx, name)));
   }
 
   /** 指令輸入中子指令之後的參數。 */
@@ -1516,6 +1528,34 @@ public final class BgCommand {
         lines.forEach(sender::send);
       } catch (IOException | RuntimeException e) {
         failed(sender, e);
+      }
+    });
+  }
+
+  /** 正在回收沒人用的物件。 */
+  private final java.util.concurrent.atomic.AtomicBoolean cleaning = new java.util.concurrent.atomic.AtomicBoolean();
+
+  /** {@code /bg disk clean}：回收刪掉的世界、草稿留下、沒人用的物件（背景執行）。 */
+  private void clean(Sender sender) throws IOException {
+    if (bg.worlds().skipped())
+      throw new Workspace.Refused("建築世界或回收區的登記有格式不對、略過的項目（見啟動紀錄）：不知道它們用了哪些物件，修正後重新啟動才能回收");
+    if (!cleaning.compareAndSet(false, true)) throw new Workspace.Refused("已經在回收了，請稍候");
+    ObjectCleanup.Plan plan;
+    try {
+      plan = ObjectCleanup.plan(bg.worlds());
+    } catch (RuntimeException e) {
+      cleaning.set(false);
+      throw e;
+    }
+    msg().send(sender, "disk-cleaning");
+    bg.platform().async(() -> {
+      try {
+        var r = ObjectCleanup.run(plan, bg.platform().log()::info);
+        msg().send(sender, "disk-cleaned", "count", r.deleted(), "size", megabytes(r.bytes()));
+      } catch (IOException | RuntimeException e) {
+        failed(sender, e);
+      } finally {
+        cleaning.set(false);
       }
     });
   }

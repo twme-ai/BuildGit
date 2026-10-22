@@ -60,6 +60,8 @@ public final class BuildWorlds {
   private final Map<String, Entry> reserved = new HashMap<>();
   /** 正在被 fork 的來源 id 與進行中的數量：不能改名、轉讓、刪除（複製在它的起點世界寫入執行緒上做）。 */
   private final Map<String, Integer> forking = new HashMap<>();
+  /** 開啟時有格式不對、略過的登記：不知道它們用了哪些物件，不能回收物件。 */
+  private boolean skipped;
 
   BuildWorlds(Platform platform, Tracker tracker, Supplier<Settings> settings) {
     this.platform = platform;
@@ -147,6 +149,7 @@ public final class BuildWorlds {
 
   /** 開啟所有建築世界的版本庫（主執行緒）。世界本身等有人進去才載入。 */
   void open() {
+    skipped = false;
     var yaml = Yaml.load(index());
     for (var id : yaml.keys()) {
       Entry e;
@@ -154,6 +157,7 @@ public final class BuildWorlds {
         e = entry(yaml, id, id);
       } catch (RuntimeException ex) {
         platform.log().warning(INDEX + " 裡的建築世界 " + id + " 格式不對，略過：" + ex.getMessage());
+        skipped = true;
         continue;
       }
       var ws = workspace(e);
@@ -175,7 +179,17 @@ public final class BuildWorlds {
         trash.put(id, new Deleted(entry(t, id + ".entry", id), t.getLong(id + ".time", 0), moved));
       } catch (RuntimeException ex) {
         platform.log().warning(TRASH + " 裡的 " + id + " 格式不對，略過：" + ex.getMessage());
+        skipped = true;
       }
+  }
+
+  boolean skipped() {
+    return skipped;
+  }
+
+  /** fork 中、還沒登記的世界。 */
+  Collection<Entry> reserved() {
+    return Collections.unmodifiableCollection(reserved.values());
   }
 
   static Entry entry(Yaml yaml, String key, String id) {
