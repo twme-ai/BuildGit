@@ -77,7 +77,8 @@ public final class Hud {
         text = msg.get("hud-draft", "name", wt.branch(), "cells", wt.table().cellCount(), "entities", wt.table().entityCount());
         color = COLORS[Math.floorMod(wt.branch().hashCode(), COLORS.length)];
       } else if (wt != null && ws.buildWorld() != null)
-        text = msg.get(ws.role(p.getUUID()) == WorldConfig.Role.VISITOR ? "hud-world-visitor" : "hud-world", "world", ws.label());
+        text = msg.get(ws.role(p.getUUID()) != WorldConfig.Role.VISITOR ? "hud-world" : ws.config().allowFork ? "hud-world-visitor-fork" : "hud-world-visitor",
+            "world", ws.label());
       if (text != null && ws.buildWorld() != null && wt != null && !wt.branch().equals(Repository.MAIN))
         text = msg.get("hud-world-prefix", "world", ws.label(), "text", text);
     }

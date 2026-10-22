@@ -50,6 +50,12 @@ final class Realms {
     return ws.buildWorld() == null || ws.role(p.getUUID()) != null || admin(p);
   }
 
+  /** 能不能 fork：成員都可以；訪客要擁有者允許複製；管理員都可以。 */
+  boolean canFork(ServerPlayer p, Workspace ws) {
+    var role = ws.role(p.getUUID());
+    return admin(p) || role != null && (role != WorldConfig.Role.VISITOR || ws.config().allowFork);
+  }
+
   /** 在建築世界裡只能看的人：訪客（管理員除外）。 */
   boolean visitor(ServerPlayer p, Workspace ws) {
     var role = ws.role(p.getUUID());

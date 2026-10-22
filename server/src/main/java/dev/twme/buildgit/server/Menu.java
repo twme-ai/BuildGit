@@ -107,15 +107,32 @@ final class Menu {
 
   /**
    * 建立建築世界的選單（03-worlds §3）：三排分別是類型、地形、規則，選中的打勾；點其他選項就是帶著改過的選項再執行一次
-   * {@code new}，重新打開這個選單。最下排是名稱與種子等說明（只能打指令設定），以及「建立」。
+   * {@code new}，重新打開這個選單。最下排是名稱與種子等說明（只能打指令設定），以及「建立」。選了地形「範本」時，第一排改成
+   * 範本世界，沒有規則那排（照範本）。
    */
   void openCreate(ServerPlayer p, BgCommand.NewWorld o) {
     var msg = bg.messages();
     var items = new ArrayList<Platform.MenuItem>();
     var pw = bg.settings().playerWorlds();
     boolean admin = bg.realms().admin(p);
-    label(items, 0, "compass", "world-create-type");
+    var templates = templates();
+    if (o.template() != null) {
+      label(items, 0, "structure_block", "world-create-template");
+      int at = 2;
+      for (var t : templates) {
+        if (at > 8) break;
+        var c = t.config();
+        boolean selected = t.label().equals(o.template());
+        var name = c.displayName != null ? Component.text(c.displayName) : Component.text(t.buildWorld().name());
+        var lore = new ArrayList<Component>();
+        if (c.description != null) lore.add(msg.get("worlds-item-description", "text", c.description));
+        items.add(new Platform.MenuItem(at++, selected ? "lime_stained_glass" : icon(t), msg.get(selected ? "world-option-selected" : "world-option", "text", name),
+            lore, selected ? null : "new " + o.withTemplate(t.label()).args()));
+      }
+    }
+    if (o.template() == null) label(items, 0, "compass", "world-create-type");
     for (var t : WorldConfig.Type.values()) {
+      if (o.template() != null) break;
       if (!admin && !pw.allowed(t)) continue;
       var icon = switch (t) {
         case OVERWORLD -> "grass_block";
@@ -136,22 +153,34 @@ final class Menu {
         case FLAT -> "smooth_stone";
         default -> "glass";
       };
-      option(items, slot++, icon, "world-terrain-" + WorldConfig.key(t), o.terrain() == t, o.withTerrain(t));
+      option(items, slot++, icon, "world-terrain-" + WorldConfig.key(t), o.template() == null && o.terrain() == t, o.withTerrain(t));
     }
-    label(items, 18, "writable_book", "world-create-rules");
+    if (!templates.isEmpty())
+      option(items, slot, "structure_block", "world-terrain-template", o.template() != null, o.withTemplate(templates.getFirst().label()));
+    if (o.template() == null) label(items, 18, "writable_book", "world-create-rules");
     for (var r : WorldConfig.Rules.values())
-      option(items, 20 + r.ordinal(), r == WorldConfig.Rules.BUILD ? "bricks" : "wheat", "world-rules-" + WorldConfig.key(r), o.rules() == r, o.withRules(r));
+      if (o.template() == null) option(items, 20 + r.ordinal(), r == WorldConfig.Rules.BUILD ? "bricks" : "wheat", "world-rules-" + WorldConfig.key(r), o.rules() == r, o.withRules(r));
     for (int c = 0; c < 9; c++) items.add(divider(27 + c));
     var info = new ArrayList<Component>();
     info.add(msg.get("world-create-info-name", "name", o.name() != null ? o.name() : msg.raw("world-create-auto-name")));
-    info.add(msg.get("world-create-info-seed", "seed", o.seed() != null ? o.seed() : msg.raw("world-create-random-seed")));
-    if (o.terrain() == WorldConfig.Terrain.FLAT)
+    if (o.template() == null) info.add(msg.get("world-create-info-seed", "seed", o.seed() != null ? o.seed() : msg.raw("world-create-random-seed")));
+    if (o.template() == null && o.terrain() == WorldConfig.Terrain.FLAT)
       info.add(msg.get("world-create-info-layers", "layers", o.layers() != null ? o.layers() : WorldConfig.formatLayers(WorldConfig.defaultLayers(o.type()))));
-    if (o.terrain() == WorldConfig.Terrain.VOID) info.add(msg.get("world-create-info-block", "block", o.block() != null ? o.block() : "stone"));
+    if (o.template() == null && o.terrain() == WorldConfig.Terrain.VOID) info.add(msg.get("world-create-info-block", "block", o.block() != null ? o.block() : "stone"));
     info.add(msg.get("world-create-info-hint"));
     items.add(new Platform.MenuItem(36, "name_tag", msg.get("world-create-info"), info, null));
     items.add(new Platform.MenuItem(40, "emerald", msg.get("world-create-confirm"), msg.get("world-create-confirm-lore"), "new " + o.args() + " confirm"));
     bg.platform().openMenu(p, msg.get("world-create-title"), items);
+  }
+
+  /** {@code player-worlds.templates} 裡找得到、版本庫開著的建築世界。 */
+  List<Workspace> templates() {
+    var result = new ArrayList<Workspace>();
+    for (var spec : bg.settings().playerWorlds().templates()) {
+      var ws = spec.contains("/") ? bg.worlds().find(spec, null) : null;
+      if (ws != null && ws.buildWorld() != null && ws.isOpen() && !result.contains(ws)) result.add(ws);
+    }
+    return result;
   }
 
   /** 可以改的設定與它們的值（依點選時輪替的順序）；沒有值的是「設成我現在的位置」。 */
@@ -185,6 +214,7 @@ final class Menu {
     SETTINGS.put("display-name", List.of());
     SETTINGS.put("description", List.of());
     SETTINGS.put("icon", List.of());
+    SETTINGS.put("allow-fork", List.of("off", "on"));
   }
 
   /** 玩家寫的文字設定（值是後面所有的字，保留大小寫）。 */
@@ -213,6 +243,7 @@ final class Menu {
       case "visitor-mode" -> c.visitorMode.getName();
       case "visitor-interact" -> c.visitorInteract ? "on" : "off";
       case "inventory" -> ws.isolated() ? "on" : "off";
+      case "allow-fork" -> c.allowFork ? "on" : "off";
       default -> "";
     };
   }
@@ -246,12 +277,13 @@ final class Menu {
     var msg = bg.messages();
     var items = new ArrayList<Platform.MenuItem>();
     items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), msg.get("settings-header-lore"), null));
-    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 29, 30, 31);
+    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 29, 30, 31, 32);
     var icons = Map.ofEntries(Map.entry("time", "clock"), Map.entry("weather", "water_bucket"), Map.entry("difficulty", "iron_sword"),
         Map.entry("mobs", "zombie_head"), Map.entry("nature", "wheat"), Map.entry("border", "barrier"), Map.entry("border-center", "compass"),
         Map.entry("spawn", "red_bed"), Map.entry("member-mode", "diamond_pickaxe"), Map.entry("visitor-mode", "ender_eye"),
         Map.entry("visitor-interact", "lever"), Map.entry("inventory", "chest"), Map.entry("kit-member", "bundle"), Map.entry("kit-visitor", "map"),
-        Map.entry("display-name", "name_tag"), Map.entry("description", "writable_book"), Map.entry("icon", icon(ws)));
+        Map.entry("display-name", "name_tag"), Map.entry("description", "writable_book"), Map.entry("icon", icon(ws)),
+        Map.entry("allow-fork", "cartography_table"));
     int i = 0;
     for (var e : SETTINGS.entrySet()) {
       var key = e.getKey();
@@ -350,6 +382,8 @@ final class Menu {
     lore.add(msg.get("worlds-item-state", "state", msg.get(!ws.isOpen() ? "worlds-broken" : loaded ? "worlds-loaded" : "worlds-unloaded"), "players", players));
     long saved = lastSave(ws);
     if (saved > 0) lore.add(msg.get("worlds-item-saved", "time", BgCommand.TIME.format(Instant.ofEpochMilli(saved))));
+    var from = c == null || c.forkId == null || c.forkTemplate ? null : bg.worlds().byId(c.forkId);
+    if (from != null) lore.add(msg.get("worlds-item-fork", "world", from.label()));
     if (c != null && c.unlisted) lore.add(msg.get("worlds-item-unlisted"));
     lore.add(msg.get("worlds-item-click"));
     var name = c != null && c.displayName != null ? c.displayName : ws.buildWorld().name();

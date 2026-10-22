@@ -89,6 +89,9 @@ player-worlds:
   # 空的是全部都可以；管理員不受限制。例如只開放超平坦與虛空：allowed-terrain: [flat, void]
   allowed-types: []
   allowed-terrain: []
+  # 可以當範本的建築世界（擁有者/名稱），例如 [admin/spawn-template]。建立選單的地形多一個「範本」，
+  # 從範本建立等於 fork 它（不受 allowed-types、allowed-terrain 限制，範本本身是私人的也可以）。
+  templates: []
   # 伺服器世界在 /bg open 等指令裡的名稱；空白時用 server.properties 的 level-name（預設 world）。
   server-world-name: ""
   # 世界資料夾的名稱。{name} 是建築世界的名稱（必須有），{owner-name} 是擁有者的玩家名稱（小寫），

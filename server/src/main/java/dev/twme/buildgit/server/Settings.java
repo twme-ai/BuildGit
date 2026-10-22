@@ -45,10 +45,11 @@ public record Settings(
    * @param maxLoaded 同時載入的建築世界（含草稿、檢視）上限
    * @param allowedTypes 一般玩家能選的類型；空的是全部
    * @param allowedTerrain 一般玩家能選的地形；空的是全部
+   * @param templates 可以當範本的建築世界（{@code 擁有者/名稱}）
    */
   public record PlayerWorlds(boolean enabled, int maxPerPlayer, int border, int maxBorder, boolean separateInventories,
       boolean allowInventoryIsolation, int trashDays, int maxLoaded, Set<WorldConfig.Type> allowedTypes, Set<WorldConfig.Terrain> allowedTerrain,
-      String serverWorldName, String worldName, String repo, String objects, String genesis) {
+      List<String> templates, String serverWorldName, String worldName, String repo, String objects, String genesis) {
     boolean allowed(WorldConfig.Type type) {
       return allowedTypes.isEmpty() || allowedTypes.contains(type);
     }
@@ -132,6 +133,7 @@ public record Settings(
             Math.max(1, c.getInt("player-worlds.max-loaded", 20)),
             options(c, "player-worlds.allowed-types", WorldConfig.Type.class, log),
             options(c, "player-worlds.allowed-terrain", WorldConfig.Terrain.class, log),
+            List.copyOf(c.getStringList("player-worlds.templates")),
             c.getString("player-worlds.server-world-name", "").strip(),
             c.getString("player-worlds.world-name", "bw_{owner-name}_{name}").strip(),
             c.getString("player-worlds.paths.repo", "{buildgit}/worlds/{id}").strip(),

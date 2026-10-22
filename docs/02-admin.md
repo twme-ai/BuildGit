@@ -151,6 +151,7 @@ LuckPerms 範例：
 | `player-worlds.allow-inventory-isolation` | `true` | 擁有者能不能為自己的世界打開背包隔離與起始物品 |
 | `player-worlds.max-loaded` | 20 | 同時載入的建築世界上限，草稿與檢視世界各算一個（伺服器世界不算）；滿了玩家要開新的世界時被拒絕，請他稍後再試 |
 | `player-worlds.allowed-types`／`allowed-terrain` | `[]`（全部） | 一般玩家建立時能選的類型（`overworld`、`nether`、`end`）與地形（`normal`、`large-biomes`、`amplified`、`flat`、`void`）；管理員不受限制 |
+| `player-worlds.templates` | `[]` | 可以當範本的建築世界（`擁有者/名稱`）；建立選單的地形多一個「範本」，從範本建立等於 fork 它，不受 allowed-* 限制 |
 | `player-worlds.trash-days` | 7 | 刪除的建築世界在回收區保留幾天；過期的在啟動時與每天檢查一次後真正刪掉（回收區記在 `buildgit/trash.yml`） |
 | `player-worlds.world-name` | `bw_{owner-name}_{name}` | 建築世界的資料夾名稱（見 §7.1）；只影響之後建立的世界 |
 | `player-worlds.paths.*` | | 建築世界的版本庫、物件、起點世界放在哪裡（見 §7.1） |
@@ -190,9 +191,10 @@ LuckPerms 範例：
 
 | 指令 | 做什麼 |
 |---|---|
-| `/bg new [名稱] [選項]` | 打開建立選單：選世界類型（主世界、地獄、終界）、地形（一般、大型生態域、巨型化、超平坦、虛空）、規則（建築用、原版），按「建立」後傳送進去。名稱用小寫英文、數字、`_`、`-`，沒給就自動編號。選單裡改不了的用選項寫：`seed=…`、`layers=…`（超平坦的層，寫法和原版超平坦的預設代碼相同）、`block=…`（虛空腳下的方塊）；加上 `confirm` 不開選單直接建立 |
+| `/bg new [名稱] [選項]` | 打開建立選單：選世界類型（主世界、地獄、終界）、地形（一般、大型生態域、巨型化、超平坦、虛空，有設範本時還有範本）、規則（建築用、原版），按「建立」後傳送進去。名稱用小寫英文、數字、`_`、`-`，沒給就自動編號。選單裡改不了的用選項寫：`seed=…`、`layers=…`（超平坦的層，寫法和原版超平坦的預設代碼相同）、`block=…`（虛空腳下的方塊）、`template=擁有者/名稱`（範本）；加上 `confirm` 不開選單直接建立 |
 | `/bg open <世界>` | 進入建築世界：自己的寫名稱，別人的寫 `擁有者/名稱`；寫伺服器世界的名稱就是回去 |
 | `/bg home` | 回到進入建築世界之前在伺服器世界的位置 |
+| `/bg fork <擁有者/名稱> [新名稱]` | 複製一個建築世界成自己的私人世界，main 的歷史一起帶過來；成員都可以，訪客要那個世界允許複製。不給新名稱時用原本的名稱 |
 | `/bg worlds [mine\|public\|recent] [頁]` | 玩家打開建築世界清單選單：我的（自己的與受邀的）、公開（最近存檔的在前）、最近去過，點一下進去；主控台列出所有建築世界 |
 | `/bg world members [list\|add <玩家> [builder\|manager]\|remove <玩家>]` | 在建築世界裡管理成員：擁有者可以加、移除建造者與管理者；管理者只能加、移除建造者。邀請時對方要在線上（已經是成員的改角色不用）。不帶參數開成員選單，點線上玩家的頭邀請 |
 | `/bg world visibility public\|private` | 擁有者把世界改成公開（所有人都能進來參觀）或私人（只有成員，預設） |
@@ -221,6 +223,7 @@ LuckPerms 範例：
 | `display-name` | 文字（最多 32 字），不給是清掉 | 清單上顯示的名稱，可以用中文；指令裡還是用原本的名稱 |
 | `description` | 文字（最多 120 字），不給是清掉 | 清單上的簡介 |
 | `icon` | 物品 id，不給是手上的物品 | 清單上的圖示（預設草方塊） |
+| `allow-fork` | `on`／`off`（預設 `on`） | 公開時訪客能不能用 `/bg fork` 複製；成員都可以 |
 
 - **誰能建立**：有 `buildgit.world.admin` 的人隨時可以；一般玩家要 `player-worlds.enabled: true` 並給 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）。`open`、`home`、`worlds` 所有人都能用，能進哪些世界看成員名單與可見性。
 - **角色**：在建築世界裡，BuildGit 的指令權限由那個世界的角色決定，不看你給的 `buildgit.role.*`：擁有者與管理者等於 manager，建造者等於 builder，訪客只能看（`status`、`log`、`diff`、`blame` 等），不能改方塊、不能進草稿或檢視舊版本。有 `buildgit.world.admin` 的人在任何世界都能做所有事。`init`、`reload`、`backup` 等伺服器管理照舊看權限節點。

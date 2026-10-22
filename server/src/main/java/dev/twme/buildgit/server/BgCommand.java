@@ -115,7 +115,8 @@ public final class BgCommand {
     // 建築世界（03-worlds）：進出、列出所有人都能用，能不能進去看成員名單與可見性
     sub("new", "buildgit.world.create|buildgit.world.admin", this::newWorld, (s, b) -> List.of("type=overworld", "type=nether", "type=end",
         "terrain=normal", "terrain=large-biomes", "terrain=amplified", "terrain=flat", "terrain=void", "rules=build", "rules=vanilla",
-        "seed=", "layers=", "block=", "confirm"));
+        "seed=", "layers=", "block=", "template=", "confirm"));
+    sub("fork", "buildgit.world.create|buildgit.world.admin", this::fork, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("home", null, (s, a) -> home(s), null);
     sub("worlds", null, this::worlds, (s, b) -> b.isEmpty() ? Menu.WORLD_TABS : List.of());
@@ -1867,14 +1868,21 @@ public final class BgCommand {
     boolean admin = sender.hasPermission("buildgit.world.admin");
     if (!flags(args).contains("confirm")) {
       // 預設的類型、地形沒開放時，選單從開放的第一個開始
-      if (!admin && !pw.allowed(o.type()))
+      if (!admin && o.template() == null && !pw.allowed(o.type()))
         o = o.withType(Arrays.stream(WorldConfig.Type.values()).filter(pw::allowed).findFirst().orElse(o.type()));
-      if (!admin && !pw.allowed(o.terrain())) {
+      if (!admin && o.template() == null && !pw.allowed(o.terrain())) {
         var type = o.type();
         o = o.withTerrain(Arrays.stream(WorldConfig.Terrain.values()).filter(t -> t != WorldConfig.Terrain.SERVER && pw.allowed(t)
             && (type == WorldConfig.Type.OVERWORLD || t != WorldConfig.Terrain.LARGE_BIOMES && t != WorldConfig.Terrain.AMPLIFIED)).findFirst().orElse(o.terrain()));
       }
       bg.menu().openCreate(p, o);
+      return;
+    }
+    if (o.template() != null) {
+      var spec = o.template();
+      var template = bg.menu().templates().stream().filter(t -> t.label().equals(spec)).findFirst()
+          .orElseThrow(() -> new Workspace.Refused("沒有叫 " + spec + " 的範本"));
+      forked(sender, p, bg.worlds().fork(template, o.name(), p, admin, true));
       return;
     }
     if (!admin && !pw.allowed(o.type())) throw new Workspace.Refused("這台伺服器沒有開放 " + WorldConfig.key(o.type()) + " 類型");
@@ -1884,20 +1892,64 @@ public final class BgCommand {
     bg.realms().enter(p, ws);
   }
 
-  /** {@code new} 的選項；種子、層、方塊照輸入的樣子保留，選單點選時原樣帶著走。 */
-  record NewWorld(String name, WorldConfig.Type type, WorldConfig.Terrain terrain, WorldConfig.Rules rules, String seed, String layers, String block) {
+  /**
+   * {@code /bg fork <擁有者/名稱> [新名稱]}（03-worlds §5.3）：複製成自己的私人世界，歷史一起帶過來。成員都可以；訪客要擁有者允許複製。
+   */
+  private void fork(Sender sender, String[] args) throws IOException {
+    var p = player(sender);
+    if (p == null) return;
+    var w = words(args);
+    if (w.isEmpty() || w.size() > 2) {
+      msg().send(sender, "usage-fork");
+      return;
+    }
+    var source = bg.worlds().find(w.getFirst(), p.getUUID());
+    if (source == null || source.buildWorld() == null || !bg.realms().canEnter(p, source)) {
+      msg().send(sender, "world-unknown", "world", w.getFirst());
+      return;
+    }
+    if (!bg.realms().canFork(p, source)) throw new Workspace.Refused("這個世界的擁有者沒有允許複製");
+    var name = w.size() == 2 ? w.get(1).toLowerCase(Locale.ROOT) : null;
+    msg().send(sender, "world-forking", "world", source.label());
+    forked(sender, p, bg.worlds().fork(source, name, p, bg.realms().admin(p), false));
+  }
+
+  /** fork、範本建立完成時（主執行緒）：告訴他並傳送進去。 */
+  private void forked(Sender sender, ServerPlayer p, java.util.concurrent.CompletableFuture<Workspace> future) {
+    future.whenComplete((ws, ex) -> {
+      if (ex != null) {
+        msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+        return;
+      }
+      msg().send(sender, "world-created", "world", ws.label(), "folder", ws.buildWorld().folder());
+      if (p.isRemoved()) return;
+      try {
+        bg.realms().enter(p, ws);
+      } catch (IOException e) {
+        failed(sender, e);
+      }
+    });
+  }
+
+  /** {@code new} 的選項；種子、層、方塊照輸入的樣子保留，選單點選時原樣帶著走。{@code template} 是範本的 {@code 擁有者/名稱}。 */
+  record NewWorld(String name, WorldConfig.Type type, WorldConfig.Terrain terrain, WorldConfig.Rules rules, String seed, String layers, String block,
+      String template) {
     NewWorld withType(WorldConfig.Type t) {
       // 大型生態域與巨型化只有主世界類型有
       var keep = t == WorldConfig.Type.OVERWORLD || terrain != WorldConfig.Terrain.LARGE_BIOMES && terrain != WorldConfig.Terrain.AMPLIFIED;
-      return new NewWorld(name, t, keep ? terrain : WorldConfig.Terrain.NORMAL, rules, seed, layers, block);
+      return new NewWorld(name, t, keep ? terrain : WorldConfig.Terrain.NORMAL, rules, seed, layers, block, null);
     }
 
     NewWorld withTerrain(WorldConfig.Terrain t) {
-      return new NewWorld(name, type, t, rules, seed, layers, block);
+      return new NewWorld(name, type, t, rules, seed, layers, block, null);
     }
 
     NewWorld withRules(WorldConfig.Rules r) {
-      return new NewWorld(name, type, terrain, r, seed, layers, block);
+      return new NewWorld(name, type, terrain, r, seed, layers, block, null);
+    }
+
+    NewWorld withTemplate(String t) {
+      return new NewWorld(name, type, terrain, rules, seed, layers, block, t);
     }
 
     /** 再執行一次 {@code new} 用的參數。 */
@@ -1908,12 +1960,13 @@ public final class BgCommand {
       if (seed != null) sb.add("seed=" + seed);
       if (layers != null) sb.add("layers=" + layers);
       if (block != null) sb.add("block=" + block);
+      if (template != null) sb.add("template=" + template);
       return sb.toString();
     }
   }
 
   private NewWorld parseNew(Sender sender, String[] args) {
-    String name = null, seed = null, layers = null, block = null;
+    String name = null, seed = null, layers = null, block = null, template = null;
     var type = WorldConfig.Type.OVERWORLD;
     var terrain = WorldConfig.Terrain.NORMAL;
     var rules = WorldConfig.Rules.BUILD;
@@ -1936,6 +1989,7 @@ public final class BgCommand {
         case "seed" -> seed = value.isEmpty() ? null : value;
         case "layers" -> layers = value.isEmpty() ? null : value;
         case "block" -> block = value.isEmpty() ? null : value;
+        case "template" -> template = value.isEmpty() ? null : value.toLowerCase(Locale.ROOT);
         default -> ok = false;
       }
       if (!ok) {
@@ -1943,7 +1997,7 @@ public final class BgCommand {
         return null;
       }
     }
-    return new NewWorld(name, type, terrain, rules, seed, layers, block);
+    return new NewWorld(name, type, terrain, rules, seed, layers, block, template);
   }
 
   /** 把選項變成建築世界的設定，檢查方塊與生態域存在、層數放得下。 */
@@ -2266,6 +2320,7 @@ public final class BgCommand {
         modes = true;
       }
       case "visitor-interact" -> c.visitorInteract = onOff(value, key);
+      case "allow-fork" -> c.allowFork = onOff(value, key);
       case "inventory" -> {
         var pw = bg.settings().playerWorlds();
         if (pw.separateInventories()) throw new Workspace.Refused("伺服器設定所有建築世界都隔離背包，不能關掉");

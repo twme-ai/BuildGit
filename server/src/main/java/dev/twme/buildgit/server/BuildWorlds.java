@@ -56,6 +56,10 @@ public final class BuildWorlds {
   private final Map<String, Deleted> trash = new LinkedHashMap<>();
   /** 正在改名、轉讓、刪除（等世界卸載完）的世界 id：不能進去。 */
   private final Set<String> busy = new HashSet<>();
+  /** fork 中、還沒登記的世界：名稱、資料夾、id 先佔住。 */
+  private final Map<String, Entry> reserved = new HashMap<>();
+  /** 正在被 fork 的來源 id 與進行中的數量：不能改名、轉讓、刪除（複製在它的起點世界寫入執行緒上做）。 */
+  private final Map<String, Integer> forking = new HashMap<>();
 
   BuildWorlds(Platform platform, Tracker tracker, Supplier<Settings> settings) {
     this.platform = platform;
@@ -210,17 +214,90 @@ public final class BuildWorlds {
    * 路徑有衝突時以 {@link Workspace.Refused} 拒絕。
    */
   Workspace create(String name, ServerPlayer owner, WorldConfig config, boolean admin) throws IOException {
+    var ws = prepare(name, owner, admin);
+    var e = ws.buildWorld();
+    ws.create(tracker.author(owner), config);
+    worlds.put(e.id(), ws);
+    save();
+    platform.log().info(owner.getScoreboardName() + " 建立了建築世界 " + e.label() + "（" + e.folder() + "）");
+    return ws;
+  }
+
+  /**
+   * fork（主執行緒開始，03-worlds §5.3）：新的私人建築世界，起點世界複製一份、main 指向來源 main 的最新存檔、設定照抄（名稱、
+   * 成員除外）、繼承來源的 {@code legacy}。物件位置相同時不複製，不同時用硬連結複製。完成時（主執行緒）已登記並開啟，
+   * 世界由呼叫的人載入。{@code name} 是 null 時：範本自動編號，fork 用來源的名稱（撞名時加 {@code -2}、{@code -3}…）。
+   */
+  java.util.concurrent.CompletableFuture<Workspace> fork(Workspace source, String name, ServerPlayer owner, boolean admin, boolean template)
+      throws IOException {
+    if (!source.isOpen() || source.buildWorld() == null) throw new Workspace.Refused("來源的版本庫無法開啟");
+    if (busy(source)) throw new Workspace.Refused("來源正在改名、轉讓或刪除，請稍後再試");
+    var head = source.repo().head(Repository.MAIN);
+    if (name == null && !template) {
+      var base = source.buildWorld().name();
+      name = base;
+      // 用底線：連字號接在後面的是來源的草稿資料夾
+      for (int i = 2; nameTaken(name, owner.getUUID()); i++) name = (base.length() > 29 ? base.substring(0, 29) : base) + "_" + i;
+    }
+    var ws = prepare(name, owner, admin);
+    var e = ws.buildWorld();
+    boolean sharedObjects = ws.objectsDir().equals(source.objectsDir());
+    boolean objectsExisted = Files.exists(ws.objectsDir());
+    java.util.concurrent.CompletableFuture<Void> copy;
+    try {
+      copy = ws.forkFrom(source, head, template, sharedObjects);
+    } catch (IOException | RuntimeException ex) {
+      deleteTree(ws.dir());
+      throw ex;
+    }
+    var srcId = source.buildWorld().id();
+    reserved.put(e.id(), e);
+    forking.merge(srcId, 1, Integer::sum);
+    var done = new java.util.concurrent.CompletableFuture<Workspace>();
+    copy.whenComplete((v, ex) -> platform.sync(() -> {
+      reserved.remove(e.id());
+      forking.computeIfPresent(srcId, (k, n) -> n > 1 ? n - 1 : null);
+      try {
+        if (ex != null) throw ex instanceof java.util.concurrent.CompletionException c && c.getCause() != null ? c.getCause() : ex;
+        ws.open();
+        worlds.put(e.id(), ws);
+        save();
+        platform.log().info(owner.getScoreboardName() + (template ? " 從範本 " : " fork 了 ") + source.label() + " 建立建築世界 " + e.label() + "（" + e.folder() + "）");
+        done.complete(ws);
+      } catch (Throwable t) {
+        platform.log().log(java.util.logging.Level.WARNING, "fork " + source.label() + " 失敗", t);
+        ws.closeRepo();
+        deleteTree(ws.dir());
+        deleteTree(ws.genesisRoot());
+        if (!sharedObjects && !objectsExisted) deleteTree(ws.objectsDir());
+        done.completeExceptionally(t);
+      }
+    }));
+    return done;
+  }
+
+  /** 正在被 fork 時不能改名、轉讓、刪除。 */
+  void checkForking(Workspace ws) throws Workspace.Refused {
+    if (ws.buildWorld() != null && forking.containsKey(ws.buildWorld().id())) throw new Workspace.Refused("有人正在複製這個世界，請稍後再試");
+  }
+
+  private boolean nameTaken(String name, UUID owner) {
+    return entries().stream().anyMatch(e -> e.owner().equals(owner) && e.name().equals(name));
+  }
+
+  /** 登記前的檢查與位置（主執行緒）：沒開放、超過上限（管理員除外），或名稱、資料夾、路徑有衝突時拒絕。 */
+  private Workspace prepare(String name, ServerPlayer owner, boolean admin) throws IOException {
     var pw = settings.get().playerWorlds();
     if (!admin) {
       if (!pw.enabled()) throw new Workspace.Refused("這台伺服器沒有開放玩家建立建築世界");
-      long owned = worlds.values().stream().filter(ws -> ws.buildWorld().owner().equals(owner.getUUID())).count();
+      long owned = worlds.values().stream().filter(ws -> ws.buildWorld().owner().equals(owner.getUUID())).count()
+          + reserved.values().stream().filter(r -> r.owner().equals(owner.getUUID())).count();
       if (owned >= pw.maxPerPlayer()) throw new Workspace.Refused("每人最多 " + pw.maxPerPlayer() + " 個建築世界");
     }
     if (name == null)
       for (int i = 1; name == null; i++) {
         var candidate = "world-" + i;
-        if (worlds.values().stream().noneMatch(ws -> ws.buildWorld().owner().equals(owner.getUUID()) && ws.buildWorld().name().equals(candidate)))
-          name = candidate;
+        if (!nameTaken(candidate, owner.getUUID())) name = candidate;
       }
     var ownerName = owner.getScoreboardName().toLowerCase(Locale.ROOT);
     checkName(name, owner.getUUID(), null);
@@ -234,7 +311,7 @@ public final class BuildWorlds {
     do {
       RANDOM.nextBytes(bytes);
       id = HexFormat.of().formatHex(bytes);
-    } while (worlds.containsKey(id));
+    } while (worlds.containsKey(id) || reserved.containsKey(id) || trash.containsKey(id));
     var uuid = owner.getUUID().toString();
     var folder = folderName(name, ownerName, uuid, id);
     checkFolder(folder, null);
@@ -244,10 +321,6 @@ public final class BuildWorlds {
     var ws = workspace(e);
     if (Repository.exists(ws.dir()) || Files.exists(ws.genesisRoot()))
       throw new Workspace.Refused("這個建築世界的資料夾已經存在（" + ws.dir() + "）");
-    ws.create(tracker.author(owner), config);
-    worlds.put(id, ws);
-    save();
-    platform.log().info(owner.getScoreboardName() + " 建立了建築世界 " + e.label() + "（" + folder + "）");
     return ws;
   }
 
@@ -275,6 +348,7 @@ public final class BuildWorlds {
     var result = new ArrayList<Entry>();
     for (var ws : worlds.values()) result.add(ws.buildWorld());
     for (var d : trash.values()) result.add(d.entry());
+    result.addAll(reserved.values());
     return result;
   }
 
@@ -345,6 +419,7 @@ public final class BuildWorlds {
    * 太早改資料夾會被寫回原本的位置。
    */
   private java.util.concurrent.CompletableFuture<Void> shutdown(Workspace ws) throws IOException {
+    checkForking(ws);
     var names = ws.levelNames();
     ws.shutdown();
     busy.add(ws.buildWorld().id());
@@ -405,6 +480,7 @@ public final class BuildWorlds {
 
   /** 世界資料夾名稱會不會變（呼叫的人要不要先檢查）。 */
   void checkRelocate(Workspace ws, String name, UUID owner, String ownerName) throws IOException {
+    checkForking(ws);
     var e = ws.buildWorld();
     checkName(name, owner, e.id());
     var folder = folderName(name, ownerName.toLowerCase(Locale.ROOT), owner.toString(), e.id());

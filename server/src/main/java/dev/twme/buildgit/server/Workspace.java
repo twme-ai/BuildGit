@@ -542,6 +542,60 @@ public final class Workspace {
   }
 
   /**
+   * fork 的版本庫（主執行緒開始，03-worlds §5.3）：設定照抄來源的（成員、可見性除外）並記下來源；起點世界、{@code data-version}
+   * （繼承 {@code legacy}：沒標資料版本的舊物件照來源的版本升級）、物件（位置不同時）在來源的起點世界寫入執行緒上複製，
+   * 和還在補進去的 chunk 依序進行。完成後由呼叫的人 {@link #open}。
+   */
+  CompletableFuture<Void> forkFrom(Workspace source, ObjectId head, boolean template, boolean sharedObjects) throws IOException {
+    var c = WorldConfig.load(source.dir, upgrader);
+    c.members.clear();
+    c.open = false;
+    c.unlisted = false;
+    c.forkId = source.world.id();
+    c.forkCommit = head.hex();
+    c.forkTemplate = template;
+    c.save(dir, upgrader.current());
+    for (var visitor : List.of(false, true))
+      if (Files.exists(source.kitFile(visitor))) Files.copy(source.kitFile(visitor), kitFile(visitor));
+    var done = new CompletableFuture<Void>();
+    source.genesisRecorder.execute(() -> {
+      try {
+        copyTree(source.genesisRoot, genesisRoot, false);
+        if (!sharedObjects) copyTree(source.objectsDir, objectsDir, true);
+        Files.copy(source.dir.resolve("data-version"), dir.resolve("data-version"));
+        Files.createDirectories(dir.resolve("refs").resolve("branches"));
+        if (!Repository.open(dir, objectsDir, upgrader).refs().compareAndSet(Repository.MAIN, null, head))
+          throw new IOException("main 已存在");
+        done.complete(null);
+      } catch (Throwable t) {
+        done.completeExceptionally(t);
+      }
+    });
+    return done;
+  }
+
+  /** 複製資料夾，已有的檔案跳過。{@code link} 時用硬連結（物件不會被改寫），不支援時才複製。 */
+  private static void copyTree(Path from, Path to, boolean link) throws IOException {
+    if (!Files.isDirectory(from)) return;
+    try (var walk = Files.walk(from)) {
+      for (var p : walk.toList()) {
+        var target = to.resolve(from.relativize(p).toString());
+        if (Files.isDirectory(p)) Files.createDirectories(target);
+        else if (!Files.exists(target)) {
+          if (link)
+            try {
+              Files.createLink(target, p);
+              continue;
+            } catch (IOException | UnsupportedOperationException e) {
+              // 不同的檔案系統：複製
+            }
+          Files.copy(p, target);
+        }
+      }
+    }
+  }
+
+  /**
    * 建築世界：載入它的主世界（主執行緒）。產生器、種子、維度類型照 {@code repo.yml}；世界資料夾不在時以起點世界＋最新存檔合成，
    * 和草稿一樣。剛建立的世界把已經生成的 chunk 補進起點世界：它們在掛上追蹤之前生成，沒有經過 {@link #newChunk}。
    */
@@ -596,7 +650,8 @@ public final class Workspace {
     return names;
   }
 
-  private void closeRepo() {
+  /** 關閉版本庫（主執行緒），不動追蹤器。 */
+  void closeRepo() {
     for (var world : List.copyOf(views.keySet())) if (loaded(world)) discardWorld(world, null);
     views.clear();
     worktrees.values().forEach(Worktree::close);

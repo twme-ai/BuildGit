@@ -67,6 +67,8 @@ public final class WorldConfig {
   public boolean visitorInteract;
   /** 背包隔離（03-worlds §2.2）；伺服器設定 {@code separate-inventories} 時一律隔離。 */
   public boolean inventory;
+  /** 訪客能不能 fork（公開時才有訪客）。 */
+  public boolean allowFork = true;
   /** 世界邊界的邊長；0 是伺服器的預設（{@code player-worlds.border}）。 */
   public int border;
   public double borderX, borderZ;
@@ -80,6 +82,9 @@ public final class WorldConfig {
   /** 清單上的圖示（物品 id）；沒有時是 null（草方塊）。 */
   public String icon;
   public final Map<UUID, Member> members = new LinkedHashMap<>();
+  /** fork 的來源（世界 id）與當時來源 main 的存檔；從範本建立的不顯示「複製自」。 */
+  public String forkId, forkCommit;
+  public boolean forkTemplate;
 
   // ---- 名稱 ----
 
@@ -199,6 +204,7 @@ public final class WorldConfig {
       c.visitorMode = mode(y.getString("settings.visitor-mode"), VISITOR_MODES, GameType.SPECTATOR);
       c.visitorInteract = y.getBoolean("settings.visitor-interact", false);
       c.inventory = y.getBoolean("settings.inventory", false);
+      c.allowFork = y.getBoolean("settings.allow-fork", true);
       c.border = Math.max(0, y.getInt("settings.border.size", 0));
       c.borderX = num(y.get("settings.border.x"));
       c.borderZ = num(y.get("settings.border.z"));
@@ -212,6 +218,9 @@ public final class WorldConfig {
     var icon = y.getString("icon");
     // 物品 id 會隨版本改名（例如 grass 改成 short_grass），照存檔時的版本升級
     c.icon = icon == null ? null : upgrader.itemId(icon, from);
+    c.forkId = y.getString("fork.source");
+    c.forkCommit = y.getString("fork.commit");
+    c.forkTemplate = y.getBoolean("fork.template", false);
     if (y.get("members") instanceof Map<?, ?> members)
       for (var e : members.entrySet()) {
         try {
@@ -267,6 +276,7 @@ public final class WorldConfig {
     y.set("settings.visitor-mode", visitorMode.getName());
     y.set("settings.visitor-interact", visitorInteract);
     y.set("settings.inventory", inventory);
+    y.set("settings.allow-fork", allowFork);
     if (border > 0) {
       y.set("settings.border.size", border);
       y.set("settings.border.x", borderX);
@@ -284,6 +294,11 @@ public final class WorldConfig {
     y.set("display-name", displayName);
     y.set("description", description);
     y.set("icon", icon);
+    if (forkId != null) {
+      y.set("fork.source", forkId);
+      y.set("fork.commit", forkCommit);
+      y.set("fork.template", forkTemplate ? true : null);
+    }
     for (var e : members.entrySet()) {
       y.set("members." + e.getKey() + ".name", e.getValue().name());
       y.set("members." + e.getKey() + ".role", key(e.getValue().role()));
