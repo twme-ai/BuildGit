@@ -102,7 +102,7 @@ final class Menu {
       var it = shown.get(i);
       items.add(new Platform.MenuItem(i, it.item(), it.name(), it.lore(), it.action()));
     }
-    platform.openMenu(p, msg.get("menu-title"), items);
+    platform.openMenu(p, msg.get("menu-title", "world", ws.label()), items);
   }
 
   /**
@@ -285,7 +285,7 @@ final class Menu {
     for (int c = 36; c < 45; c++) if (c != 40 && c != 41) items.add(divider(c));
     items.add(new Platform.MenuItem(40, "player_head", msg.get("settings-members"), msg.get("settings-members-lore"), "world members"));
     items.add(new Platform.MenuItem(41, "paper", msg.get("settings-submissions"), msg.get("settings-submissions-lore"), "world submissions"));
-    bg.platform().openMenu(p, msg.get("settings-title"), items);
+    bg.platform().openMenu(p, msg.get("settings-title", "world", ws.label()), items);
   }
 
   /** {@code /bg world submissions}：還沒處理的提出，點一下進去看（和草稿一樣）。最多 36 個。 */
@@ -357,7 +357,7 @@ final class Menu {
     if (here.buildWorld() != null && (role == WorldConfig.Role.OWNER || role == WorldConfig.Role.MANAGER || realms.admin(p)))
       put(items, bottom + 7, "comparator", "menu-world-settings", "world settings", p, null);
     if (here.buildWorld() != null) put(items, bottom + 8, "oak_door", "worlds-home", "home", p, null);
-    bg.platform().openMenu(p, msg.get("worlds-title"), items);
+    bg.platform().openMenu(p, msg.get("worlds-title", "tab", msg.get("worlds-tab-" + tab)), items);
   }
 
   /** 清單上的一個世界：圖示、顯示名稱、名稱、簡介、擁有者與自己的角色、人數、最後存檔。 */
@@ -440,7 +440,7 @@ final class Menu {
     for (int x = 36; x < 45; x++) if (x != 40 || server) items.add(divider(x));
     // 伺服器世界沒有設定選單
     if (!server) items.add(new Platform.MenuItem(40, "oak_door", msg.get("members-menu-back"), (List<Component>) null, "world settings"));
-    bg.platform().openMenu(p, msg.get("members-menu-title"), items);
+    bg.platform().openMenu(p, msg.get("members-menu-title", "world", ws.label()), items);
   }
 
   /** 一位成員：設成建造者、管理者（只有擁有者能設），或移出成員。 */
@@ -459,7 +459,7 @@ final class Menu {
     items.add(new Platform.MenuItem(24, "barrier", msg.get("members-menu-remove"), msg.get("members-menu-remove-lore"), "world members remove " + m.name() + " menu"));
     for (int x = 36; x < 45; x++) if (x != 40) items.add(divider(x));
     items.add(new Platform.MenuItem(40, "oak_door", msg.get("members-menu-back-list"), (List<Component>) null, "world members"));
-    bg.platform().openMenu(p, msg.get("members-menu-title"), items);
+    bg.platform().openMenu(p, msg.get("member-menu-title", "player", m.name(), "world", ws.label()), items);
   }
 
   private void label(List<Platform.MenuItem> items, int slot, String item, String key) {
