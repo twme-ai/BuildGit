@@ -100,6 +100,8 @@ public final class Workspace {
   private Map<String, String> draftFolders;
   /** 建築世界照範本命名的檢視世界（views.yml），下次開啟時清掉沒載入的。 */
   private final Set<String> viewFolders = new HashSet<>();
+  /** 這次執行裡刪掉的草稿的資料夾（還在延遲刪除時，同名重建不算撞到別人的）。 */
+  private final Set<String> retiredFolders = new HashSet<>();
   private final Map<String, RegionSynthesizer> synthesizers = new LinkedHashMap<>(16, 0.75f, true) {
     @Override
     protected boolean removeEldestEntry(Map.Entry<String, RegionSynthesizer> eldest) {
@@ -1166,11 +1168,11 @@ public final class Workspace {
       var world = worldName(name, dim);
       if (platform.findLevel(world) == null) deleteLater(platform.levelFolder(world));
     }
-    deleteLater(dir.resolve("worktree").resolve(name));
+    deleteLater(dir.resolve("worktree").resolve(name), () -> worktrees.containsKey(name));
     repo.deleteBranch(name);
     yaml.set(name, null);
     yaml.save(branchesPath());
-    if (draftFolders != null) draftFolders.remove(name);
+    if (draftFolders != null && draftFolders.remove(name) instanceof String folder) retiredFolders.add(folder);
   }
 
   /**
@@ -1205,7 +1207,7 @@ public final class Workspace {
 
   /** 建築世界的草稿、衝突整合的資料夾。 */
   boolean isBranchFolder(String name) {
-    return world != null && (name.startsWith(world.folder() + "-") || draftFolders().containsValue(name));
+    return world != null && (name.startsWith(world.folder() + "-") || draftFolders().containsValue(name) || retiredFolders.contains(name));
   }
 
   /** 這個版本庫的檢視世界的資料夾。 */
@@ -1341,7 +1343,7 @@ public final class Workspace {
   }
 
   /**
-   * 第一次有人進來時決定出生點（主執行緒呼叫，在主執行緒完成）：虛空世界在腳下放一格方塊，存成第一個存檔；
+   * 第一次有人進來時決定出生點（主執行緒呼叫，在主執行緒完成）：虛空世界（那一柱是空的時）在腳下放一格方塊，存成第一個存檔；
    * 其他地形找 (0, 0) 那一柱站得住的地方。決定後記在 {@code repo.yml}。
    */
   CompletableFuture<WorldConfig.Spawn> spawn(Author author, String message) {
@@ -1356,7 +1358,8 @@ public final class Workspace {
     platform.loadChunk(level, 0, 0).thenAccept(chunk -> sync(() -> {
       try {
         int y;
-        if (config.terrain == WorldConfig.Terrain.VOID) {
+        // 虛空世界在腳下放一格方塊；匯入、上傳的世界 (0, 0) 已經有東西時直接站上去，不改原本的建築
+        if (config.terrain == WorldConfig.Terrain.VOID && level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0) <= level.getMinY()) {
           var pos = new net.minecraft.core.BlockPos(0, 63, 0);
           var state = net.minecraft.commands.arguments.blocks.BlockStateParser.parseForBlock(
               net.minecraft.core.registries.BuiltInRegistries.BLOCK, config.block == null ? "minecraft:stone" : config.block, false).blockState();
@@ -1411,6 +1414,9 @@ public final class Workspace {
   String viewName(ObjectId commit, String dimension) throws IOException {
     if (world == null) return viewPrefix() + commit.hex().substring(0, 10) + suffix(dimension);
     var name = registry.levelFolder(world, "view-world-name", "{commit}", commit.hex().substring(0, 10));
+    // 不能接管別的世界：同名的世界或資料夾不是這裡開過的檢視世界就拒絕
+    if (!isViewFolder(name) && (platform.findLevel(name) != null || Files.exists(platform.levelFolder(name))))
+      throw new Refused("已經有叫 " + name + " 的世界或資料夾，不能當檢視世界（請管理員調整 player-worlds.view-world-name）");
     if (!name.startsWith(viewPrefix()) && viewFolders.add(name)) {
       var y = new Yaml();
       y.set("folders", List.copyOf(viewFolders));
@@ -1480,13 +1486,38 @@ public final class Workspace {
   }
 
   /** 稍後在背景刪除資料夾（等伺服器關閉檔案）。 */
+  /** 世界卸載後過 20 刻刪掉它的資料夾（主執行緒呼叫）；那時又有載入中的世界用到它（同名的草稿、檢視世界重新開了）就不刪。 */
   private void deleteLater(Path folder) {
-    platform.asyncLater(20, () -> {
+    var target = folder.toAbsolutePath().normalize();
+    deleteLater(folder, () -> {
+      for (var level : platform.server().getAllLevels())
+        if (platform.levelDirectory(level).toAbsolutePath().normalize().startsWith(target)) return true;
+      return false;
+    });
+  }
+
+  /**
+   * 過 20 刻刪掉 {@code folder}：到時在主執行緒看 {@code inUse}，還在用就不刪；不然先改成不會重複的名稱再在背景刪，
+   * 之後才建的同名資料夾不會被刪到。
+   */
+  private void deleteLater(Path folder, java.util.function.BooleanSupplier inUse) {
+    platform.later(20, () -> {
+      if (inUse.getAsBoolean() || !Files.exists(folder)) return;
+      Path doomed = folder;
       try {
-        deleteRecursively(folder);
+        doomed = folder.resolveSibling(folder.getFileName() + ".deleting-" + System.nanoTime());
+        Files.move(folder, doomed);
       } catch (IOException e) {
-        log().log(Level.WARNING, "無法刪除 " + folder, e);
+        doomed = folder;
       }
+      var path = doomed;
+      platform.async(() -> {
+        try {
+          deleteRecursively(path);
+        } catch (IOException e) {
+          log().log(Level.WARNING, "無法刪除 " + path, e);
+        }
+      });
     });
   }
 

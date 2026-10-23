@@ -6,6 +6,7 @@ import dev.twme.buildgit.core.model.Box;
 import dev.twme.buildgit.core.model.Cell;
 import dev.twme.buildgit.core.model.EntityState;
 import dev.twme.buildgit.core.overlay.ThreeWayMerge;
+import dev.twme.buildgit.core.overlay.TreeDiff;
 import dev.twme.buildgit.core.repo.Commit;
 import dev.twme.buildgit.core.repo.Repository;
 import dev.twme.buildgit.core.store.ObjectId;
@@ -57,6 +58,10 @@ public final class MergeSessions {
   private final Workspace ws;
   private final Map<String, Session> sessions = new LinkedHashMap<>();
   private final Map<String, ThreeWayMerge.Result> results = new ConcurrentHashMap<>();
+  /** 每個整合用 take 處理過的範圍（null 是全部，主執行緒）；記在 merge/<id>.yml，算還剩幾處衝突用。 */
+  private final Map<String, List<Workspace.Scope>> taken = new HashMap<>();
+  /** HUD 用：上次算出還剩幾處衝突與算的時間（毫秒）。 */
+  private final Map<String, long[]> left = new ConcurrentHashMap<>();
 
   MergeSessions(Workspace ws) {
     this.ws = ws;
@@ -83,7 +88,18 @@ public final class MergeSessions {
               ObjectId.parse(y.getString("base")), ObjectId.parse(y.getString("ours")), ObjectId.parse(y.getString("theirs")), scope,
               ObjectId.parse(y.getString("start")));
           if (ws.repo().refs().get(session.branch()).isEmpty()) Files.delete(f);
-          else sessions.put(session.id(), session);
+          else {
+            sessions.put(session.id(), session);
+            // 舊版沒有記 taken
+            var scopes = new ArrayList<Workspace.Scope>();
+            for (var t : y.getStringList("taken")) {
+              var w = t.split(" ");
+              if (w.length == 1) scopes.add(null);
+              else scopes.add(new Workspace.Scope(w[0], new Box(Integer.parseInt(w[1]), Integer.parseInt(w[2]), Integer.parseInt(w[3]),
+                  Integer.parseInt(w[4]), Integer.parseInt(w[5]), Integer.parseInt(w[6]))));
+            }
+            taken.put(session.id(), scopes);
+          }
         } catch (RuntimeException e) {
           ws.log().log(Level.WARNING, "無法讀取進行中的衝突整合 " + f, e);
         }
@@ -107,6 +123,15 @@ public final class MergeSessions {
       y.set("scope-dimension", s.scope().dimension());
       y.set("box", List.of(b.minX(), b.minY(), b.minZ(), b.maxX(), b.maxY(), b.maxZ()));
     }
+    var scopes = new ArrayList<String>();
+    for (var t : taken.getOrDefault(s.id(), List.of())) {
+      if (t == null) scopes.add("all");
+      else {
+        var b = t.box();
+        scopes.add(t.dimension() + " " + b.minX() + " " + b.minY() + " " + b.minZ() + " " + b.maxX() + " " + b.maxY() + " " + b.maxZ());
+      }
+    }
+    if (!scopes.isEmpty()) y.set("taken", scopes);
     y.save(dir().resolve(s.id() + ".yml"));
   }
 
@@ -155,6 +180,70 @@ public final class MergeSessions {
         throw new UncheckedIOException(e);
       }
     }, ws::async);
+  }
+
+  /**
+   * 還沒處理過的衝突數（主執行緒呼叫）：整合開始後沒改過、也沒用 take 選過一邊的衝突格與實體。
+   * 選了和原本一樣的內容也算處理過；只是看過、沒動手的不算。
+   */
+  CompletableFuture<Integer> untouched(Session s) {
+    var scopes = new ArrayList<>(taken.getOrDefault(s.id(), List.of()));
+    if (scopes.contains(null)) return CompletableFuture.completedFuture(0);
+    Worktree scratch;
+    try {
+      scratch = ws.openBranch(s.branch());
+    } catch (IOException e) {
+      return CompletableFuture.failedFuture(e);
+    }
+    var done = new CompletableFuture<Integer>();
+    result(s).thenApplyAsync(result -> {
+      try {
+        // 已經存進整合分支的修改
+        var repo = ws.repo();
+        var diff = TreeDiff.collect(repo.overlays(), repo.commit(s.start()).tree(), repo.commit(repo.head(s.branch())).tree());
+        var changed = new HashSet<String>();
+        for (var c : diff.cells()) changed.add(c.dimension() + " " + c.pos());
+        for (var e : diff.entities()) changed.add(e.dimension() + " " + e.uuid());
+        var cells = new ArrayList<ThreeWayMerge.CellConflict>();
+        for (var c : result.cellConflicts())
+          if (!changed.contains(c.dimension() + " " + c.pos()) && scopes.stream().noneMatch(t -> t.dimension().equals(c.dimension()) && t.box().contains(c.pos())))
+            cells.add(c);
+        var entities = new ArrayList<ThreeWayMerge.EntityConflict>();
+        for (var e : result.entityConflicts()) {
+          if (changed.contains(e.dimension() + " " + e.uuid())) continue;
+          var at = java.util.stream.Stream.of(e.ours(), e.theirs(), e.base()).filter(o -> o != null && o.isPresent() && o.get().position() != null)
+              .map(o -> o.get().position()).findFirst().orElse(null);
+          if (at == null || scopes.stream().noneMatch(t -> t.dimension().equals(e.dimension()) && t.box().contains(at[0], at[1], at[2])))
+            entities.add(e);
+        }
+        return Map.entry(cells, entities);
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }, ws::async).whenComplete((found, error) -> ws.sync(() -> {
+      if (error != null) {
+        done.completeExceptionally(Workspace.unwrap(error));
+        return;
+      }
+      // 還沒存檔的修改
+      var table = scratch.table();
+      int n = 0;
+      for (var c : found.getKey()) if (!table.isMarked(c.dimension(), c.pos())) n++;
+      for (var e : found.getValue()) if (table.entityAuthor(e.dimension(), e.uuid()) == null) n++;
+      left.put(s.id(), new long[] {n, System.currentTimeMillis()});
+      done.complete(n);
+    }));
+    return done;
+  }
+
+  /** HUD 用（主執行緒）：上次算的剩餘衝突數，還沒算過時是 -1；超過幾秒就在背景重算。 */
+  int untouchedNow(Session s) {
+    var v = left.get(s.id());
+    if (v == null || System.currentTimeMillis() - v[1] > 5000) {
+      left.put(s.id(), new long[] {v == null ? -1 : v[0], System.currentTimeMillis()});
+      untouched(s);
+    }
+    return v == null ? -1 : (int) v[0];
   }
 
   /** 相鄰（含斜角）的衝突格分成一群，大的在前。 */
@@ -341,8 +430,18 @@ public final class MergeSessions {
             })));
       }
       CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((x, e) -> ws.sync(() -> {
-        if (e != null) failed.accept(Workspace.unwrap(e));
-        else done.accept(values.getKey().size() + values.getValue().size());
+        if (e != null) {
+          failed.accept(Workspace.unwrap(e));
+          return;
+        }
+        taken.computeIfAbsent(s.id(), k -> new ArrayList<>()).add(scope);
+        left.remove(s.id());
+        try {
+          save(s);
+        } catch (IOException ex) {
+          ws.log().log(Level.WARNING, "無法記下衝突整合 " + s.id() + " 處理過的範圍", ex);
+        }
+        done.accept(values.getKey().size() + values.getValue().size());
       }));
     }));
   }
@@ -391,6 +490,8 @@ public final class MergeSessions {
   void discard(Session s) {
     sessions.remove(s.id());
     results.remove(s.id());
+    taken.remove(s.id());
+    left.remove(s.id());
     try {
       Files.deleteIfExists(dir().resolve(s.id() + ".yml"));
     } catch (IOException e) {

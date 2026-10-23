@@ -122,6 +122,11 @@ public final class BgCommand {
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("home", null, (s, a) -> home(s), null);
     sub("worlds", null, this::worlds, (s, b) -> b.isEmpty() ? Menu.WORLD_TABS : List.of());
+    // 只打 /bg 也是選單；menu <頁> 給草稿清單翻頁
+    sub("menu", "buildgit.menu", (s, a) -> {
+      var p = player(s);
+      if (p != null) bg.menu().open(p, a.length > 0 ? Math.max(1, number(a[0])) : 1);
+    }, null);
     sub("world", null, this::world, (s, b) -> b.isEmpty() ? List.of("settings", "members", "submissions", "visibility", "rename", "transfer", "delete", "undelete", "unlist", "relist", "template")
         : b.size() == 1 && b.getFirst().equals("transfer") ? onlineNames()
         : b.size() == 1 && b.getFirst().equals("undelete") ? deletedNames(s)
@@ -1663,7 +1668,7 @@ public final class BgCommand {
     switch (what) {
       case "list" -> {
         if (!sender.hasPermission("buildgit.branch.list")) {
-          msg().send(sender, "no-permission");
+          msg().send(sender, "no-permission", "node", "buildgit.branch.list");
           return;
         }
         var dim = flags(args).contains("--all") ? null : here(sender);
@@ -1680,7 +1685,7 @@ public final class BgCommand {
       }
       case "create" -> {
         if (!sender.hasPermission("buildgit.branch.create")) {
-          msg().send(sender, "no-permission");
+          msg().send(sender, "no-permission", "node", "buildgit.branch.create");
           return;
         }
         if (w.size() < 2) {
@@ -1700,7 +1705,7 @@ public final class BgCommand {
       }
       case "delete" -> {
         if (!sender.hasPermission("buildgit.branch.delete")) {
-          msg().send(sender, "no-permission");
+          msg().send(sender, "no-permission", "node", "buildgit.branch.delete");
           return;
         }
         if (w.size() < 2 || w.get(1).equals(Repository.MAIN) || !ws.drafts().containsKey(w.get(1))) {
@@ -1727,9 +1732,31 @@ public final class BgCommand {
     return s;
   }
 
+  /** 完成衝突整合（{@code /bg merge continue}）。 */
+  private void finishMerge(Workspace ws, Sender sender, MergeSessions.Session s) throws IOException {
+    msg().send(sender, "merge-finishing");
+    progress(sender, ws.openBranch(s.target()).progress(), "progress-merge-finish");
+    ws.merges().finish(s, author(sender), applied -> {
+      done(sender);
+      if (applied.isEmpty()) msg().send(sender, "merge-finished-empty", "target", branchLabel(s.target()));
+      else {
+        var a = applied.get();
+        msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
+            branchLabel(s.target()));
+        if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
+        if (s.source() != null && s.source().startsWith(Workspace.SUBMIT_PREFIX)) bg.platform().later(40, () -> bg.submissions().settle(ws));
+      }
+    }, e -> {
+      done(sender);
+      if (e instanceof Workspace.ConflictException c)
+        msg().send(sender, "merge-target-moved", "count", c.result.cellConflicts().size() + c.result.entityConflicts().size());
+      else failed(sender, e);
+    });
+  }
+
   private boolean mayResolve(Sender sender) {
     if (anyPermission(sender, "buildgit.merge.resolve|buildgit.merge|buildgit.publish|buildgit.revert")) return true;
-    msg().send(sender, "no-permission");
+    msg().send(sender, "no-permission", "node", "buildgit.merge.resolve");
     return false;
   }
 
@@ -1827,26 +1854,26 @@ public final class BgCommand {
       }
       case "continue" -> {
         if (!mayResolve(sender)) return;
-        var s = session(sender, w);
+        boolean confirm = w.getLast().equals("confirm");
+        var s = session(sender, confirm ? w.subList(0, w.size() - 1) : w);
         if (s == null) return;
-        msg().send(sender, "merge-finishing");
-        progress(sender, ws.openBranch(s.target()).progress(), "progress-merge-finish");
-        ws.merges().finish(s, author(sender), applied -> {
-          done(sender);
-          if (applied.isEmpty()) msg().send(sender, "merge-finished-empty", "target", branchLabel(s.target()));
-          else {
-            var a = applied.get();
-            msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
-                branchLabel(s.target()));
-            if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
-            if (s.source() != null && s.source().startsWith(Workspace.SUBMIT_PREFIX)) bg.platform().later(40, () -> bg.submissions().settle(ws));
-          }
-        }, e -> {
-          done(sender);
-          if (e instanceof Workspace.ConflictException c)
-            msg().send(sender, "merge-target-moved", "count", c.result.cellConflicts().size() + c.result.entityConflicts().size());
-          else failed(sender, e);
-        });
+        if (!confirm) {
+          // 還有沒動過的衝突時先問一次（衝突格預設是目標分支的內容，直接完成就是保留目標的）
+          ws.merges().untouched(s).whenComplete((n, e) -> {
+            if (e != null) failed(sender, e);
+            else if (n > 0) {
+              msg().send(sender, "merge-unresolved", "count", n);
+              sendButton(sender, "merge-continue-anyway", "/bg merge continue " + s.id() + " confirm");
+            }
+            else try {
+              finishMerge(ws, sender, s);
+            } catch (IOException | RuntimeException ex) {
+              failed(sender, ex);
+            }
+          });
+          return;
+        }
+        finishMerge(ws, sender, s);
       }
       case "abort" -> {
         if (!mayResolve(sender)) return;
@@ -1858,7 +1885,7 @@ public final class BgCommand {
       default -> {
         // merge <分支>：把它合併進目前所在的分支（底層指令）。
         if (!sender.hasPermission("buildgit.merge")) {
-          msg().send(sender, "no-permission");
+          msg().send(sender, "no-permission", "node", "buildgit.merge");
           return;
         }
         var target = current(sender);
@@ -2145,15 +2172,48 @@ public final class BgCommand {
       throw new Workspace.Refused("只有這個世界的擁有者與管理者能提出");
     var wt = ws.worktree(p.level());
     if (wt == null || Workspace.isScratch(wt.branch())) throw new Workspace.Refused("要在主世界或草稿裡提出");
-    var message = String.join(" ", args).strip();
+    // --save：先存檔再提出；--last：不管沒存檔的，送最後一次存檔。都沒給又有沒存檔的改動時先問
+    var words = new ArrayList<>(List.of(args));
+    boolean saveFirst = words.remove("--save"), lastSave = words.remove("--last");
+    var message = String.join(" ", words).strip();
     if (message.codePointCount(0, message.length()) > SUBMIT_MESSAGE_MAX) throw new Workspace.Refused("說明最多 " + SUBMIT_MESSAGE_MAX + " 個字");
     if (message.chars().anyMatch(ch -> ch == '§' || Character.isISOControl(ch))) throw new Workspace.Refused("不能有格式碼或控制字元");
-    if (!wt.table().isEmpty()) msg().send(sender, "submit-unsaved");
-    msg().send(sender, "submit-sending");
-    bg.submissions().submit(p, ws, wt.branch(), message).whenComplete((branch, ex) -> {
-      if (ex != null) msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
-      else msg().send(sender, "submit-sent", "branch", branch, "world", bg.worlds().byId(ws.config().forkId).label());
+    if (!wt.table().isEmpty() && !saveFirst && !lastSave) {
+      var rest = message.isEmpty() ? "" : " " + message;
+      msg().send(sender, "submit-unsaved");
+      sender.send(button("submit-save-first", "/bg submit --save" + rest).append(Component.text(" ")).append(button("submit-last-save", "/bg submit --last" + rest)));
+      return;
+    }
+    Runnable send = () -> {
+      msg().send(sender, "submit-sending");
+      try {
+        bg.submissions().submit(p, ws, wt.branch(), message).whenComplete((branch, ex) -> {
+          if (ex != null) msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+          else msg().send(sender, "submit-sent", "branch", branch, "world", bg.worlds().byId(ws.config().forkId).label());
+        });
+      } catch (IOException | RuntimeException e) {
+        failed(sender, e);
+      }
+    };
+    if (!saveFirst || wt.table().isEmpty()) {
+      send.run();
+      return;
+    }
+    msg().send(sender, "save-start");
+    progress(sender, wt.progress(), "progress-save");
+    boolean started = wt.save(author(sender), message.isBlank() ? "submit" : message, 0, r -> {
+      done(sender);
+      r.commit().ifPresent(id -> msg().send(sender, "save-done", "id", id.abbrev(), "cells", r.cells(), "entities", r.entities()));
+      send.run();
+    }, e -> {
+      done(sender);
+      bg.platform().log().log(Level.WARNING, "存檔失敗", e);
+      msg().send(sender, "save-failed", "error", String.valueOf(e.getMessage()));
     });
+    if (!started) {
+      done(sender);
+      msg().send(sender, "save-busy");
+    }
   }
 
   /** {@code /bg world submissions [list|reject <分支> [理由]]}：來源世界的擁有者與管理者處理提出。不帶參數開選單。 */
@@ -2663,7 +2723,7 @@ public final class BgCommand {
       case "member-mode", "visitor-mode" -> {
         var allowed = key.equals("member-mode") ? WorldConfig.MEMBER_MODES : WorldConfig.VISITOR_MODES;
         var mode = net.minecraft.world.level.GameType.byName(value, null);
-        if (!allowed.contains(mode)) throw badValue(key);
+        if (mode == null || !allowed.contains(mode)) throw badValue(key);
         if (key.equals("member-mode")) c.memberMode = mode;
         else c.visitorMode = mode;
         modes = true;

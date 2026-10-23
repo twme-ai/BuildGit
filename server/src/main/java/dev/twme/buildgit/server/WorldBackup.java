@@ -136,12 +136,14 @@ final class WorldBackup {
         }
         scan(server, server.resolve(root), p -> true, prep.excluded(), matchers, index, prevEntries, sameStorage, staging, kept, changed);
       }
-      // 版本庫的狀態（分支指向、還沒存檔的標記）：還原時世界和版本紀錄對得上
+      // 版本庫的狀態（分支指向、還沒存檔的標記）：還原時世界和版本紀錄對得上。
+      // 背包隔離收起來的背包與切換狀態（players/）和世界裡的玩家資料一起備份，還原後兩邊是同一個時間點
       var repoDir = platform.repoDir().toAbsolutePath().normalize();
       if (bg.workspace().isOpen() && repoDir.startsWith(server)) {
         var main = repoDir.resolve("worktree").resolve(Repository.MAIN);
         var refs = repoDir.resolve("refs");
-        scan(server, repoDir, p -> p.startsWith(refs) || p.startsWith(main) || p.getParent().equals(repoDir)
+        var players = repoDir.resolve("players");
+        scan(server, repoDir, p -> p.startsWith(refs) || p.startsWith(main) || p.startsWith(players) || p.getParent().equals(repoDir)
             && List.of("branches.yml", "data-version", "players.yml").contains(p.getFileName().toString()),
             Set.of(), List.of(), index, prevEntries, sameStorage, staging, kept, changed);
       }

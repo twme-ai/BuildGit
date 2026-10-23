@@ -120,12 +120,17 @@ final class Inventories {
   }
 
   static CompoundTag read(Path file) {
-    if (!Files.isRegularFile(file)) return null;
     try {
-      return NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
+      return load(file);
     } catch (IOException e) {
       return null;
     }
+  }
+
+  /** 檔案不存在時是 null；讀不懂（損毀）時丟出例外，和「沒有」分開。 */
+  static CompoundTag load(Path file) throws IOException {
+    if (!Files.isRegularFile(file)) return null;
+    return NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
   }
 
   static void write(Path file, CompoundTag tag) throws IOException {

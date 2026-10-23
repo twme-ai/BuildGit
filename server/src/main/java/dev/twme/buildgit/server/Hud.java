@@ -68,6 +68,7 @@ public final class Hud {
         var cached = ws.merges().result(session).getNow(null);
         text = msg.get("hud-merge", "source", session.source() == null ? session.base().abbrev() : session.source(), "target", session.target(),
             "conflicts", cached == null ? "?" : String.valueOf(cached.cellConflicts().size() + cached.entityConflicts().size()),
+            "left", cached == null ? "?" : left(ws.merges().untouchedNow(session)),
             "cells", wt.table().cellCount());
         color = Platform.BarColor.RED;
       } else if (view != null) {
@@ -112,6 +113,10 @@ public final class Hud {
       bg.messages().send(bg.platform().sender(p), key);
     }
     return true;
+  }
+
+  private static String left(int n) {
+    return n < 0 ? "?" : String.valueOf(n);
   }
 
   private static boolean mechanism(net.minecraft.world.level.block.state.BlockState s) {

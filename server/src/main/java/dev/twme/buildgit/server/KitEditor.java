@@ -14,6 +14,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
@@ -43,6 +45,16 @@ final class KitEditor {
     for (int i = 0; i < gear.length; i++) SLOTS[36 + i] = gear[i];
   }
 
+  /** 正在編輯的起始物品檔 → 誰開著哪個箱子（主執行緒）。同一份只能一個人編輯，不然兩人各拿走一份就多出物品。 */
+  private static final java.util.Map<java.nio.file.Path, Editing> EDITING = new java.util.HashMap<>();
+
+  private record Editing(ServerPlayer player, AbstractContainerMenu menu) {
+    /** 那個人已經離線或關掉了（沒收到關閉時也不會一直鎖著）。 */
+    boolean stale() {
+      return player.hasDisconnected() || player.containerMenu != menu;
+    }
+  }
+
   /** 編輯箱用的箱子（認出哪些格子要鎖住）。 */
   private static final class Box extends SimpleContainer {
     Box() {
@@ -54,7 +66,12 @@ final class KitEditor {
   static void open(BuildGit bg, ServerPlayer p, Workspace ws, boolean visitor, boolean menu) {
     var msg = bg.messages();
     var key = visitor ? "kit-visitor" : "kit-member";
-    var file = ws.kitFile(visitor);
+    var file = ws.kitFile(visitor).toAbsolutePath().normalize();
+    var other = EDITING.get(file);
+    if (other != null && !other.stale()) {
+      msg.send(bg.platform().sender(p), "kit-editing", "player", other.player().getScoreboardName());
+      return;
+    }
     var kit = Inventories.kit(p, file, bg.workspace().upgrader());
     var box = new Box();
     for (int i = 0; i < SLOTS.length; i++) {
@@ -64,6 +81,10 @@ final class KitEditor {
       else box.setItem(i, label(p, item("gray_stained_glass_pane"), Component.empty(), null));
     }
     p.openMenu(new SimpleMenuProvider((id, inventory, player) -> new ChestMenu(MenuType.GENERIC_9x6, id, inventory, box, 6) {
+      {
+        EDITING.put(file, new Editing(p, this));
+      }
+
       @Override
       protected Slot addSlot(Slot slot) {
         if (slot.container instanceof Box && SLOTS[slot.getContainerSlot()] < 0)
@@ -84,14 +105,20 @@ final class KitEditor {
       @Override
       public void removed(Player player) {
         super.removed(player);
+        var editing = EDITING.get(file);
+        if (editing != null && editing.menu() == this) EDITING.remove(file);
         var out = new SimpleContainer(Inventories.SLOTS);
         for (int i = 0; i < SLOTS.length; i++) if (SLOTS[i] >= 0) out.setItem(SLOTS[i], box.getItem(i));
         try {
           Inventories.writeKit(p, file, out);
         } catch (IOException e) {
-          // 存不了時箱子裡的物品放回玩家的背包（放不下的會不見）
+          // 存不了時箱子裡的物品放回玩家的背包，放不下的掉在腳下
           bg.platform().log().log(Level.WARNING, "無法存下 " + ws.label() + " 的起始物品", e);
-          for (int i = 0; i < out.getContainerSize(); i++) p.getInventory().add(out.getItem(i));
+          for (int i = 0; i < out.getContainerSize(); i++) {
+            var stack = out.getItem(i);
+            if (!stack.isEmpty()) p.getInventory().add(stack); // 放得下的部分從 stack 扣掉
+            if (!stack.isEmpty()) p.level().addFreshEntity(new ItemEntity(p.level(), p.getX(), p.getY(), p.getZ(), stack));
+          }
           msg.send(bg.platform().sender(p), "kit-save-failed");
           return;
         }

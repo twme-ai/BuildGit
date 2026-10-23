@@ -247,35 +247,52 @@ public final class BuildWorlds {
 
   /**
    * 把上傳的單人世界或伺服器上的世界建成建築世界（主執行緒，03-worlds §7）：和 {@link #create} 一樣，只是起點世界換成 {@code staged} 裡檢查過的
-   * {@code region}、{@code entities}，沒有歷史。
+   * {@code region}、{@code entities}，沒有歷史。先保留名稱，搬檔在背景（起點世界在別的磁碟時要整個複製），完成時（主執行緒）已登記。
    */
-  Workspace importWorld(String name, ServerPlayer owner, WorldConfig config, boolean admin, Path staged, String source) throws IOException {
+  java.util.concurrent.CompletableFuture<Workspace> importWorld(String name, ServerPlayer owner, WorldConfig config, boolean admin, Path staged,
+      String source) throws IOException {
     var ws = prepare(name, owner, admin);
     var e = ws.buildWorld();
     var to = ws.genesisDir(Workspace.OVERWORLD);
-    try {
-      Files.createDirectories(to);
-      for (var sub : List.of("region", "entities")) {
-        var from = staged.resolve(sub);
-        if (!Files.isDirectory(from)) continue;
-        try {
-          Files.move(from, to.resolve(sub));
-        } catch (IOException ex) {
-          // 不同的檔案系統
-          Workspace.copyTree(from, to.resolve(sub), false);
+    reserved.put(e.id(), e);
+    var done = new java.util.concurrent.CompletableFuture<Workspace>();
+    platform.async(() -> {
+      Throwable error = null;
+      try {
+        Files.createDirectories(to);
+        for (var sub : List.of("region", "entities")) {
+          var from = staged.resolve(sub);
+          if (!Files.isDirectory(from)) continue;
+          try {
+            Files.move(from, to.resolve(sub));
+          } catch (IOException ex) {
+            // 不同的檔案系統
+            Workspace.copyTree(from, to.resolve(sub), false);
+          }
         }
+      } catch (IOException | RuntimeException ex) {
+        error = ex;
       }
-      ws.create(tracker.author(owner), config);
-    } catch (IOException | RuntimeException ex) {
-      ws.closeRepo();
-      deleteTree(ws.dir());
-      deleteTree(ws.genesisRoot());
-      throw ex;
-    }
-    worlds.put(e.id(), ws);
-    save();
-    platform.log().info(source + "，建立了 " + owner.getScoreboardName() + " 的建築世界 " + e.label() + "（" + e.folder() + "）");
-    return ws;
+      var moved = error;
+      platform.sync(() -> {
+        reserved.remove(e.id());
+        try {
+          if (moved != null) throw moved;
+          ws.create(tracker.author(owner), config);
+          worlds.put(e.id(), ws);
+          save();
+          platform.log().info(source + "，建立了 " + owner.getScoreboardName() + " 的建築世界 " + e.label() + "（" + e.folder() + "）");
+          done.complete(ws);
+        } catch (Throwable ex) {
+          worlds.remove(e.id());
+          ws.closeRepo();
+          deleteTree(ws.dir());
+          deleteTree(ws.genesisRoot());
+          done.completeExceptionally(ex);
+        }
+      });
+    });
+    return done;
   }
 
   /**
@@ -401,6 +418,11 @@ public final class BuildWorlds {
       if (name.equals(other.folder()) || !other.id().equals(e.id()) && ws.ownsDraftFolder(name))
         throw new Workspace.Refused("世界資料夾 " + name + " 和建築世界 " + other.label() + " 的世界撞名");
     }
+    // 草稿不能接管不是這個世界的世界或資料夾（例如多世界插件的世界）；檢視世界由 Workspace#viewName 檢查
+    var self = worlds.get(e.id());
+    boolean ours = name.startsWith(e.folder() + "-") || self != null && self.ownsDraftFolder(name);
+    if (!key.equals("{commit}") && !ours && (platform.findLevel(name) != null || Files.exists(platform.levelFolder(name))))
+      throw new Workspace.Refused("已經有叫 " + name + " 的世界或資料夾，不能當草稿的資料夾（請管理員調整 player-worlds." + setting + "）");
     return name;
   }
 

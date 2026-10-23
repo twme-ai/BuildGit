@@ -283,7 +283,7 @@ public final class WorldConfig {
 
   private static GameType mode(String name, List<GameType> allowed, GameType fallback) {
     var m = GameType.byName(name == null ? "" : name, null);
-    return allowed.contains(m) ? m : fallback;
+    return m != null && allowed.contains(m) ? m : fallback;
   }
 
   private static double num(Object o) {

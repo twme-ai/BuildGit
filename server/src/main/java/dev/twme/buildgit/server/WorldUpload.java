@@ -16,6 +16,7 @@ import java.util.*;
 import java.util.logging.Level;
 import java.util.zip.ZipInputStream;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.GameMasterBlock;
 
@@ -157,18 +158,23 @@ final class WorldUpload {
       Files.delete(zip);
       bg.platform().sync(() -> {
         pending.remove(uuid);
-        var online = bg.platform().server().getPlayerList().getPlayer(uuid);
         try {
-          var ws = bg.worlds().importWorld(up.name, p, up.config, up.admin, staged, "上傳單人世界 " + up.save);
-          if (online != null) {
-            msg().send(bg.platform().sender(online), "world-uploaded", "save", up.save, "world", ws.label(), "chunks", result.chunks(),
-                "dropped", result.dropped());
-            bg.realms().enter(online, ws);
-          }
+          bg.worlds().importWorld(up.name, p, up.config, up.admin, staged, "上傳單人世界 " + up.save).whenComplete((ws, e) -> {
+            cleanup(tmp);
+            if (e != null) {
+              failed(uuid, up, Workspace.unwrap(e));
+              return;
+            }
+            var online = bg.platform().server().getPlayerList().getPlayer(uuid);
+            if (online != null) {
+              msg().send(bg.platform().sender(online), "world-uploaded", "save", up.save, "world", ws.label(), "chunks", result.chunks(),
+                  "dropped", result.dropped());
+              enter(online, ws);
+            }
+          });
         } catch (IOException | RuntimeException e) {
+          cleanup(tmp);
           failed(uuid, up, e);
-        } finally {
-          deleteTree(tmp);
         }
       });
     } catch (IOException | RuntimeException e) {
@@ -193,33 +199,56 @@ final class WorldUpload {
       dir = dir.resolve("dimensions/minecraft/overworld");
     if (!Files.isDirectory(dir.resolve("region"))) throw new Workspace.Refused(folder + " 裡沒有 region 資料夾，不是世界資料夾");
     bg.worlds().checkCreate(name, owner, true);
+    // 世界還載入著時先存檔，複製完之前不再自動存檔（不然 region 與 entities 可能是不同時間的）
     Runnable saved = () -> {};
+    ServerLevel live = null;
+    boolean noSave = false;
     for (var level : bg.platform().server().getAllLevels())
-      if (bg.platform().levelDirectory(level).toAbsolutePath().normalize().equals(dir)) saved = bg.platform().save(level);
+      if (bg.platform().levelDirectory(level).toAbsolutePath().normalize().equals(dir)) {
+        saved = bg.platform().save(level);
+        live = level;
+        noSave = level.noSave;
+        level.noSave = true;
+      }
     var source = dir;
     var wait = saved;
+    var paused = live;
+    boolean wasNoSave = noSave;
+    Runnable resume = () -> {
+      if (paused != null) paused.noSave = wasNoSave;
+    };
     var tmp = bg.platform().repoDir().resolve("uploads").resolve("import-" + UUID.randomUUID());
     msg().send(sender, "world-import-copying", "folder", folder);
     Thread.ofVirtual().name("BuildGit import " + folder).start(() -> {
       try {
         wait.run();
         var raw = tmp.resolve("raw");
-        for (var sub : List.of("region", "entities"))
-          if (Files.isDirectory(source.resolve(sub))) Workspace.copyTree(source.resolve(sub), raw.resolve(sub), false);
+        try {
+          for (var sub : List.of("region", "entities"))
+            if (Files.isDirectory(source.resolve(sub))) Workspace.copyTree(source.resolve(sub), raw.resolve(sub), false);
+        } finally {
+          bg.platform().sync(resume);
+        }
         var staged = tmp.resolve("staged");
         var result = check(raw, staged, true);
         bg.platform().sync(() -> {
           try {
-            var ws = bg.worlds().importWorld(name, owner, config, true, staged, "匯入伺服器上的世界 " + folder);
-            msg().send(sender, "world-imported", "folder", folder, "world", ws.label(), "chunks", result.chunks(), "dropped", result.dropped());
-            if (sender.player() instanceof ServerPlayer p && !p.isRemoved()) bg.realms().enter(p, ws);
+            bg.worlds().importWorld(name, owner, config, true, staged, "匯入伺服器上的世界 " + folder).whenComplete((ws, e) -> {
+              cleanup(tmp);
+              if (e != null) {
+                importFailed(sender, folder, Workspace.unwrap(e));
+                return;
+              }
+              msg().send(sender, "world-imported", "folder", folder, "world", ws.label(), "chunks", result.chunks(), "dropped", result.dropped());
+              if (sender.player() instanceof ServerPlayer p && !p.isRemoved()) enter(p, ws);
+            });
           } catch (IOException | RuntimeException e) {
+            cleanup(tmp);
             importFailed(sender, folder, e);
-          } finally {
-            deleteTree(tmp);
           }
         });
       } catch (IOException | RuntimeException e) {
+        bg.platform().sync(resume);
         deleteTree(tmp);
         bg.platform().sync(() -> importFailed(sender, folder, e));
       }
@@ -441,6 +470,20 @@ final class WorldUpload {
 
   private static String mb(long bytes) {
     return String.format(Locale.ROOT, "%.1f", bytes / 1024.0 / 1024.0);
+  }
+
+  /** 建好後送玩家進去；進不去時只記警告（世界已經建好）。 */
+  private void enter(ServerPlayer p, Workspace ws) {
+    try {
+      bg.realms().enter(p, ws);
+    } catch (IOException | RuntimeException e) {
+      bg.platform().log().log(Level.WARNING, "無法送 " + p.getScoreboardName() + " 進建築世界 " + ws.label(), e);
+    }
+  }
+
+  /** 在背景刪掉暫存目錄（可能很大，不在主執行緒刪）。 */
+  private void cleanup(Path tmp) {
+    bg.platform().async(() -> deleteTree(tmp));
   }
 
   private static void deleteTree(Path root) {

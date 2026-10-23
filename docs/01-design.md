@@ -650,7 +650,7 @@ base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最
 | `/bg merge view ours\|theirs\|result` | 在三個世界之間，以相同座標傳送 |
 | `/bg merge conflicts` | 列出衝突區域：相鄰衝突格分群，附包圍盒與座標 |
 | `/bg merge take ours\|theirs [here\|<選取範圍>\|all]` | 把衝突格快速設成某一邊 |
-| `/bg merge continue` | 以整合世界的內容建立合併提交，衝突格與玩家在整合世界額外改的格子都收進去；然後寫入目標世界、刪除三個暫時世界 |
+| `/bg merge continue [confirm]` | 以整合世界的內容建立合併提交，衝突格與玩家在整合世界額外改的格子都收進去；然後寫入目標世界、刪除三個暫時世界。還有沒動過的衝突（沒改過、也沒用 take 選過一邊）時先列出數量，加 `confirm` 才照樣完成。整合世界的提示列顯示「剩 X/Y 處衝突」 |
 | `/bg merge abort` | 放棄合併，刪除暫時世界 |
 
 - 衝突格以只給該玩家看的外框顯示：

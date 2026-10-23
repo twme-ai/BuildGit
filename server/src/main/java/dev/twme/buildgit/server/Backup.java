@@ -590,6 +590,7 @@ final class Backup {
     var refMap = new TreeMap<String, Object>();
     refs.forEach((k, v) -> refMap.put(k, v.hex()));
     String branches = read(ws.dir().resolve("branches.yml")), dataVersion = read(ws.dir().resolve("data-version"));
+    var merges = mergeSessions(ws.dir());
 
     // 2. 起點世界的檔案
     var index = new Properties();
@@ -613,31 +614,55 @@ final class Backup {
       for (var sub : List.of("region", "entities")) {
         var d = dir.resolve(sub);
         if (!Files.isDirectory(d)) continue;
-        List<Path> mca;
+        List<Path> mca, mcc;
         try (var s = Files.list(d)) {
-          mca = s.filter(p -> p.getFileName().toString().endsWith(".mca")).sorted().toList();
+          var all = s.toList();
+          mca = all.stream().filter(p -> p.getFileName().toString().matches("r\\.-?\\d+\\.-?\\d+\\.mca")).sorted().toList();
+          mcc = all.stream().filter(p -> p.getFileName().toString().matches("c\\.-?\\d+\\.-?\\d+\\.mcc")).sorted().toList();
         }
-        for (var file : mca) {
-          String key = dim + "/" + sub + "/" + file.getFileName();
-          // 在寫入執行緒上：沒變就沿用記下的雜湊（{大小 時間, 雜湊}），有變就複製一份（雜湊為 null）
-          String[] seen = ws.onGenesisThread(() -> {
-            var attrs = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes.class);
-            String stamp = attrs.size() + " " + attrs.lastModifiedTime().toMillis();
-            var v = index.getProperty(key);
-            if (v != null && v.startsWith(stamp + " ")) return new String[] {stamp, v.substring(stamp.length() + 1)};
-            Files.copy(file, tmp, StandardCopyOption.REPLACE_EXISTING);
-            return new String[] {stamp, null};
-          }).get();
-          String known = seen[1];
-          if (known == null) {
-            known = S3.hex(S3.sha256(tmp));
-            if (remoteFiles.add(prefix + "files/" + known)) {
-              store.putFile(prefix + "files/" + known, tmp);
-              files++;
-            }
-            index.setProperty(key, seen[0] + " " + known);
+        for (var region : mca) {
+          // 太大的 chunk 存在外部的 c.<x>.<z>.mcc：和它的 region 檔一起、在同一次寫入執行緒的工作裡複製，才是同一個時間點的
+          var r = region.getFileName().toString().split("\\.");
+          int rx = Integer.parseInt(r[1]), rz = Integer.parseInt(r[2]);
+          var group = new ArrayList<Path>(List.of(region));
+          for (var c : mcc) {
+            var p = c.getFileName().toString().split("\\.");
+            if (Math.floorDiv(Integer.parseInt(p[1]), 32) == rx && Math.floorDiv(Integer.parseInt(p[2]), 32) == rz) group.add(c);
           }
-          list.add(known + " " + sub + "/" + file.getFileName());
+          // 在寫入執行緒上：沒變就沿用記下的雜湊（{大小 時間, 雜湊}），有變就複製一份（雜湊為 null）；複製途中不見的外部檔略過
+          String[][] seen = ws.onGenesisThread(() -> {
+            var out = new String[group.size()][];
+            for (int i = 0; i < group.size(); i++) {
+              var file = group.get(i);
+              if (!Files.exists(file)) continue;
+              var attrs = Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes.class);
+              String stamp = attrs.size() + " " + attrs.lastModifiedTime().toMillis();
+              var v = index.getProperty(dim + "/" + sub + "/" + file.getFileName());
+              if (v != null && v.startsWith(stamp + " ")) out[i] = new String[] {stamp, v.substring(stamp.length() + 1)};
+              else {
+                Files.copy(file, tmp.resolveSibling(tmp.getFileName() + "." + i), StandardCopyOption.REPLACE_EXISTING);
+                out[i] = new String[] {stamp, null};
+              }
+            }
+            return out;
+          }).get();
+          for (int i = 0; i < group.size(); i++) {
+            if (seen[i] == null) continue;
+            var file = group.get(i);
+            String key = dim + "/" + sub + "/" + file.getFileName();
+            String known = seen[i][1];
+            if (known == null) {
+              var copy = tmp.resolveSibling(tmp.getFileName() + "." + i);
+              known = S3.hex(S3.sha256(copy));
+              if (remoteFiles.add(prefix + "files/" + known)) {
+                store.putFile(prefix + "files/" + known, copy);
+                files++;
+              }
+              Files.delete(copy);
+              index.setProperty(key, seen[i][0] + " " + known);
+            }
+            list.add(known + " " + sub + "/" + file.getFileName());
+          }
         }
       }
       var entry = new LinkedHashMap<String, Object>();
@@ -675,6 +700,7 @@ final class Backup {
 
     boolean changed = !walk.commits().isEmpty() || !refMap.equals(last.get("refs")) || !branches.equals(last.getString("branches", ""))
         || !dataVersion.equals(last.getString("data-version", "")) || !content(dims).equals(content(last.get("dimensions")))
+        || !merges.equals(last.get("merge-sessions") instanceof Map<?, ?> m ? m : Map.of())
         || !settled(repoFiles).equals(settled(last.getStringList("repo-files"))) || !entryText.equals(last.getString("entry-text", ""));
     if (!changed) return new Result(job, null, 0, 0, 0, List.of());
 
@@ -735,6 +761,7 @@ final class Backup {
     snapshot.set("minecraft-data-version", bg.workspace().upgrader().current());
     snapshot.set("refs", refMap);
     snapshot.set("branches", branches);
+    if (!merges.isEmpty()) snapshot.set("merge-sessions", merges);
     snapshot.set("data-version", dataVersion);
     snapshot.set("dimensions", dims);
     if (build) {
@@ -796,6 +823,32 @@ final class Backup {
     if (dims instanceof List<?> list)
       for (var d : list) if (d instanceof Map<?, ?> m) result.add(List.of(String.valueOf(m.get("id")), String.valueOf(m.get("files"))));
     return result;
+  }
+
+  /** 進行中的衝突整合（{@code merge/<id>.yml}，id → 內容）：整合分支在 refs 裡，還原後要能照常 /bg merge continue。 */
+  private static Map<String, String> mergeSessions(Path repo) throws IOException {
+    var result = new TreeMap<String, String>();
+    var dir = repo.resolve("merge");
+    if (!Files.isDirectory(dir)) return result;
+    try (var s = Files.list(dir)) {
+      for (var f : s.filter(p -> p.getFileName().toString().endsWith(".yml")).toList()) {
+        var name = f.getFileName().toString();
+        result.put(name.substring(0, name.length() - 4), read(f));
+      }
+    }
+    return result;
+  }
+
+  /** 快照裡的整合寫回 {@code repo/merge/}（還原時）；舊版的快照沒有。 */
+  static void restoreMergeSessions(Yaml snapshot, Path repo) throws IOException {
+    if (!(snapshot.get("merge-sessions") instanceof Map<?, ?> m) || m.isEmpty()) return;
+    var dir = repo.resolve("merge");
+    Files.createDirectories(dir);
+    for (var e : m.entrySet()) {
+      var id = String.valueOf(e.getKey());
+      if (!id.matches("[A-Za-z0-9_-]+")) continue;
+      Files.writeString(dir.resolve(id + ".yml"), String.valueOf(e.getValue()), StandardCharsets.UTF_8);
+    }
   }
 
   private static String read(Path file) throws IOException {

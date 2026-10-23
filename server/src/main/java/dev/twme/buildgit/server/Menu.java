@@ -32,6 +32,11 @@ final class Menu {
   }
 
   void open(ServerPlayer p) {
+    open(p, 1);
+  }
+
+  /** @param page 草稿太多時的第幾頁（{@code /bg menu <頁>}） */
+  void open(ServerPlayer p, int page) {
     var msg = bg.messages();
     var ws = bg.workspace(p.level());
     var platform = bg.platform();
@@ -92,14 +97,22 @@ final class Menu {
       list.add(new Platform.MenuItem(0, "red_stained_glass", msg.get("menu-merge", "id", s.id(), "target", s.target()),
           msg.get("menu-draft-go"), "merge view result " + s.id()));
 
-    // 草稿清單從左上角開始排；放不下時最後一格提示還有幾個
+    // 草稿清單從左上角開始排；放不下時分頁，最後兩格是上一頁、下一頁
     int capacity = LIST_ROWS * 9;
-    var shown = new ArrayList<>(list.subList(0, Math.min(list.size(), capacity)));
-    if (list.size() > capacity)
-      shown.set(capacity - 1, new Platform.MenuItem(0, "book", msg.get("menu-more", "count", String.valueOf(list.size() - capacity + 1)),
-          msg.get("menu-more-lore"), platform.hasPermission(p, "buildgit.branch.list") ? "branch list" : null));
+    var shown = new ArrayList<Platform.MenuItem>();
+    if (list.size() <= capacity) shown.addAll(list);
+    else {
+      int per = capacity - 2, pages = Math.ceilDiv(list.size(), per);
+      page = Math.clamp(page, 1, pages);
+      shown.addAll(list.subList((page - 1) * per, Math.min(list.size(), page * per)));
+      while (shown.size() < per) shown.add(null);
+      var where = msg.get("worlds-page", "page", page, "pages", pages);
+      shown.add(page > 1 ? new Platform.MenuItem(0, "arrow", msg.get("worlds-prev"), where, "menu " + (page - 1)) : null);
+      shown.add(page < pages ? new Platform.MenuItem(0, "arrow", msg.get("worlds-next"), where, "menu " + (page + 1)) : null);
+    }
     for (int i = 0; i < shown.size(); i++) {
       var it = shown.get(i);
+      if (it == null) continue;
       items.add(new Platform.MenuItem(i, it.item(), it.name(), it.lore(), it.action()));
     }
     platform.openMenu(p, msg.get("menu-title", "world", ws.label()), items);

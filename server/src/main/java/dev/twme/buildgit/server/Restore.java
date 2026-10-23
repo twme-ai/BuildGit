@@ -85,6 +85,7 @@ final class Restore {
         heads.add(id);
       }
     Files.writeString(staging.resolve("branches.yml"), snapshot.getString("branches", ""));
+    Backup.restoreMergeSessions(snapshot, staging);
     Files.writeString(staging.resolve("data-version"), dataVersion);
     var pointer = repoDir.resolve("genesis-dir");
     if (Files.exists(pointer)) Files.copy(pointer, staging.resolve("genesis-dir"));
@@ -271,6 +272,7 @@ final class Restore {
         heads.add(oid);
       }
     Files.writeString(staging.resolve("branches.yml"), snapshot.getString("branches", ""));
+    Backup.restoreMergeSessions(snapshot, staging);
     Files.writeString(staging.resolve("data-version"), snapshot.getString("data-version", ""));
     int files = 0;
     for (var line : strings(snapshot.get("repo-files"))) {
@@ -392,7 +394,7 @@ final class Restore {
     for (var skipped : manifest.getStringList("skipped")) warnings.add(skipped + " 從來沒有玩家進去過，沒有備份，不換");
     if (repoRel != null && Files.isDirectory(files.resolve(repoRel))) {
       var from = files.resolve(repoRel);
-      for (var item : List.of("refs", "branches.yml", "data-version", "worktree", "players.yml"))
+      for (var item : List.of("refs", "branches.yml", "data-version", "worktree", "players.yml", "players"))
         if (Files.exists(from.resolve(item))) plan.add(move(repoDir.resolve(item), from.resolve(item)));
     }
     var y = new Yaml();

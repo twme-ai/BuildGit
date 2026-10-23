@@ -238,7 +238,7 @@ public record Settings(
   private static GameType mode(Yaml c, String path, List<GameType> allowed, Logger log) {
     var name = c.getString(path);
     var m = name == null ? null : GameType.byName(name.strip().toLowerCase(Locale.ROOT), null);
-    if (allowed.contains(m)) return m;
+    if (m != null && allowed.contains(m)) return m;
     if (name != null)
       log.warning(path + " 只能是 " + String.join("、", allowed.stream().map(GameType::getName).toList()) + "，用 " + allowed.getFirst().getName());
     return allowed.getFirst();

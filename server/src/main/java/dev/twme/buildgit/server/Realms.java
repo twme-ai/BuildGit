@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.logging.Level;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -256,14 +257,26 @@ final class Realms {
     if (p.gameMode() != mode) p.setGameMode(mode);
   }
 
-  /** 照所在的世界換背包；換不了（寫不進檔案）時維持原狀。 */
+  /**
+   * 照所在的世界換背包。要換上的背包讀不懂、收起現在的寫不進檔案，或狀態記不下來時維持原狀
+   * （不然原本的背包會被清空，或下次被當成另一份覆蓋掉）。
+   */
   private void inventory(ServerPlayer p, Workspace ws, Yaml state) {
     boolean visitor = ws.buildWorld() != null && visitor(p, ws);
     var target = ws.buildWorld() != null && ws.isolated(visitor) ? ws.buildWorld().id() : null;
     var worn = state.getString("inventory");
     if (Objects.equals(target, worn)) return;
+    var serverFile = inventoryFile(p.getUUID(), "server");
+    var own = target == null ? null : inventoryFile(p.getUUID(), target);
+    CompoundTag next;
     try {
-      if (worn == null) Inventories.write(inventoryFile(p.getUUID(), "server"), Inventories.capture(p));
+      next = target == null ? Inventories.load(serverFile) : ws.kitReset(visitor) ? null : Inventories.load(own);
+    } catch (IOException e) {
+      bg.platform().log().log(Level.WARNING, "玩家 " + p.getScoreboardName() + " 的背包檔 " + (target == null ? serverFile : own) + " 讀不懂，沒有換背包", e);
+      return;
+    }
+    try {
+      if (worn == null) Inventories.write(serverFile, Inventories.capture(p));
       else Inventories.write(inventoryFile(p.getUUID(), worn), Inventories.capture(p)); // 進來時才照「每次重設」決定要不要用
     } catch (IOException e) {
       bg.platform().log().log(Level.WARNING, "無法收起玩家 " + p.getScoreboardName() + " 的背包", e);
@@ -271,11 +284,14 @@ final class Realms {
     }
     state.set("inventory", target);
     state.set("inventory-keep", null); // 舊版記的，現在離開時一律收起
-    save(p.getUUID(), state);
+    if (!save(p.getUUID(), state)) {
+      state.set("inventory", worn);
+      return;
+    }
     var upgrader = bg.workspace().upgrader();
     if (target == null) {
-      var file = inventoryFile(p.getUUID(), "server");
-      Inventories.restore(p, Inventories.read(file), upgrader);
+      var file = serverFile;
+      Inventories.restore(p, next, upgrader);
       try {
         Files.deleteIfExists(file);
       } catch (IOException e) {
@@ -283,7 +299,6 @@ final class Realms {
       }
       return;
     }
-    var own = inventoryFile(p.getUUID(), target);
     if (ws.kitReset(visitor)) {
       try {
         Files.deleteIfExists(own); // 之後改成只給第一次時，不會換上很久以前留下的背包
@@ -291,8 +306,7 @@ final class Realms {
         // 下次收起時會覆蓋
       }
     }
-    var kept = ws.kitReset(visitor) ? null : Inventories.read(own);
-    Inventories.restore(p, kept != null ? kept : Inventories.read(ws.kitFile(visitor)), upgrader);
+    Inventories.restore(p, next != null ? next : Inventories.read(ws.kitFile(visitor)), upgrader);
   }
 
   /** 死後重生（重生前呼叫，這時還是死掉的玩家）：重生後還穿著這個世界的背包、打開了死後重給時，換上起始物品（終界箱不動）。 */
@@ -420,7 +434,8 @@ final class Realms {
     return Yaml.load(path(player));
   }
 
-  private void save(UUID player, Yaml state) {
+  /** 記下玩家的狀態；記不下來時警告並回傳 false。 */
+  private boolean save(UUID player, Yaml state) {
     var file = path(player);
     try {
       if (state.keys().isEmpty()) Files.deleteIfExists(file);
@@ -428,8 +443,10 @@ final class Realms {
         Files.createDirectories(file.getParent());
         state.save(file);
       }
+      return true;
     } catch (IOException e) {
       bg.platform().log().log(Level.WARNING, "無法記錄玩家 " + player + " 進建築世界前的狀態", e);
+      return false;
     }
   }
 }
