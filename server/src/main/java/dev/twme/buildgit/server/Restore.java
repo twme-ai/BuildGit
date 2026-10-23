@@ -109,13 +109,12 @@ final class Restore {
     var levelFiles = new LinkedHashMap<Path, String>(); // 目標 → 雜湊
     for (var entry : list(snapshot.get("dimensions"))) {
       String dim = String.valueOf(entry.get("id"));
-      int colon = dim.indexOf(':');
-      var genesisDir = genesisStaging.resolve(dim.substring(0, colon)).resolve(dim.substring(colon + 1));
+      var genesisDir = dimensionDir(genesisStaging, dim);
       Files.createDirectories(genesisDir);
       var downloads = new ArrayList<Future<?>>();
       for (var line : strings(entry.get("files"))) {
         String hash = line.substring(0, line.indexOf(' ')), rel = line.substring(line.indexOf(' ') + 1);
-        var target = genesisDir.resolve(rel);
+        var target = inside(genesisDir, rel);
         downloads.add(pool.submit(() -> {
           fetch(s3, prefix, hash, target);
           var attrs = Files.readAttributes(target, BasicFileAttributes.class);
@@ -129,7 +128,7 @@ final class Restore {
       files += downloads.size();
 
       var levelDir = ws.mainLevelDirectory(dim);
-      if (levelDir == null && sameVersion && entry.get("world") != null) levelDir = root.resolve(String.valueOf(entry.get("world")));
+      if (levelDir == null && sameVersion && entry.get("world") != null) levelDir = inside(root, String.valueOf(entry.get("world")));
       if (Boolean.TRUE.equals(entry.get("lazy"))) {
         // 延遲複製：起點世界缺的 chunk 只在主世界存檔裡，世界資料夾不換，由管理員用同一時間的世界備份
         if (levelDir != null) Files.writeString(genesisDir.resolve("lazy"), levelDir.toAbsolutePath().normalize().toString());
@@ -165,10 +164,10 @@ final class Restore {
       var seed = entry.get("seed");
       if (sameVersion) {
         for (var line : strings(entry.get("level-files")))
-          levelFiles.put(root.resolve(line.substring(line.indexOf(' ') + 1)), line.substring(0, line.indexOf(' ')));
+          levelFiles.put(inside(root, line.substring(line.indexOf(' ') + 1)), line.substring(0, line.indexOf(' ')));
         if (entry.get("level-dat") != null) { // 第一階段的快照
           var line = String.valueOf(entry.get("level-dat"));
-          levelFiles.put(root.resolve(line.substring(line.indexOf(' ') + 1)), line.substring(0, line.indexOf(' ')));
+          levelFiles.put(inside(root, line.substring(line.indexOf(' ') + 1)), line.substring(0, line.indexOf(' ')));
         }
       } else if (seed != null && ws.mainSeed(dim) != null && !String.valueOf(seed).equals(String.valueOf(ws.mainSeed(dim)))) {
         warnings.add(dim + " 的種子是 " + ws.mainSeed(dim) + "，備份是 " + seed + "：起點世界以外的地方會生成不同的地形；"
@@ -250,7 +249,8 @@ final class Restore {
     if (bytes == null) throw new IOException("讀不到快照 " + name);
     var snapshot = Yaml.load(new ByteArrayInputStream(bytes));
     checkVersion(snapshot.getString("data-version", ""), upgrader.current());
-    var entry = local != null ? local : BuildWorlds.entry(snapshot, "entry", id);
+    // 本機沒有這個世界：資料夾與路徑照本機的設定重算，不採信快照裡的
+    var entry = local != null ? local : bg.worlds().restoredEntry(BuildWorlds.entry(snapshot, "entry", id));
     var loc = bg.worlds().locations(entry);
     Path repoDir = loc[0], objectsDir = loc[1], genesisRoot = loc[2];
     if (repoDir.startsWith(bg.platform().levelFolder(entry.folder()).toAbsolutePath().normalize()))
@@ -295,13 +295,12 @@ final class Restore {
     var index = new Properties();
     for (var entry2 : list(snapshot.get("dimensions"))) {
       String dim = String.valueOf(entry2.get("id"));
-      int colon = dim.indexOf(':');
-      var genesisDir = genesisStaging.resolve(dim.substring(0, colon)).resolve(dim.substring(colon + 1));
+      var genesisDir = dimensionDir(genesisStaging, dim);
       Files.createDirectories(genesisDir);
       var downloads = new ArrayList<Future<?>>();
       for (var line : strings(entry2.get("files"))) {
         String hash = line.substring(0, line.indexOf(' ')), rel = line.substring(line.indexOf(' ') + 1);
-        var target = genesisDir.resolve(rel);
+        var target = inside(genesisDir, rel);
         downloads.add(pool.submit(() -> {
           fetch(store, prefix, hash, target);
           var attrs = Files.readAttributes(target, BasicFileAttributes.class);
@@ -388,12 +387,12 @@ final class Restore {
     for (var world : platform.levelFolders())
       if (Workspace.ownWorldName(world) && !world.contains(".before-restore-")) plan.add(move(platform.levelFolder(world).toAbsolutePath().normalize(), null));
     for (var world : manifest.getStringList("worlds")) {
-      var source = files.resolve(world);
-      if (Files.isDirectory(source)) plan.add(move(server.resolve(world).normalize(), source));
+      var source = inside(files, world);
+      if (Files.isDirectory(source)) plan.add(move(inside(server, world), source));
     }
     for (var skipped : manifest.getStringList("skipped")) warnings.add(skipped + " 從來沒有玩家進去過，沒有備份，不換");
-    if (repoRel != null && Files.isDirectory(files.resolve(repoRel))) {
-      var from = files.resolve(repoRel);
+    if (repoRel != null && Files.isDirectory(inside(files, repoRel))) {
+      var from = inside(files, repoRel);
       for (var item : List.of("refs", "branches.yml", "data-version", "worktree", "players.yml", "players"))
         if (Files.exists(from.resolve(item))) plan.add(move(repoDir.resolve(item), from.resolve(item)));
     }
@@ -483,6 +482,30 @@ final class Restore {
     var result = new ArrayList<String>();
     if (o instanceof List<?> l) for (var e : l) result.add(String.valueOf(e));
     return result;
+  }
+
+  /**
+   * 快照裡的相對路徑接到 {@code root} 底下（快照在遠端，可能被改過）：不能是絕對路徑、不能用 {@code ..} 跑出 {@code root}，
+   * 也不能是 {@code root} 本身。
+   */
+  static Path inside(Path root, String rel) throws Workspace.Refused {
+    var base = root.toAbsolutePath().normalize();
+    Path p;
+    try {
+      if (rel.isEmpty() || Path.of(rel).isAbsolute()) throw new Workspace.Refused("快照裡的路徑不對：" + rel);
+      p = base.resolve(rel).normalize();
+    } catch (java.nio.file.InvalidPathException e) {
+      throw new Workspace.Refused("快照裡的路徑不對：" + rel);
+    }
+    if (!p.startsWith(base) || p.equals(base)) throw new Workspace.Refused("快照裡的路徑不對：" + rel);
+    return p;
+  }
+
+  /** 起點世界裡一個維度的目錄（{@code <命名空間>/<路徑>}）；維度 id 照 Minecraft 的格式檢查。 */
+  private static Path dimensionDir(Path root, String dim) throws Workspace.Refused {
+    if (!dim.matches("[a-z0-9_.-]+:[a-z0-9_.-]+(/[a-z0-9_.-]+)*") || dim.contains("..")) throw new Workspace.Refused("快照裡的維度不對：" + dim);
+    int colon = dim.indexOf(':');
+    return inside(root, dim.substring(0, colon) + "/" + dim.substring(colon + 1));
   }
 
   private static List<String> mcaNames(Path dir) throws IOException {

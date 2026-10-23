@@ -362,7 +362,7 @@ submissions-item-reject: "<dark_gray>拒絕：/bg world submissions reject <bran
 usage-fork: "<red>用法：/bg fork <擁有者/名稱> [新名稱]</red> <gray>（不給新名稱時用原本的名稱）</gray>"
 world-forking: "<gray>正在複製</gray> <white><world></white><gray>…</gray>"
 usage-open: "<red>用法：/bg open <世界></red> <gray>（自己的寫名稱，別人的寫「擁有者/名稱」）</gray>"
-world-upload-packing: "<gray>正在請你的用戶端打包單人世界</gray> <white><save></white><gray>（只帶主世界的方塊與實體，不帶歷史）…</gray>"
+world-upload-packing: "<gray>已請你的用戶端打包單人世界</gray> <white><save></white><gray>（只帶主世界的方塊與實體，不帶歷史）；在聊天欄點「同意上傳」才會開始…</gray>"
 world-upload-uploading: "<gray>正在把</gray> <white><save></white> <gray>上傳到伺服器的儲存空間（<mb> MB）…</gray>"
 world-upload-checking: "<gray>已上傳</gray> <white><save></white><gray>，伺服器正在下載並逐個檢查 chunk…</gray>"
 world-uploaded: "<green>已把單人世界</green> <white><save></white> <green>建成建築世界</green> <white><world></white><gray>：<chunks> 個 chunk（<dropped> 個讀不懂或不符合而略過）。之後的存檔從這裡開始。</gray>"

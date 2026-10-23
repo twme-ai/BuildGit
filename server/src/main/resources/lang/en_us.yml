@@ -362,7 +362,7 @@ submissions-item-reject: "<dark_gray>Reject: /bg world submissions reject <branc
 usage-fork: "<red>Usage: /bg fork <owner/name> [new name]</red> <gray>(keeps the original name if none is given)</gray>"
 world-forking: "<gray>Copying</gray> <white><world></white><gray>…</gray>"
 usage-open: "<red>Usage: /bg open <world></red> <gray>(your own by name, others' as owner/name)</gray>"
-world-upload-packing: "<gray>Asking your client to pack the single-player world</gray> <white><save></white> <gray>(overworld blocks and entities only, no history)…</gray>"
+world-upload-packing: "<gray>Asked your client to pack the single-player world</gray> <white><save></white> <gray>(overworld blocks and entities only, no history); it starts once you click \"Upload\" in chat…</gray>"
 world-upload-uploading: "<gray>Uploading</gray> <white><save></white> <gray>to the server's storage (<mb> MB)…</gray>"
 world-upload-checking: "<gray>Uploaded</gray> <white><save></white><gray>; the server is downloading it and checking every chunk…</gray>"
 world-uploaded: "<green>Created build world</green> <white><world></white> <green>from the single-player world</green> <white><save></white><gray>: <chunks> chunks (<dropped> unreadable or invalid ones skipped). Saves start from here.</gray>"

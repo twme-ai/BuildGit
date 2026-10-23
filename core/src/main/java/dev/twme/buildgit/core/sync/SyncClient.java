@@ -27,6 +27,7 @@ import java.util.zip.ZipOutputStream;
  *
  * <p>上傳單人世界（03-worlds §7）：伺服器要求時把存檔的主世界 region 與實體檔打包（不壓縮，region 本來就壓縮過），
  * 回報大小與雜湊，再上傳到伺服器給的預簽網址。打包與上傳在背景進行，回覆交給 {@code later}（可能在其他執行緒呼叫）。
+ * 伺服器不能自己拿存檔：要求先交給 {@code ask} 問玩家，玩家同意（{@link #answer}）才打包。
  */
 public final class SyncClient {
   /** 取出的範圍：{@code <名稱>.bgpack}；單人世界改過後存成 {@code <名稱>.edited.bgpack}。 */
@@ -48,17 +49,42 @@ public final class SyncClient {
   private Frame.Assembler receiving;
   /** 打包好、等著上傳的存檔。 */
   private volatile Path packed;
+  /** 伺服器要上傳的存檔與大小上限，等玩家回答。 */
+  public record ImportRequest(String save, long max) {}
+
+  private final Consumer<ImportRequest> ask;
+  private volatile ImportRequest asking;
 
   /** 不上傳單人世界（測試用）。 */
   public SyncClient(Path folder) {
-    this(folder, null, f -> {});
+    this(folder, null, f -> {}, r -> {});
   }
 
-  /** @param saves 單人世界存檔的資料夾（{@code .minecraft/saves}） */
-  public SyncClient(Path folder, Path saves, Consumer<Frame> later) {
+  /**
+   * @param saves 單人世界存檔的資料夾（{@code .minecraft/saves}）
+   * @param ask 伺服器要上傳存檔時問玩家（收封包的執行緒）
+   */
+  public SyncClient(Path folder, Path saves, Consumer<Frame> later, Consumer<ImportRequest> ask) {
     this.folder = folder;
     this.saves = saves;
     this.later = later;
+    this.ask = ask;
+  }
+
+  /** 玩家回答上傳的要求：同意就打包，否則告訴伺服器拒絕了。沒有等著回答的要求時回傳 false。 */
+  public boolean answer(boolean yes) {
+    var r = asking;
+    asking = null;
+    if (r == null) return false;
+    if (yes) background(() -> later.accept(pack(r.save(), r.max())));
+    else later.accept(importError("declined"));
+    return true;
+  }
+
+  /** 離開伺服器時：沒回答的要求與打包好的存檔作廢，不會上傳到下一台伺服器。 */
+  public void reset() {
+    asking = null;
+    packed = null;
   }
 
   /** @return 要回給伺服器的封包 */
@@ -92,8 +118,8 @@ public final class SyncClient {
         case Frame.IMPORT -> {
           var a = new String(f.data(), StandardCharsets.UTF_8).split("\n");
           if (a.length != 2 || !a[1].matches("\\d{1,15}")) return List.of();
-          long max = Long.parseLong(a[1]);
-          background(() -> later.accept(pack(a[0], max)));
+          asking = new ImportRequest(a[0], Long.parseLong(a[1]));
+          ask.accept(asking);
           return List.of();
         }
         case Frame.IMPORT_URL -> {

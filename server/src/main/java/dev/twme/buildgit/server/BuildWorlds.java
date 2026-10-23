@@ -436,6 +436,23 @@ public final class BuildWorlds {
         .replace("{id}", id);
   }
 
+  /**
+   * 從備份還原、本機沒有登記的建築世界：名稱與擁有者照快照，世界資料夾、版本庫、物件、起點世界的位置照本機現在的設定重算
+   * （快照在遠端，裡面的路徑可能被改過）。
+   */
+  Entry restoredEntry(Entry remote) throws IOException {
+    var pw = settings.get().playerWorlds();
+    checkName(remote.name(), remote.owner(), remote.id());
+    var ownerName = remote.ownerName() == null ? remote.owner().toString() : remote.ownerName().toLowerCase(Locale.ROOT);
+    if (!ownerName.matches("[a-z0-9_-]{1,36}")) ownerName = remote.owner().toString();
+    var uuid = remote.owner().toString();
+    var folder = folderName(remote.name(), ownerName, uuid, remote.id());
+    checkFolder(folder, remote.id());
+    return new Entry(remote.id(), remote.name(), remote.owner(), ownerName, folder, pw.repo().replace("{id}", remote.id()).replace("{owner}", uuid),
+        pw.objects().replace("{id}", remote.id()).replace("{owner}", uuid), pw.genesis().replace("{id}", remote.id()).replace("{owner}", uuid),
+        remote.created());
+  }
+
   /** 名稱合法、不是伺服器世界的名稱、擁有者沒有同名的世界（含回收區裡的）。{@code self} 是改名、轉讓中的世界自己。 */
   private void checkName(String name, UUID owner, String self) throws Workspace.Refused {
     if (!Workspace.BRANCH_NAME.matcher(name).matches()) throw new Workspace.Refused("名稱只能用小寫英文、數字、底線、連字號（1～32 字）：" + name);

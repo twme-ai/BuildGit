@@ -101,6 +101,7 @@ final class WorldUpload {
           case "no-save" -> "你的 saves 資料夾裡沒有 " + up.save + "（或它沒有主世界的 region）";
           case "too-big" -> "存檔超過 " + up.max / 1024 / 1024 + " MB";
           case "pack-failed" -> "用戶端無法打包存檔";
+          case "declined" -> "你在用戶端取消了上傳";
           default -> "用戶端上傳失敗" + (code.startsWith("upload-failed ") ? "（" + code.substring(14).replaceAll("[^0-9]", "") + "）" : "");
         };
         msg().send(s, "world-upload-failed", "save", up.save, "error", reason);
@@ -282,7 +283,12 @@ final class WorldUpload {
     try (var in = new ZipInputStream(Files.newInputStream(zip))) {
       var buf = new byte[1 << 16];
       for (java.util.zip.ZipEntry e; (e = in.getNextEntry()) != null; ) {
-        if (!SyncClient.PACKED.matcher(e.getName()).matches()) continue;
+        if (!SyncClient.PACKED.matcher(e.getName()).matches()) {
+          // 不要的檔案也會被解壓縮讀過去：一樣算進上限
+          for (int n; (n = in.read(buf)) > 0; )
+            if ((total += n) > max) throw new Workspace.Refused("解開後超過上限");
+          continue;
+        }
         var to = raw.resolve(e.getName());
         Files.createDirectories(to.getParent());
         try (var out = Files.newOutputStream(to)) {
@@ -411,7 +417,8 @@ final class WorldUpload {
     chunk.put("Entities", Nbt.list(kept));
   }
 
-  private boolean entityAllowed(Nbt.Compound e, boolean gameMaster, int depth) {
+  /** 實體能不能留下：建築用的（照 {@code ignored-entities}），乘客逐層同樣檢查；{@code push} 送回的實體也用。 */
+  boolean entityAllowed(Nbt.Compound e, boolean gameMaster, int depth) {
     var id = e.string("id");
     if (depth > 16 || !bg.tracker().isBuildEntity(id) || !gameMaster && id.equals("minecraft:command_block_minecart")) return false;
     for (var o : e.list("Passengers").values())

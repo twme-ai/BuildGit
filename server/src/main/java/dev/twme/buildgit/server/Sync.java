@@ -238,10 +238,22 @@ final class Sync {
     var ws = bg.worlds().byId(id);
     if (ws == null || !ws.isOpen()) throw new Workspace.Refused("取出這個範圍的建築世界已經不在了（被刪除，或正在改名、還原）");
     if (bg.worlds().busy(ws)) throw new Workspace.Refused("建築世界 " + ws.label() + " 正在處理其他事，請稍後再試");
+    authorize(p, ws);
+    return ws;
+  }
+
+  /**
+   * 現在還能不能送回 {@code ws}：建築世界要是建造者以上（或管理員），伺服器世界要有 {@code buildgit.push}。
+   * 開始時和寫入草稿前各查一次：上傳途中被移出成員、拿掉權限的，就不寫入。
+   */
+  private void authorize(ServerPlayer p, Workspace ws) throws Workspace.Refused {
+    if (ws.buildWorld() == null) {
+      if (!bg.platform().hasPermission(p, "buildgit.push")) throw new Workspace.Refused("你沒有送回伺服器世界的權限");
+      return;
+    }
     var role = ws.role(p.getUUID());
     if (!bg.realms().admin(p) && (role == null || role == WorldConfig.Role.VISITOR))
       throw new Workspace.Refused("你在建築世界 " + ws.label() + " 不是建造者以上，不能送回（可以用 /bg fork 複製一份自己的）");
-    return ws;
   }
 
   /** 用戶端連上時列出的改過範圍：這台伺服器取出過、現在能送回的，附上送回的按鈕。 */
@@ -286,6 +298,12 @@ final class Sync {
     var registries = p.level().registryAccess();
     var record = Yaml.load(record(uuid, up.name()));
     var ws = up.ws();
+    try {
+      authorize(p, ws);
+    } catch (Workspace.Refused e) {
+      failed(uuid, e);
+      return;
+    }
     msg().send(s(p), "sync-push-received", "name", up.name());
     ws.async(() -> {
       try {
@@ -328,9 +346,8 @@ final class Sync {
         var overlay = ws.repo().reader(base).entities(dimension);
         var entities = new ArrayList<EntityState>();
         for (var e : edited.entities()) {
-          var type = e.type();
-          boolean ok = bg.tracker().isBuildEntity(type) && Bundle.inside(box, e)
-              && (gameMaster || !type.equals("minecraft:command_block_minecart"))
+          // 類型照 ignored-entities，乘客也逐層檢查（和上傳單人世界一樣）
+          boolean ok = bg.worldUpload().entityAllowed(Nbt.read(e.nbt()), gameMaster, 0) && Bundle.inside(box, e)
               // 範圍外已有同一個 UUID 的實體：不能借此改到範圍外
               && (ours.contains(e.uuid()) || !exists(ws, overlay, dimension, e.uuid()));
           if (ok) entities.add(e);
@@ -355,6 +372,9 @@ final class Sync {
       Author author, int dropped) {
     var ws = up.ws();
     try {
+      var p = online(uuid);
+      if (p == null) throw new Workspace.Refused("送回途中離線了，沒有寫入");
+      authorize(p, ws);
       ws.createBranch(up.draft(), from, base, false, edited.dimension());
     } catch (IOException e) {
       failed(uuid, e);

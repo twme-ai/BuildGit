@@ -1,3 +1,7 @@
 {
-  "buildgit.open.missing": "No pulled area %s: run /bg pull on the server first."
+  "buildgit.open.missing": "No pulled area %s: run /bg pull on the server first.",
+  "buildgit.import.ask": "Server %s wants to upload your singleplayer world \"%s\" (blocks and entities of the overworld, at most %s MB). ",
+  "buildgit.import.yes": "[Upload]",
+  "buildgit.import.no": "[Cancel]",
+  "buildgit.import.none": "The server hasn't asked to upload a world."
 }

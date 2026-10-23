@@ -459,6 +459,7 @@ final class Backup {
         for (var k : list.keys()) if (k.equals(spec) || spec.equalsIgnoreCase(list.getString(k))) id = k;
       }
       if (id == null) throw new Workspace.Refused("這台伺服器與備份裡都找不到建築世界 " + spec);
+      if (!id.matches("[0-9a-f]{1,32}")) throw new Workspace.Refused("備份裡的世界 id 不對：" + id);
       return Restore.downloadBuild(bg, job, pool, id, entry, name);
     });
   }

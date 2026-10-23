@@ -1,3 +1,7 @@
 {
-  "buildgit.open.missing": "找不到範圍 %s：先在伺服器上 /bg pull。"
+  "buildgit.open.missing": "找不到範圍 %s：先在伺服器上 /bg pull。",
+  "buildgit.import.ask": "伺服器 %s 要上傳你的單人世界「%s」（主世界的方塊與實體，最多 %s MB）。",
+  "buildgit.import.yes": "[同意上傳]",
+  "buildgit.import.no": "[取消]",
+  "buildgit.import.none": "伺服器沒有要求上傳世界。"
 }

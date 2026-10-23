@@ -38,4 +38,9 @@ public final class ClientVersions {
       return WorldPresets.createNormalWorldDimensions(registries).replaceOverworldGenerator(registries, new FlatLevelSource(empty));
     }, new TitleScreen());
   }
+
+  /** 在聊天欄顯示一行（只有自己看得到）。 */
+  public static void chat(Minecraft mc, net.minecraft.network.chat.Component text) {
+    mc.gui.chatListener().handleSystemMessage(text, false);
+  }
 }

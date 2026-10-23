@@ -17,6 +17,9 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +42,7 @@ public final class BuildGitClient implements ClientModInitializer {
   public void onInitializeClient() {
     var log = LoggerFactory.getLogger("BuildGit");
     var folder = FabricLoader.getInstance().getGameDir().resolve("buildgit").resolve("sync");
-    var sync = new SyncClient(folder, FabricLoader.getInstance().getGameDir().resolve("saves"), f -> outgoing.add(f.encode()));
+    var sync = new SyncClient(folder, FabricLoader.getInstance().getGameDir().resolve("saves"), f -> outgoing.add(f.encode()), BuildGitClient::ask);
     ClientPlayNetworking.registerGlobalReceiver(SyncPayload.TYPE, (payload, context) -> {
       try {
         for (var reply : sync.receive(Frame.decode(payload.data()))) outgoing.add(reply.encode());
@@ -50,7 +53,11 @@ public final class BuildGitClient implements ClientModInitializer {
     // /bgc open <名稱>：伺服器的「在單人世界打開」按鈕
     ClientCommandRegistrationCallback.EVENT.register((dispatcher, registries) -> dispatcher.register(LiteralArgumentBuilder.<FabricClientCommandSource>literal("bgc")
         .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("open").then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("name", StringArgumentType.word())
-            .executes(ctx -> open(ctx.getSource(), folder, StringArgumentType.getString(ctx, "name")))))));
+            .executes(ctx -> open(ctx.getSource(), folder, StringArgumentType.getString(ctx, "name")))))
+        // /bgc import yes|no：回答伺服器上傳單人世界的要求
+        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("import")
+            .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("yes").executes(ctx -> answer(ctx.getSource(), sync, true)))
+            .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("no").executes(ctx -> answer(ctx.getSource(), sync, false))))));
     ClientTickEvents.END_CLIENT_TICK.register(client -> {
       if (next != null) {
         var run = next;
@@ -68,7 +75,29 @@ public final class BuildGitClient implements ClientModInitializer {
     ClientVersions.onServerChannels(channels -> {
       if (channels.contains(SyncPayload.TYPE.id())) outgoing.add(sync.edited().encode());
     });
-    ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> outgoing.clear());
+    ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+      outgoing.clear();
+      sync.reset();
+    });
+  }
+
+  /** 伺服器要上傳單人世界：在聊天欄問玩家，點了同意才打包。 */
+  private static void ask(SyncClient.ImportRequest r) {
+    var mc = Minecraft.getInstance();
+    var server = mc.getCurrentServer() == null ? "?" : mc.getCurrentServer().ip;
+    var yes = Component.translatableWithFallback("buildgit.import.yes", "[Upload]")
+        .withStyle(s -> s.withColor(ChatFormatting.GREEN).withUnderlined(true).withClickEvent(new ClickEvent.RunCommand("/bgc import yes")));
+    var no = Component.translatableWithFallback("buildgit.import.no", "[Cancel]")
+        .withStyle(s -> s.withColor(ChatFormatting.GRAY).withUnderlined(true).withClickEvent(new ClickEvent.RunCommand("/bgc import no")));
+    ClientVersions.chat(mc, Component.translatableWithFallback("buildgit.import.ask",
+        "Server %s wants to upload your singleplayer world \"%s\" (blocks and entities of the overworld, at most %s MB). ", server, r.save(),
+        r.max() / 1024 / 1024).withStyle(ChatFormatting.YELLOW).append(yes).append(" ").append(no));
+  }
+
+  private static int answer(FabricClientCommandSource source, SyncClient sync, boolean yes) {
+    if (sync.answer(yes)) return 1;
+    source.sendError(Component.translatableWithFallback("buildgit.import.none", "The server hasn't asked to upload a world."));
+    return 0;
   }
 
   /** 離開伺服器，在專屬的單人世界（{@code buildgit-<名稱>}）打開範圍；放入與傳送由單人世界的 BuildGit 接手。 */
