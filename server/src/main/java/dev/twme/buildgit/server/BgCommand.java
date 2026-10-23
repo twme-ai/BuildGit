@@ -1594,7 +1594,7 @@ public final class BgCommand {
         }
         long views = 0;
         for (var name : platform.levelFolders())
-          if (name.startsWith(ws.viewPrefix())) views += folderSize(platform.levelFolder(name));
+          if (ws.isViewFolder(name)) views += folderSize(platform.levelFolder(name));
         total += views;
         if (views > 0) lines.add(msg().get("disk-entry", "name", msg().get("disk-views"), "size", megabytes(views)));
         msg().send(sender, "disk-header", "size", megabytes(total));
@@ -2227,7 +2227,7 @@ public final class BgCommand {
     String name = null, seed = null, layers = null, block = null, template = null;
     var type = WorldConfig.Type.OVERWORLD;
     var terrain = WorldConfig.Terrain.NORMAL;
-    var rules = WorldConfig.Rules.BUILD;
+    var rules = bg.settings().playerWorlds().defaults().rules();
     var words = words(args);
     for (int i = 0; i < words.size(); i++) {
       var a = words.get(i);
@@ -2336,6 +2336,7 @@ public final class BgCommand {
     if (o.type() != WorldConfig.Type.OVERWORLD && (o.terrain() == WorldConfig.Terrain.LARGE_BIOMES || o.terrain() == WorldConfig.Terrain.AMPLIFIED))
       throw new Workspace.Refused("大型生態域與巨型化只有主世界類型有");
     var c = new WorldConfig();
+    bg.settings().playerWorlds().defaults().apply(c);
     c.type = o.type();
     c.terrain = o.terrain();
     c.preset(o.rules());

@@ -110,16 +110,13 @@ public final class BuildWorlds {
 
   /** 建築世界的草稿世界（可以從版本重建，世界資料夾的備份不必帶）。 */
   boolean isDraftFolder(String levelName) {
-    for (var ws : worlds.values()) if (levelName.startsWith(ws.buildWorld().folder() + "-")) return true;
+    for (var ws : worlds.values()) if (ws.ownsDraftFolder(levelName)) return true;
     return false;
   }
 
   /** 這個世界名稱是建築世界或它的草稿（伺服器世界的版本庫不能把它當成自己的）。 */
   boolean claims(String levelName) {
-    for (var ws : worlds.values()) {
-      var folder = ws.buildWorld().folder();
-      if (levelName.equals(folder) || levelName.startsWith(folder + "-")) return true;
-    }
+    for (var ws : worlds.values()) if (levelName.equals(ws.buildWorld().folder()) || ws.ownsDraftFolder(levelName)) return true;
     return false;
   }
 
@@ -382,6 +379,31 @@ public final class BuildWorlds {
     return ws;
   }
 
+  /**
+   * 建築世界 {@code e} 的草稿、衝突整合、檢視世界的資料夾名稱：照 {@code player-worlds.<setting>} 的範本，{@code key}
+   * （{@code {draft}} 或 {@code {commit}}）換成 {@code value}。範本要有 {@code key} 和 {@code {world}} 或 {@code {id}}，
+   * 名稱不能是別的建築世界或它的草稿用的。
+   */
+  String levelFolder(Entry e, String setting, String key, String value) throws Workspace.Refused {
+    var pw = settings.get().playerWorlds();
+    var template = switch (setting) {
+      case "draft-world-name" -> pw.draftWorldName();
+      case "merge-world-name" -> pw.mergeWorldName();
+      default -> pw.viewWorldName();
+    };
+    if (!template.contains(key) || !template.contains("{world}") && !template.contains("{id}"))
+      throw misconfigured("player-worlds." + setting + " 必須包含 " + key + "，以及 {world} 或 {id}");
+    var name = template.replace("{world}", e.folder()).replace("{name}", e.name()).replace("{owner-name}", e.ownerName())
+        .replace("{owner}", e.owner().toString()).replace("{id}", e.id()).replace(key, value);
+    if (!name.matches("[a-z0-9][a-z0-9_.-]{0,99}")) throw misconfigured("player-worlds." + setting + " 算出來的資料夾名稱不合法：" + name);
+    for (var ws : worlds.values()) {
+      var other = ws.buildWorld();
+      if (name.equals(other.folder()) || !other.id().equals(e.id()) && ws.ownsDraftFolder(name))
+        throw new Workspace.Refused("世界資料夾 " + name + " 和建築世界 " + other.label() + " 的世界撞名");
+    }
+    return name;
+  }
+
   private Workspace.Refused misconfigured(String problem) {
     platform.log().warning("config.yml 的建築世界設定有誤：" + problem);
     return new Workspace.Refused("伺服器的建築世界設定有誤，請管理員看主控台");
@@ -423,6 +445,9 @@ public final class BuildWorlds {
       if (folder.equals(other) || folder.startsWith(other + "-") || other.startsWith(folder + "-"))
         throw new Workspace.Refused("世界資料夾 " + folder + " 和建築世界 " + e.label() + (trash.containsKey(e.id()) ? "（在回收區）" : "") + " 的世界或草稿撞名");
     }
+    for (var ws : worlds.values())
+      if (!ws.buildWorld().id().equals(self) && ws.ownsDraftFolder(folder))
+        throw new Workspace.Refused("世界資料夾 " + folder + " 和建築世界 " + ws.buildWorld().label() + " 的草稿撞名");
     if (platform.findLevel(folder) != null || Files.exists(platform.levelFolder(folder)) || Files.exists(Path.of(folder)))
       throw new Workspace.Refused("已經有叫 " + folder + " 的世界或資料夾");
   }
@@ -479,8 +504,9 @@ public final class BuildWorlds {
     var e = p.entry();
     var suffix = ".before-restore-" + Restore.STAMP.format(java.time.Instant.now());
     var aside = new ArrayList<Path>(List.of(platform.levelFolder(e.folder()).toAbsolutePath().normalize(), p.repo()));
+    var recorded = Workspace.recordedFolders(p.repo()).values();
     for (var name : platform.levelFolders())
-      if (name.startsWith(e.folder() + "-") && !name.contains(".before-restore-") && !name.contains(".deleted-"))
+      if ((name.startsWith(e.folder() + "-") || recorded.contains(name)) && !name.contains(".before-restore-") && !name.contains(".deleted-"))
         aside.add(platform.levelFolder(name).toAbsolutePath().normalize());
     if (p.genesis() != null) aside.add(p.genesis());
     for (var path : aside) move(path, path.resolveSibling(path.getFileName() + suffix));
@@ -643,7 +669,12 @@ public final class BuildWorlds {
     var e = ws.buildWorld();
     checkName(name, owner, e.id());
     var folder = folderName(name, ownerName.toLowerCase(Locale.ROOT), owner.toString(), e.id());
-    if (!folder.equals(e.folder())) checkFolder(folder, e.id());
+    if (folder.equals(e.folder())) return;
+    checkFolder(folder, e.id());
+    // 記下的草稿資料夾照範本改名：範本有問題時在把人送走之前就拒絕
+    var next = new Entry(e.id(), name, owner, ownerName.toLowerCase(Locale.ROOT), folder, e.repo(), e.objects(), e.genesis(), e.created());
+    for (var branch : Workspace.recordedFolders(ws.dir()).keySet())
+      levelFolder(next, Workspace.isScratch(branch) ? "merge-world-name" : "draft-world-name", "{draft}", branch);
   }
 
   /** 卸載、改資料夾、換成新的 {@link Workspace}。 */
@@ -651,11 +682,23 @@ public final class BuildWorlds {
     var e = ws.buildWorld();
     boolean moving = !next.folder().equals(e.folder());
     if (moving) checkFolder(next.folder(), e.id());
+    // 記在 branches.yml 的草稿照範本換成新的名稱（範本有問題時在卸載前就拒絕）；舊版的草稿是 <世界資料夾>-<分支>
+    var recorded = Workspace.recordedFolders(ws.dir());
+    var renamed = new HashMap<String, String>();
+    if (moving)
+      for (var branch : recorded.keySet())
+        renamed.put(branch, levelFolder(next, Workspace.isScratch(branch) ? "merge-world-name" : "draft-world-name", "{draft}", branch));
     return afterShutdown(ws, () -> {
       if (moving) {
-        // 草稿是 <世界資料夾>-<分支>
+        var branches = Yaml.load(ws.dir().resolve("branches.yml"));
+        for (var r : renamed.entrySet()) {
+          move(platform.levelFolder(recorded.get(r.getKey())), platform.levelFolder(r.getValue()));
+          branches.set(r.getKey() + ".folder", r.getValue());
+        }
+        if (!renamed.isEmpty()) branches.save(ws.dir().resolve("branches.yml"));
         for (var name : platform.levelFolders())
-          if (name.startsWith(e.folder() + "-")) move(platform.levelFolder(name), platform.levelFolder(next.folder() + name.substring(e.folder().length())));
+          if (name.startsWith(e.folder() + "-") && !recorded.containsValue(name))
+            move(platform.levelFolder(name), platform.levelFolder(next.folder() + name.substring(e.folder().length())));
         move(platform.levelFolder(e.folder()), platform.levelFolder(next.folder()));
       }
       var replaced = workspace(next);
@@ -688,7 +731,7 @@ public final class BuildWorlds {
   private void remove(Workspace ws, Entry e) throws IOException {
     var all = new ArrayList<>(List.of(platform.levelFolder(e.folder()).toAbsolutePath().normalize(), ws.dir(), ws.genesisRoot()));
     for (var name : platform.levelFolders())
-      if (name.startsWith(e.folder() + "-")) all.add(platform.levelFolder(name).toAbsolutePath().normalize());
+      if (ws.isBranchFolder(name)) all.add(platform.levelFolder(name).toAbsolutePath().normalize());
     // 只改最外層的：版本庫可能在世界資料夾裡、起點世界可能在版本庫裡
     all.sort(Comparator.comparingInt(Path::getNameCount));
     var roots = new ArrayList<Path>();

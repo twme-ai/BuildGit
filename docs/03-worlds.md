@@ -40,7 +40,7 @@ UI 用「建築世界」，不用「我的世界」（和 Minecraft 的中文名
   - **起始物品**（要先打開那個角色的背包隔離）：擁有者設定成員與訪客各自身上預設有什麼（含裝備與副手）。設定方式：`/bg world settings kit-member`（或 `kit-visitor`，選單裡也有）打開一個大箱子，上面三排是背包、第四排是快捷欄、第五排左邊五格是頭盔、胸甲、護腿、靴子、副手；把物品放進去，關上就存好。放進去的物品是從自己身上拿走的（拿出來也是真的拿到），不會多出東西。後面加 `clear` 清空。
   - **每次重設**（`kit-member-reset`／`kit-visitor-reset`，預設開）：開著時每次進入都換上起始物品；關掉時只有第一次給，之後換上自己上次留在這個世界的背包。
   - **死後重給**（`kit-member-respawn`／`kit-visitor-respawn`，預設開）：在這個世界死掉、也在這個世界重生時，背包換成起始物品（終界箱、經驗不動）。死掉時掉在地上的照樣留著。
-  - 管理員可以用 `separate-inventories: true` 讓所有建築世界都強制隔離（生存伺服器建議），或 `allow-inventory-isolation: false` 不讓擁有者打開。
+  - 管理員可以用 `inventory-isolation: always` 讓所有建築世界都強制隔離（生存伺服器建議），或 `never` 不讓擁有者打開（預設 `owner`：擁有者決定）。新世界一開始開不開由 `defaults.inventory-member`、`defaults.inventory-visitor` 決定。
 - **離線再上線**：在建築世界裡離線，上線時照目前的權限重新判斷。已經被移除，或世界改成私人、被刪除時，送回伺服器世界。位置照現在的 `players.yml` 機制記下（設計 §4.4）。
 - **傳送門**：建築世界裡的地獄門、終界門不能用（不然會被傳到伺服器的地獄）。
 
@@ -150,8 +150,8 @@ worlds:
 | `border`／`max-border` | `1024`／`4096` | 新世界的邊界大小、玩家能設定的上限（實作時改成兩個鍵，`border` 沿用第二階段的寫法） |
 | `allowed-types`／`allowed-terrain` | 全部 | 例如只開放超平坦與虛空 |
 | `max-loaded` | `20` | 同時載入的建築世界上限，草稿與檢視世界也算在內（持續載入的不算）；滿了就請玩家稍後再試。不做每人的硬碟配額，邊界上限已經限制了大小 |
-| `separate-inventories` | `false` | `true` 時所有建築世界強制背包隔離（§2.2，生存伺服器建議） |
-| `allow-inventory-isolation` | `true` | 擁有者能不能為自己的世界打開背包隔離與起始物品 |
+| `inventory-isolation` | `owner` | 背包隔離（§2.2）：`owner` 擁有者決定、`always` 所有建築世界強制隔離（生存伺服器建議）、`never` 不隔離。取代舊版的 `separate-inventories`、`allow-inventory-isolation`（讀到時自動換算） |
+| `defaults.*` | | 新世界一開始的設定（規則預設、可見性、成員與訪客的模式、訪客互動、背包隔離、fork、提出併回、重生），建立後擁有者還能改 |
 | `trash-days` | `7` | 刪除後保留幾天 |
 | `paths.*` | 見 §6.1 | 版本庫、物件、起點世界、生成設定各放在哪裡 |
 | `templates` | 空 | 可以當範本的建築世界（例如 `admin/spawn-template`） |
@@ -238,8 +238,13 @@ player-worlds:
 
   ```yaml
   player-worlds:
-    world-name: "bw_{owner-name}_{name}"   # 建築世界；草稿是 <世界名稱>-<分支>，檢視是 bgview_<世界名稱>_<提交>
+    world-name: "bw_{owner-name}_{name}"         # 建築世界
+    draft-world-name: "{world}-{draft}"          # 草稿
+    merge-world-name: "{world}-{draft}"          # 衝突整合（{draft} 是 merge-…）
+    view-world-name: "bgview_{world}_{commit}"   # 看舊版
   ```
+
+  草稿、整合、檢視的範本另外可以用 `{world}`（上面算出來的世界資料夾）、`{draft}`、`{commit}`（版本編號前 10 碼）；草稿與整合必須有 `{draft}`、檢視必須有 `{commit}`，而且都要有 `{world}` 或 `{id}`（不同世界才不會撞名）。草稿建立時把資料夾記在版本庫的 `branches.yml`（`<草稿>.folder`），之後改範本，舊的草稿照樣找得到；舊版建立、沒記的草稿是 `<世界資料夾>-<草稿>`。照範本命名的檢視世界記在 `views.yml`，下次開啟時刪掉。改名、轉讓時記下的草稿照目前的範本換成新的名稱。伺服器世界的草稿與檢視不受影響（`bg_<草稿>`、`bgview_<提交>`）。
 
   佔位符：`{name}`（建築世界的名稱）、`{owner-name}`（擁有者的玩家名稱，小寫）、`{owner}`（擁有者的 UUID）、`{id}`。例如 alice 的 `castle` 在 Paper 1.21.11 是伺服器根目錄的 `bw_alice_castle/`，在 26.x 是 `world/dimensions/minecraft/bw_alice_castle/`（世界的 key 也跟著是這個名稱）。
   - 範本必須含 `{name}`；**前綴可以沒有**，例如 `world-name: "{name}"`，alice 的 `castle` 資料夾就叫 `castle/`。

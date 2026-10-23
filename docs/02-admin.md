@@ -151,19 +151,22 @@ LuckPerms 範例：
 | `player-worlds.max-per-player` | 3 | 每人最多擁有幾個建築世界 |
 | `player-worlds.border` | 1024 | 建築世界預設的世界邊界邊長（以 (0, 0) 為中心），也是訪客能去的範圍；擁有者可以用 `/bg world settings border` 改 |
 | `player-worlds.max-border` | 4096 | 擁有者能設定的最大邊長 |
-| `player-worlds.separate-inventories` | `false` | `true` 時所有建築世界都隔離背包（生存伺服器建議） |
-| `player-worlds.allow-inventory-isolation` | `true` | 擁有者能不能為自己的世界打開背包隔離與起始物品 |
+| `player-worlds.inventory-isolation` | `owner` | 背包隔離：`owner` 由擁有者為自己的世界決定、`always` 所有建築世界都隔離（生存伺服器建議）、`never` 都不隔離。舊版的 `separate-inventories`、`allow-inventory-isolation` 讀到時自動換成這個 |
+| `player-worlds.defaults.*` | | 新建立的世界一開始的設定：`rules`（建立選單預選的 `build`／`vanilla`）、`visibility`、`member-mode`、`visitor-mode`、`visitor-interact`、`inventory-member`、`inventory-visitor`、`allow-fork`、`accept-submissions`、`respawn`；建立後擁有者還能改 |
 | `player-worlds.max-loaded` | 20 | 同時載入的建築世界上限，草稿與檢視世界各算一個（伺服器世界不算）；滿了玩家要開新的世界時被拒絕，請他稍後再試 |
 | `player-worlds.allowed-types`／`allowed-terrain` | `[]`（全部） | 一般玩家建立時能選的類型（`overworld`、`nether`、`end`）與地形（`normal`、`large-biomes`、`amplified`、`flat`、`void`）；管理員不受限制 |
 | `player-worlds.unmanaged-settings` | `[]` | 交給其他插件管的世界規則：`time`、`weather`、`difficulty`、`mobs`、`nature`。列出的 BuildGit 不在建築世界裡設定（不改遊戲規則、時間、天氣、難度），世界設定選單不列、`/bg world settings` 也不能改。已經設過的遊戲規則留在世界裡；伺服器世界本來就不受影響 |
 | `player-worlds.templates` | `[]` | 可以當範本的建築世界（`擁有者/名稱`）；也可以在遊戲裡用 `/bg world template on|off [世界]` 設定（記在那個世界的 `repo.yml`）；建立對話框多一個「範本」，從範本建立等於 fork 它，不受 allowed-* 限制 |
 | `player-worlds.trash-days` | 7 | 刪除的建築世界在回收區保留幾天；過期的在啟動時與每天檢查一次後真正刪掉（回收區記在 `buildgit/trash.yml`） |
 | `player-worlds.world-name` | `bw_{owner-name}_{name}` | 建築世界的資料夾名稱（見 §7.1）；只影響之後建立的世界 |
+| `player-worlds.draft-world-name`／`merge-world-name`／`view-world-name` | `{world}-{draft}`／`{world}-{draft}`／`bgview_{world}_{commit}` | 建築世界的草稿、衝突整合、看舊版的世界資料夾名稱（見 §7.1）；草稿建立時記下，之後改設定舊的草稿照樣找得到 |
 | `player-worlds.paths.*` | | 建築世界的版本庫、物件、起點世界放在哪裡（見 §7.1） |
 | `player-worlds.upload.connection` | `""` | 上傳單人世界用的 `s3.yml` 連線名稱；空白時不開放 |
 | `player-worlds.upload.public-endpoint` | `""` | 玩家電腦連得到的 S3 網址；空白時和連線的 `endpoint` 相同 |
 | `player-worlds.upload.max-mb` | `512` | 上傳的存檔打包後的大小上限（MB） |
 | `tracking.*` | | 連帶變化的時間窗與距離、哪些實體不記錄；通常不用改 |
+
+`config.yml` 前半是一般會調整的，「進階」以下（`sync`、`init`、`tracking`）通常不用動。更新外掛後缺少的設定會自動補上（照新的順序與說明重寫，原本的檔案留在 `config.yml.old`）；認不得的設定（多半是打錯字或放錯層）啟動與 `/bg reload` 時在主控台警告。
 
 ## 6. 資料放在哪裡、占多少空間
 
@@ -253,12 +256,12 @@ LuckPerms 範例：
 - **角色**：在建築世界裡，BuildGit 的指令權限由那個世界的角色決定，不看你給的 `buildgit.role.*`：擁有者與管理者等於 manager，建造者等於 builder，訪客只能看（`status`、`log`、`diff`、`blame` 等），不能改方塊、不能進草稿或檢視舊版本。有 `buildgit.world.admin` 的人在任何世界都能做所有事。`init`、`reload`、`backup` 等伺服器管理照舊看權限節點。
 - 成員被移除或世界改成私人時，裡面沒資格的人會被送回伺服器世界；離線期間被移除的，上線時送回。
 - **遊戲模式**：進建築世界時換成這個世界設定的模式（預設成員創造、訪客旁觀者）；回伺服器世界時換回原本的模式。原本的模式與 `/bg home` 的位置記在 `buildgit/players/<uuid>.yml`，重啟後照樣恢復。
-- **背包**：預設所有世界共通。打開背包隔離（成員、訪客分開：`inventory-member on`、`inventory-visitor on`，或伺服器設 `player-worlds.separate-inventories: true` 兩者都隔離）後，進這個世界時把原本的背包、終界箱、經驗、狀態效果收起來，換成這個世界的那一份，回伺服器世界時換回原本的。預設每次進來都換上起始物品（`kit-*-reset off` 時只有第一次給，之後是自己上次留下的），死後重生也重給（`kit-*-respawn`）。從舊版升級的世界照舊：成員的背包保留、訪客每次重設、死後不重給。收起來的放在 `buildgit/players/<uuid>/`（原本的是 `server.dat`，各世界是 `<世界 id>.dat`），起始物品在世界的版本庫旁邊（`kit-member.dat`、`kit-visitor.dat`）；都記下資料版本，升級 Minecraft 後讀取時照樣升級物品。
+- **背包**：預設所有世界共通。打開背包隔離（成員、訪客分開：`inventory-member on`、`inventory-visitor on`，或伺服器設 `player-worlds.inventory-isolation: always` 兩者都隔離、`never` 都不隔離）後，進這個世界時把原本的背包、終界箱、經驗、狀態效果收起來，換成這個世界的那一份，回伺服器世界時換回原本的。預設每次進來都換上起始物品（`kit-*-reset off` 時只有第一次給，之後是自己上次留下的），死後重生也重給（`kit-*-respawn`）。從舊版升級的世界照舊：成員的背包保留、訪客每次重設、死後不重給。收起來的放在 `buildgit/players/<uuid>/`（原本的是 `server.dat`，各世界是 `<世界 id>.dat`），起始物品在世界的版本庫旁邊（`kit-member.dat`、`kit-visitor.dat`）；都記下資料版本，升級 Minecraft 後讀取時照樣升級物品。
 - **訪客的限制**：不能改方塊，也不能開箱子、和實體互動；WorldEdit、Axiom 的編輯會被擋下；走到世界邊界（預設 `player-worlds.border`，1024×1024）外會被拉回來。冒險模式的訪客在 `visitor-interact` 打開時可以按機關，造成的改變記成那個訪客改的，之後成員存檔時會一起存進去。
 - **傳送門**：建築世界裡的地獄門、終界門、折躍門都不能用（不然會被送到伺服器的地獄、終界）。
 - **建築用規則**（建立時選）：上面的設定預設成固定正午與晴天、和平、不生成生物、沒有自然變化；「原版」是正常流動、照伺服器的難度、生成生物、有自然變化。建立後都可以用 `/bg world settings` 改。建築世界一律關掉「旁觀者生成地形」與地獄門，終界類型沒有終界龍。
 - 類型、地形、種子建立後不能改。一個建築世界只有一個維度。設定記在它版本庫裡的 `repo.yml`。
-- **世界資料夾**：名稱由 `player-worlds.world-name` 決定，例如 bob 的 `castle` 是 `bw_bob_castle`（Paper 26.x 在 `world/dimensions/minecraft/` 底下，1.21.11 在伺服器根目錄）。它的草稿是 `bw_bob_castle-<草稿>`。名稱和現有的世界、資料夾、伺服器世界衝突時會拒絕建立。
+- **世界資料夾**：名稱由 `player-worlds.world-name` 決定，例如 bob 的 `castle` 是 `bw_bob_castle`（Paper 26.x 在 `world/dimensions/minecraft/` 底下，1.21.11 在伺服器根目錄）。它的草稿預設是 `bw_bob_castle-<草稿>`（`draft-world-name`、`merge-world-name`、`view-world-name` 可以另外設定草稿、衝突整合、看舊版的世界資料夾名稱）。名稱和現有的世界、資料夾、伺服器世界衝突時會拒絕建立。
 - **資料放在哪裡**：預設版本庫在 `buildgit/worlds/<id>/`，物件和伺服器世界共用 `buildgit/objects/`。清單在 `buildgit/worlds.yml`，不要手動改。
 - 想把整個建築世界（含歷史）放進它的世界資料夾，壓縮一個資料夾就帶走：
 

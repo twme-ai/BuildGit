@@ -96,6 +96,10 @@ public final class Workspace {
   private final Map<ServerLevel, Pending> sources = new ConcurrentHashMap<>();
   /** 檢視世界 → 版本。 */
   private final Map<ServerLevel, View> views = new HashMap<>();
+  /** 建築世界的草稿世界資料夾（branches.yml 的 folder，分支 → 資料夾）；null 表示還沒讀。 */
+  private Map<String, String> draftFolders;
+  /** 建築世界照範本命名的檢視世界（views.yml），下次開啟時清掉沒載入的。 */
+  private final Set<String> viewFolders = new HashSet<>();
   private final Map<String, RegionSynthesizer> synthesizers = new LinkedHashMap<>(16, 0.75f, true) {
     @Override
     protected boolean removeEldestEntry(Map.Entry<String, RegionSynthesizer> eldest) {
@@ -1096,8 +1100,13 @@ public final class Workspace {
     if (!BRANCH_NAME.matcher(name).matches() || !RefStore.validName(name)) throw new IOException("名稱只能用小寫英數、底線、連字號：" + name);
     if (isScratch(name) != scratch) throw new IOException("草稿名稱不能以 " + MERGE_PREFIX + " 開頭");
     if (dimension != null && !covers(from, dimension)) throw new Refused("來源 " + from + " 不包含這個世界");
+    var folder = world == null ? null : registry.levelFolder(world, scratch ? "merge-world-name" : "draft-world-name", "{draft}", name);
     repo.createBranch(name, at);
     var yaml = branchesFile();
+    if (folder != null) {
+      yaml.set(name + ".folder", folder);
+      draftFolders().put(name, folder);
+    }
     yaml.set(name + ".source", from);
     yaml.set(name + ".created", System.currentTimeMillis());
     if (dimension != null) yaml.set(name + ".dimension", dimension);
@@ -1161,11 +1170,47 @@ public final class Workspace {
     repo.deleteBranch(name);
     yaml.set(name, null);
     yaml.save(branchesPath());
+    if (draftFolders != null) draftFolders.remove(name);
   }
 
-  /** 草稿某維度的世界名稱。 */
+  /**
+   * 草稿某維度的世界名稱。建築世界的草稿建立時照 {@code player-worlds.draft-world-name}（整合用 {@code merge-world-name}）
+   * 決定並記在 branches.yml；舊版建立、沒記的是 {@code <世界資料夾>-<草稿>}。
+   */
   String worldName(String branch, String dimension) {
-    return world != null ? world.folder() + "-" + branch : WORLD_PREFIX + branch + suffix(dimension);
+    if (world == null) return WORLD_PREFIX + branch + suffix(dimension);
+    return draftFolders().getOrDefault(branch, world.folder() + "-" + branch);
+  }
+
+  private Map<String, String> draftFolders() {
+    if (draftFolders == null) draftFolders = recordedFolders(dir);
+    return draftFolders;
+  }
+
+  /** 版本庫 {@code repo} 的 branches.yml 記的草稿世界資料夾（分支 → 資料夾）。 */
+  static Map<String, String> recordedFolders(Path repo) {
+    var result = new HashMap<String, String>();
+    var y = Yaml.load(repo.resolve("branches.yml"));
+    for (var branch : y.keys()) {
+      var folder = y.getString(branch + ".folder");
+      if (folder != null) result.put(branch, folder);
+    }
+    return result;
+  }
+
+  /** 建築世界的草稿、衝突整合或檢視世界的資料夾（不含主世界自己的）。 */
+  boolean ownsDraftFolder(String name) {
+    return isBranchFolder(name) || world != null && isViewFolder(name);
+  }
+
+  /** 建築世界的草稿、衝突整合的資料夾。 */
+  boolean isBranchFolder(String name) {
+    return world != null && (name.startsWith(world.folder() + "-") || draftFolders().containsValue(name));
+  }
+
+  /** 這個版本庫的檢視世界的資料夾。 */
+  boolean isViewFolder(String name) {
+    return name.startsWith(viewPrefix()) || viewFolders.contains(name);
   }
 
   /** 主世界沒有後綴；地獄、終界沿用原版的後綴；其他世界（多世界插件）加上維度 id。 */
@@ -1362,8 +1407,16 @@ public final class Workspace {
 
   // ---- 檢視世界（設計 §6.5） ----
 
-  String viewName(ObjectId commit, String dimension) {
-    return viewPrefix() + commit.hex().substring(0, 10) + (world != null ? "" : suffix(dimension));
+  /** 檢視世界的名稱；建築世界照 {@code player-worlds.view-world-name}，記在 views.yml，下次開啟時清掉。 */
+  String viewName(ObjectId commit, String dimension) throws IOException {
+    if (world == null) return viewPrefix() + commit.hex().substring(0, 10) + suffix(dimension);
+    var name = registry.levelFolder(world, "view-world-name", "{commit}", commit.hex().substring(0, 10));
+    if (!name.startsWith(viewPrefix()) && viewFolders.add(name)) {
+      var y = new Yaml();
+      y.set("folders", List.copyOf(viewFolders));
+      y.save(dir.resolve("views.yml"));
+    }
+    return name;
   }
 
   /** 開啟某個版本、某個維度的唯讀世界（主執行緒）。 */
@@ -1387,6 +1440,12 @@ public final class Workspace {
     try {
       for (var name : platform.levelFolders())
         if (name.startsWith(VIEW_PREFIX) && platform.findLevel(name) == null) deleteLater(platform.levelFolder(name));
+      var file = dir.resolve("views.yml");
+      if (Files.exists(file)) {
+        for (var name : Yaml.load(file).getStringList("folders"))
+          if (!name.isEmpty() && platform.findLevel(name) == null) deleteLater(platform.levelFolder(name));
+        Files.delete(file);
+      }
     } catch (IOException e) {
       log().log(Level.WARNING, "無法清理舊的檢視世界", e);
     }

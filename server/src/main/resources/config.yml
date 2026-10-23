@@ -1,8 +1,151 @@
-# BuildGit 設定。修改後執行 /bg reload。
+# BuildGit 設定。修改後執行 /bg reload（少數標明的要重新啟動）。
+# 前半是一般會調整的設定；「進階」以下通常不用動。寫錯字的設定會在主控台警告。
 
 # 訊息語言：zh_tw 或 en_us
 language: zh_tw
 
+# 建築世界：一個世界一個版本庫（docs/03-worlds.md）。玩家用 /bg new 建立自己的；
+# 管理員（buildgit.world.admin）另外可以替別人建立、匯入伺服器上的世界（/bg new <名稱> import <資料夾> owner <玩家>）。
+player-worlds:
+  # 一般玩家能不能用 /bg new 建立自己的建築世界（還要有 buildgit.world.create 權限）。管理員不受限制。
+  enabled: false
+  # 每人最多擁有幾個建築世界（不含受邀的）。
+  max-per-player: 3
+  # 一般玩家建立時能選的類型（overworld、nether、end）與地形（normal、large-biomes、amplified、flat、void）。
+  # 空的是全部都可以；管理員不受限制。例如只開放超平坦與虛空：allowed-terrain: [flat, void]
+  allowed-types: []
+  allowed-terrain: []
+  # 可以當範本的建築世界（擁有者/名稱），例如 [admin/spawn-template]。建立選單的地形多一個「範本」，
+  # 從範本建立等於 fork 它（不受 allowed-types、allowed-terrain 限制，範本本身是私人的也可以）。
+  templates: []
+  # 建築世界的世界邊界（以 (0, 0) 為中心的正方形邊長），也是訪客能去的範圍：
+  # 冒險模式的訪客被邊界擋住，旁觀者會穿過邊界，超出時被拉回來。
+  border: 1024
+  # 擁有者用 /bg world settings border 能設定的最大邊長。
+  max-border: 4096
+  # 背包隔離（進去換成那個世界自己的背包與起始物品，出來換回來）：
+  #   owner：擁有者為自己的世界決定（/bg world settings inventory-member、inventory-visitor）
+  #   always：所有建築世界都隔離（生存伺服器建議）
+  #   never：都不隔離，擁有者也不能打開
+  inventory-isolation: owner
+  # 新建立的世界一開始的設定，建立後擁有者還能用 /bg world settings 改。只影響之後建立的世界。
+  defaults:
+    # 建立選單預選的規則：build（固定正午、晴天、和平、不生成生物）或 vanilla（和原版一樣）
+    rules: build
+    # public：所有人都能進來參觀；private：只有成員
+    visibility: private
+    # 成員的遊戲模式：creative、survival 或 adventure
+    member-mode: creative
+    # 訪客的遊戲模式：spectator 或 adventure
+    visitor-mode: spectator
+    # 冒險模式的訪客能不能按按鈕、拉桿、開門、踩壓力板
+    visitor-interact: false
+    # 成員、訪客的背包隔離（inventory-isolation 是 owner 時才有作用）
+    inventory-member: false
+    inventory-visitor: false
+    # 訪客能不能 fork
+    allow-fork: true
+    # 接不接受 fork 出去的世界提出併回
+    accept-submissions: true
+    # 死在這個世界的人在出生點重生（關掉時照原版回伺服器世界）
+    respawn: true
+  # /bg world delete 之後在回收區保留幾天（期間可以 /bg world undelete 找回），過期才真正刪掉。
+  trash-days: 7
+  # 交給其他插件（或原版指令）管的世界規則：BuildGit 不在建築世界裡設定它們，世界設定選單也不列、擁有者不能改。
+  # 可以寫 time（時間）、weather（天氣）、difficulty（難度）、mobs（生物生成）、nature（作物生長、火焰蔓延、
+  # 生物破壞方塊等）。例如由別的插件控制時間與天氣：unmanaged-settings: [time, weather]
+  # 已經設過的遊戲規則會留在世界裡，不會被改回原版的預設。伺服器世界本來就不受這些設定影響。
+  unmanaged-settings: []
+  # 把單人世界上傳成新的建築世界（/bg new <名稱> from <存檔>，要裝 BuildGit 用戶端）。只帶主世界的方塊與實體，
+  # 不帶歷史。用戶端直接上傳到 S3（伺服器發 15 分鐘有效的預簽網址），伺服器再下載、檢查每個 chunk。
+  upload:
+    # s3.yml 的連線名稱；空白時不開放上傳。上傳暫存在 bucket 的 uploads/ 下，處理完就刪掉
+    # （建議替 uploads/ 設一天後自動刪除的生命週期規則，清掉玩家中途離開留下的）
+    connection: ""
+    # 玩家的電腦連得到的 S3 網址；空白時和連線的 endpoint 相同（endpoint 是 127.0.0.1 等內部位址時要填）
+    public-endpoint: ""
+    # 打包後的大小上限（MB）
+    max-mb: 512
+  # 同時載入的建築世界上限，草稿與檢視世界也各算一個（伺服器世界不算）。滿了就請玩家稍後再試；
+  # 沒人的世界過 worlds.unload-idle-seconds 會卸載。
+  max-loaded: 20
+  # 伺服器世界在 /bg open 等指令裡的名稱；空白時用 server.properties 的 level-name（預設 world）。
+  server-world-name: ""
+  # 世界資料夾的名稱。{name} 是建築世界的名稱（必須有），{owner-name} 是擁有者的玩家名稱（小寫），
+  # {owner} 是擁有者的 UUID，{id} 是建築世界的 id。可以沒有前綴，例如 "{name}"：這時名稱在整台伺服器唯一。
+  # 只影響之後建立的世界。
+  world-name: "bw_{owner-name}_{name}"
+  # 草稿、衝突整合、看舊版時開的世界的資料夾名稱。{world} 是上面算出來的世界資料夾，其他佔位符和上面相同，
+  # 另外 {draft} 是草稿名稱（整合是 merge-…）、{commit} 是版本編號。草稿與整合必須有 {draft}、看舊版必須有 {commit}，
+  # 而且都要有 {world} 或 {id}。草稿建立時記下資料夾，之後改設定，舊的草稿照舊找得到。伺服器世界的草稿不受影響（bg_<草稿>）。
+  draft-world-name: "{world}-{draft}"
+  merge-world-name: "{world}-{draft}"
+  view-world-name: "bgview_{world}_{commit}"
+  # 每個建築世界的資料放在哪裡（相對於伺服器目錄，或絕對路徑）。只影響之後建立的世界：
+  # 建立時記在 buildgit/worlds.yml，之後改設定，舊的世界照舊找得到。
+  # 佔位符：{server} 伺服器目錄、{buildgit} 伺服器的 buildgit/、{id} 建築世界的 id、{owner} 擁有者的 UUID、
+  # {world-folder} 這個世界的世界資料夾、{repo} 下面 repo 算出來的位置。
+  # 例如整個建築世界都放進世界資料夾（壓縮一個資料夾就帶走歷史）：repo 設 "{world-folder}/buildgit"、objects 設 "{repo}/objects"。
+  paths:
+    # 版本庫：分支、存檔紀錄、工作區
+    repo: "{buildgit}/worlds/{id}"
+    # 物件：預設所有建築世界與伺服器世界共用
+    objects: "{buildgit}/objects"
+    # 起點世界
+    genesis: "{repo}/genesis"
+
+worlds:
+  # 大廳：伺服器世界設成私人時（/bg world visibility private），沒有權限、也不是成員的人上線或被移出時送到這裡。
+  # 寫建築世界（擁有者/名稱，必須是公開的），或不受版本控制的普通世界的名稱或維度 id（例如 lobby、minecraft:lobby，
+  # 世界由管理員自己用多世界插件建立）。空白表示沒有大廳，伺服器世界不能設成私人。大廳是建築世界時一律持續載入。
+  lobby: ""
+  # 持續載入的世界：伺服器啟動時就載入，沒人也不卸載，不算進 player-worlds.max-loaded。列太多會吃記憶體。
+  # 建築世界寫「擁有者/名稱」，草稿寫「擁有者/名稱:草稿」（伺服器世界的草稿寫「世界名稱:草稿」）。改名、轉讓後照樣對得上。
+  keep-loaded: []
+  # 草稿與衝突整合的世界沒有玩家這麼久之後，存到磁碟並從記憶體卸載（秒）；
+  # 有人再進去（go、try、併回等）時自動重新載入。最少 30 秒；-1 表示一直留在記憶體。
+  unload-idle-seconds: 60
+
+autosave:
+  # 世界裡所有玩家停手這麼久之後自動存檔（秒）。0 表示停用。
+  idle-seconds: 300
+  # 一直有人在蓋時，最長多久一定自動存檔一次（秒）。0 表示停用。
+  max-interval-seconds: 1800
+
+integrations:
+  # 記錄 WorldEdit／FastAsyncWorldEdit 的編輯（Fabric 是 WorldEdit 模組）。
+  worldedit: true
+  # 記錄 Axiom 的編輯（Paper 需要 AxiomPaper；Fabric 是 Axiom 模組）。
+  axiom: true
+  # 記錄 DebugStickPro 的經典、複製模式；凍結模式暫時換成屏障的方塊不存進版本。
+  debugstickpro: true
+  # 裝了 LuckPerms 時提供情境 buildgit:location（main／draft／view／resolve）與 buildgit:branch，
+  # 讓任何插件的權限依玩家在 BuildGit 的哪裡生效，例如只在草稿裡能用 WorldEdit：
+  #   /lp group builder permission set worldedit.* true buildgit:location=draft
+  luckperms-contexts: true
+
+# ───────────────────────────── 進階：一般不用改 ─────────────────────────────
+
+sync:
+  # /bg pull 一次最多取出的方塊數（範圍的體積）。
+  max-blocks: 12000000
+  # 沒有選取範圍時：在草稿裡取草稿改過的範圍（外加 8 格），其他時候取玩家周圍這麼多格（水平半徑、整個高度）。
+  radius: 80
+
+init:
+  # 世界的存檔（region 與 entities）超過這個大小（MB）時，/bg init 不複製整個世界，改成延遲複製：
+  # 每個 chunk 第一次載入時才把它的原樣複製進起點世界，沒載入過的直接讀世界自己的存檔。
+  # 省下大部分空間、init 立刻完成，但要遵守：不要在 BuildGit 沒執行時開這個世界（包括 --forceUpgrade、
+  # 單人遊戲、MCA Selector 等離線工具），否則沒載入過的 chunk 的起點會被改掉。
+  # -1 表示一律完整複製（預設）；0 表示一律延遲複製。只影響之後才 init 的世界。
+  lazy-copy-above-mb: -1
+  # 起點世界放在哪個資料夾（相對於伺服器目錄，或絕對路徑）；空白為 buildgit/genesis。
+  # 可以放在較便宜、較大的硬碟上：起點世界只在開草稿、看舊版、存檔時讀取，不需要很快。
+  # 已經 init 過再改：先關服，把原本的資料夾整個搬到新位置，再開服；還沒搬時會繼續用原本的位置。
+  # 備份時要和 buildgit/、世界資料夾一起備份。
+  genesis-dir: ""
+
+# 誰的動作記在誰名下。
 tracking:
   # 連帶變化的時間窗（遊戲刻）：玩家動過一格後，這段時間內緊鄰它的遊戲變化（形狀更新、水流、紅石、活塞）
   # 也記在同一位玩家名下。鏈上每一步都會重新計時，所以長的水流或紅石線不會中斷。
@@ -53,113 +196,3 @@ tracking:
     - minecraft:wind_charge
     - minecraft:minecart
     - minecraft:end_crystal
-
-autosave:
-  # 世界裡所有玩家停手這麼久之後自動存檔（秒）。0 表示停用。
-  idle-seconds: 300
-  # 一直有人在蓋時，最長多久一定自動存檔一次（秒）。0 表示停用。
-  max-interval-seconds: 1800
-
-worlds:
-  # 草稿與衝突整合的世界沒有玩家這麼久之後，存到磁碟並從記憶體卸載（秒）；
-  # 有人再進去（go、try、併回等）時自動重新載入。最少 30 秒；-1 表示一直留在記憶體。
-  unload-idle-seconds: 60
-  # 大廳：伺服器世界設成私人時（/bg world visibility private），沒有權限、也不是成員的人上線或被移出時送到這裡。
-  # 寫建築世界（擁有者/名稱，必須是公開的），或不受版本控制的普通世界的名稱或維度 id（例如 lobby、minecraft:lobby，
-  # 世界由管理員自己用多世界插件建立）。空白表示沒有大廳，伺服器世界不能設成私人。大廳是建築世界時一律持續載入。
-  lobby: ""
-  # 持續載入的世界：伺服器啟動時就載入，沒人也不卸載，不算進 player-worlds.max-loaded。列太多會吃記憶體。
-  # 建築世界寫「擁有者/名稱」，草稿寫「擁有者/名稱:草稿」（伺服器世界的草稿寫「世界名稱:草稿」）。改名、轉讓後照樣對得上。
-  keep-loaded: []
-
-# 建築世界：一個世界一個版本庫（docs/03-worlds.md）。目前由管理員用 /bg new 建立。
-player-worlds:
-  # 一般玩家能不能用 /bg new 建立自己的建築世界（還要有 buildgit.world.create 權限）。管理員（buildgit.world.admin）不受限制。
-  enabled: false
-  # 每人最多擁有幾個建築世界（不含受邀的）。
-  max-per-player: 3
-  # 建築世界的世界邊界（以 (0, 0) 為中心的正方形邊長）。也是訪客能去的範圍：訪客是旁觀者，會穿過邊界，超出時會被拉回來。
-  border: 1024
-  # 擁有者用 /bg world settings border 能設定的最大邊長。
-  max-border: 4096
-  # true：所有建築世界都隔離背包（進去換成那個世界自己的背包，出來換回來；生存伺服器建議）。
-  # false：照每個世界的設定（/bg world settings inventory-member、inventory-visitor，預設不隔離）。
-  separate-inventories: false
-  # 擁有者能不能為自己的世界打開背包隔離與起始物品。
-  allow-inventory-isolation: true
-  # /bg world delete 之後在回收區保留幾天（期間可以 /bg world undelete 找回），過期才真正刪掉。
-  trash-days: 7
-  # 同時載入的建築世界上限，草稿與檢視世界也各算一個（伺服器世界不算）。滿了就請玩家稍後再試；
-  # 沒人的世界過 worlds.unload-idle-seconds 會卸載。
-  max-loaded: 20
-  # 一般玩家建立時能選的類型（overworld、nether、end）與地形（normal、large-biomes、amplified、flat、void）。
-  # 空的是全部都可以；管理員不受限制。例如只開放超平坦與虛空：allowed-terrain: [flat, void]
-  allowed-types: []
-  allowed-terrain: []
-  # 可以當範本的建築世界（擁有者/名稱），例如 [admin/spawn-template]。建立選單的地形多一個「範本」，
-  # 從範本建立等於 fork 它（不受 allowed-types、allowed-terrain 限制，範本本身是私人的也可以）。
-  templates: []
-  # 交給其他插件（或原版指令）管的世界規則：BuildGit 不在建築世界裡設定它們，世界設定選單也不列、擁有者不能改。
-  # 可以寫 time（時間）、weather（天氣）、difficulty（難度）、mobs（生物生成）、nature（作物生長、火焰蔓延、
-  # 生物破壞方塊等）。例如由別的插件控制時間與天氣：unmanaged-settings: [time, weather]
-  # 已經設過的遊戲規則會留在世界裡，不會被改回原版的預設。伺服器世界本來就不受這些設定影響。
-  unmanaged-settings: []
-  # 伺服器世界在 /bg open 等指令裡的名稱；空白時用 server.properties 的 level-name（預設 world）。
-  server-world-name: ""
-  # 世界資料夾的名稱。{name} 是建築世界的名稱（必須有），{owner-name} 是擁有者的玩家名稱（小寫），
-  # {owner} 是擁有者的 UUID，{id} 是建築世界的 id。可以沒有前綴，例如 "{name}"：這時名稱在整台伺服器唯一。
-  # 草稿的資料夾是 <世界資料夾>-<草稿>。只影響之後建立的世界。
-  world-name: "bw_{owner-name}_{name}"
-  # 每個建築世界的資料放在哪裡（相對於伺服器目錄，或絕對路徑）。只影響之後建立的世界：
-  # 建立時記在 buildgit/worlds.yml，之後改設定，舊的世界照舊找得到。
-  # 佔位符：{server} 伺服器目錄、{buildgit} 伺服器的 buildgit/、{id} 建築世界的 id、{owner} 擁有者的 UUID、
-  # {world-folder} 這個世界的世界資料夾、{repo} 下面 repo 算出來的位置。
-  # 例如整個建築世界都放進世界資料夾（壓縮一個資料夾就帶走歷史）：repo 設 "{world-folder}/buildgit"、objects 設 "{repo}/objects"。
-  paths:
-    # 版本庫：分支、存檔紀錄、工作區
-    repo: "{buildgit}/worlds/{id}"
-    # 物件：預設所有建築世界與伺服器世界共用
-    objects: "{buildgit}/objects"
-    # 起點世界
-    genesis: "{repo}/genesis"
-  # 把單人世界上傳成新的建築世界（/bg new <名稱> from <存檔>，要裝 BuildGit 用戶端）。只帶主世界的方塊與實體，
-  # 不帶歷史。用戶端直接上傳到 S3（伺服器發 15 分鐘有效的預簽網址），伺服器再下載、檢查每個 chunk。
-  upload:
-    # s3.yml 的連線名稱；空白時不開放上傳。上傳暫存在 bucket 的 uploads/ 下，處理完就刪掉
-    # （建議替 uploads/ 設一天後自動刪除的生命週期規則，清掉玩家中途離開留下的）
-    connection: ""
-    # 玩家的電腦連得到的 S3 網址；空白時和連線的 endpoint 相同（endpoint 是 127.0.0.1 等內部位址時要填）
-    public-endpoint: ""
-    # 打包後的大小上限（MB）
-    max-mb: 512
-
-init:
-  # 世界的存檔（region 與 entities）超過這個大小（MB）時，/bg init 不複製整個世界，改成延遲複製：
-  # 每個 chunk 第一次載入時才把它的原樣複製進起點世界，沒載入過的直接讀世界自己的存檔。
-  # 省下大部分空間、init 立刻完成，但要遵守：不要在 BuildGit 沒執行時開這個世界（包括 --forceUpgrade、
-  # 單人遊戲、MCA Selector 等離線工具），否則沒載入過的 chunk 的起點會被改掉。
-  # -1 表示一律完整複製（預設）；0 表示一律延遲複製。只影響之後才 init 的世界。
-  lazy-copy-above-mb: -1
-  # 起點世界放在哪個資料夾（相對於伺服器目錄，或絕對路徑）；空白為 buildgit/genesis。
-  # 可以放在較便宜、較大的硬碟上：起點世界只在開草稿、看舊版、存檔時讀取，不需要很快。
-  # 已經 init 過再改：先關服，把原本的資料夾整個搬到新位置，再開服；還沒搬時會繼續用原本的位置。
-  # 備份時要和 buildgit/、世界資料夾一起備份。
-  genesis-dir: ""
-
-sync:
-  # /bg pull 一次最多取出的方塊數（範圍的體積）。
-  max-blocks: 12000000
-  # 沒有選取範圍時：在草稿裡取草稿改過的範圍（外加 8 格），其他時候取玩家周圍這麼多格（水平半徑、整個高度）。
-  radius: 80
-
-integrations:
-  # 記錄 WorldEdit／FastAsyncWorldEdit 的編輯（Fabric 是 WorldEdit 模組）。
-  worldedit: true
-  # 記錄 Axiom 的編輯（Paper 需要 AxiomPaper；Fabric 是 Axiom 模組）。
-  axiom: true
-  # 記錄 DebugStickPro 的經典、複製模式；凍結模式暫時換成屏障的方塊不存進版本。
-  debugstickpro: true
-  # 裝了 LuckPerms 時提供情境 buildgit:location（main／draft／view／resolve）與 buildgit:branch，
-  # 讓任何插件的權限依玩家在 BuildGit 的哪裡生效，例如只在草稿裡能用 WorldEdit：
-  #   /lp group builder permission set worldedit.* true buildgit:location=draft
-  luckperms-contexts: true
