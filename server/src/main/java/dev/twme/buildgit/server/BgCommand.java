@@ -116,7 +116,7 @@ public final class BgCommand {
     sub("revert", "buildgit.revert", this::revert, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("restore", "buildgit.restore", this::restore, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--selection", "confirm"));
     // 建築世界（03-worlds）：進出、列出所有人都能用，能不能進去看成員名單與可見性
-    sub("new", "buildgit.world.create|buildgit.world.admin", this::newWorld, (s, b) -> newOptions(b, ""));
+    sub("new", "buildgit.world.create|buildgit.world.admin", this::newWorld, (s, b) -> newOptions(s, b, ""));
     sub("submit", "buildgit.world.create|buildgit.world.admin", this::submit, null);
     sub("fork", "buildgit.world.create|buildgit.world.admin", this::fork, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
@@ -295,7 +295,7 @@ public final class BgCommand {
     var b = builder.createOffset(start + space + 1);
     var seen = new HashSet<String>();
     try {
-      var options = sub.names().contains("new") ? newOptions(before, current) : sub.suggester().suggest(sender, before);
+      var options = sub.names().contains("new") ? newOptions(sender, before, current) : sub.suggester().suggest(sender, before);
       for (var option : options) {
         if (option.toLowerCase(Locale.ROOT).startsWith(current) && seen.add(option)) b.suggest(option);
       }
@@ -2024,8 +2024,32 @@ public final class BgCommand {
    * 打開建立對話框（寫了的選項先填好），按「建立」是帶著填好的選項加上 {@code confirm} 再執行一次。
    */
   private void newWorld(Sender sender, String[] args) throws IOException {
-    var p = player(sender);
-    if (p == null) return;
+    // import <世界資料夾> [owner <玩家>]：把伺服器上的世界建成建築世界（管理員），不經過對話框；指定擁有者時主控台也能用
+    String folder = null, ownerName = null;
+    var kept = new ArrayList<String>();
+    for (int i = 0; i < args.length; i++) {
+      var a = args[i].toLowerCase(Locale.ROOT);
+      if ((a.equals("import") || a.equals("owner")) && i + 1 < args.length && !NEW_KEYS.contains(args[i + 1].toLowerCase(Locale.ROOT))) {
+        if (a.equals("import")) folder = args[++i];
+        else ownerName = args[++i];
+      } else kept.add(args[i]);
+    }
+    if (ownerName != null && folder == null) throw new Workspace.Refused("owner 只能和 import 一起用");
+    if (folder != null && !sender.hasPermission("buildgit.world.admin")) throw new Workspace.Refused("只有管理員能匯入伺服器上的世界");
+    args = kept.toArray(String[]::new);
+    var p = folder != null && ownerName != null ? sender.player() : player(sender);
+    if (p == null && (folder == null || ownerName == null)) return;
+    if (folder != null) {
+      var o = parseNew(sender, args);
+      if (o == null) return;
+      if (o.template() != null) throw new Workspace.Refused("import 不能和 template 一起用");
+      var owner = ownerName == null ? p : bg.platform().server().getPlayerList().getPlayerByName(ownerName);
+      if (owner == null) throw new Workspace.Refused("找不到線上玩家 " + ownerName + "（擁有者要在線上）");
+      // 世界以外的地方：沒指定地形時是虛空
+      if (Arrays.stream(args).noneMatch(a -> a.equalsIgnoreCase("terrain"))) o = o.withTerrain(WorldConfig.Terrain.VOID);
+      bg.worldUpload().importFolder(sender, owner, o.name(), newConfig(o), folder);
+      return;
+    }
     // from <存檔>：上傳單人世界（03-worlds §7），不經過對話框。寫在最後，存檔名稱可以有空格
     String from = null;
     var rest = new ArrayList<String>();
@@ -2239,13 +2263,14 @@ public final class BgCommand {
   }
 
   /** {@code new} 的選項名；後面接一個值（{@code from} 接下剩下的全部）。這些字不能當世界名稱。 */
-  static final Set<String> NEW_KEYS = Set.of("type", "terrain", "rules", "seed", "layers", "block", "template", "from");
+  static final Set<String> NEW_KEYS = Set.of("type", "terrain", "rules", "seed", "layers", "block", "template", "from", "import", "owner");
 
   /**
    * {@code new} 的補全：上一個字是選項名時列它能填的值，否則列還沒用過的選項名與 {@code confirm}。
    * @param current 正在打的字
    */
-  private List<String> newOptions(List<String> before, String current) {
+  private List<String> newOptions(Sender sender, List<String> before, String current) {
+    boolean admin = sender.hasPermission("buildgit.world.admin");
     String pending = null;
     var used = new HashSet<String>();
     for (var w : before) {
@@ -2256,7 +2281,7 @@ public final class BgCommand {
     }
     var list = new ArrayList<String>();
     if (pending == null) {
-      for (var k : NEW_KEYS) if (!used.contains(k)) list.add(k);
+      for (var k : NEW_KEYS) if (!used.contains(k) && (admin || !k.equals("import") && !k.equals("owner"))) list.add(k);
       list.add("confirm");
       return list;
     }
@@ -2267,9 +2292,22 @@ public final class BgCommand {
       case "template" -> { for (var t : bg.menu().templates()) list.add(t.label()); }
       case "block" -> { for (var id : net.minecraft.core.registries.BuiltInRegistries.BLOCK.keySet()) list.add(shortId(id)); }
       case "layers" -> list.addAll(layerOptions(current));
+      case "import" -> list.addAll(worldFolders());
+      case "owner" -> list.addAll(onlineNames());
       default -> { } // seed、from 自己填
     }
     return list;
+  }
+
+  /** 伺服器目錄裡看起來是世界的資料夾（有 region 或 level.dat）。 */
+  private List<String> worldFolders() {
+    var base = bg.platform().server().getServerDirectory();
+    try (var list = java.nio.file.Files.list(base)) {
+      return list.filter(d -> java.nio.file.Files.isDirectory(d.resolve("region")) || java.nio.file.Files.isRegularFile(d.resolve("level.dat")))
+          .map(d -> d.getFileName().toString()).sorted().toList();
+    } catch (IOException e) {
+      return List.of();
+    }
   }
 
   private static final List<String> LAYER_EXAMPLES =

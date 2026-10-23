@@ -249,10 +249,10 @@ public final class BuildWorlds {
   }
 
   /**
-   * 把上傳的單人世界建成建築世界（主執行緒，03-worlds §7）：和 {@link #create} 一樣，只是起點世界換成 {@code staged} 裡檢查過的
+   * 把上傳的單人世界或伺服器上的世界建成建築世界（主執行緒，03-worlds §7）：和 {@link #create} 一樣，只是起點世界換成 {@code staged} 裡檢查過的
    * {@code region}、{@code entities}，沒有歷史。
    */
-  Workspace importWorld(String name, ServerPlayer owner, WorldConfig config, boolean admin, Path staged) throws IOException {
+  Workspace importWorld(String name, ServerPlayer owner, WorldConfig config, boolean admin, Path staged, String source) throws IOException {
     var ws = prepare(name, owner, admin);
     var e = ws.buildWorld();
     var to = ws.genesisDir(Workspace.OVERWORLD);
@@ -277,7 +277,7 @@ public final class BuildWorlds {
     }
     worlds.put(e.id(), ws);
     save();
-    platform.log().info(owner.getScoreboardName() + " 上傳單人世界建立了建築世界 " + e.label() + "（" + e.folder() + "）");
+    platform.log().info(source + "，建立了 " + owner.getScoreboardName() + " 的建築世界 " + e.label() + "（" + e.folder() + "）");
     return ws;
   }
 

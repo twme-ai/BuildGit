@@ -159,7 +159,7 @@ final class WorldUpload {
         pending.remove(uuid);
         var online = bg.platform().server().getPlayerList().getPlayer(uuid);
         try {
-          var ws = bg.worlds().importWorld(up.name, p, up.config, up.admin, staged);
+          var ws = bg.worlds().importWorld(up.name, p, up.config, up.admin, staged, "上傳單人世界 " + up.save);
           if (online != null) {
             msg().send(bg.platform().sender(online), "world-uploaded", "save", up.save, "world", ws.label(), "chunks", result.chunks(),
                 "dropped", result.dropped());
@@ -180,6 +180,57 @@ final class WorldUpload {
     }
   }
 
+  /**
+   * {@code /bg new <名稱> import <世界資料夾> [owner <玩家>]}（主執行緒，03-worlds §7）：把伺服器上已有的世界（相對於伺服器目錄的資料夾）
+   * 建成 {@code owner} 的建築世界。只取主世界那一層的 region 與實體檔（26.x 的存檔在 dimensions/minecraft/overworld），
+   * 複製出來後和上傳一樣逐個 chunk 檢查、升級；原本的世界不動。世界還載入著時先存檔。管理員才能用，管理方塊照樣保留。
+   */
+  void importFolder(Sender sender, ServerPlayer owner, String name, WorldConfig config, String folder) throws IOException {
+    var base = bg.platform().server().getServerDirectory().toAbsolutePath().normalize();
+    var dir = base.resolve(folder).normalize();
+    if (!dir.startsWith(base) || !Files.isDirectory(dir)) throw new Workspace.Refused("伺服器目錄裡沒有資料夾 " + folder);
+    if (!Files.isDirectory(dir.resolve("region")) && Files.isDirectory(dir.resolve("dimensions/minecraft/overworld/region")))
+      dir = dir.resolve("dimensions/minecraft/overworld");
+    if (!Files.isDirectory(dir.resolve("region"))) throw new Workspace.Refused(folder + " 裡沒有 region 資料夾，不是世界資料夾");
+    bg.worlds().checkCreate(name, owner, true);
+    Runnable saved = () -> {};
+    for (var level : bg.platform().server().getAllLevels())
+      if (bg.platform().levelDirectory(level).toAbsolutePath().normalize().equals(dir)) saved = bg.platform().save(level);
+    var source = dir;
+    var wait = saved;
+    var tmp = bg.platform().repoDir().resolve("uploads").resolve("import-" + UUID.randomUUID());
+    msg().send(sender, "world-import-copying", "folder", folder);
+    Thread.ofVirtual().name("BuildGit import " + folder).start(() -> {
+      try {
+        wait.run();
+        var raw = tmp.resolve("raw");
+        for (var sub : List.of("region", "entities"))
+          if (Files.isDirectory(source.resolve(sub))) Workspace.copyTree(source.resolve(sub), raw.resolve(sub), false);
+        var staged = tmp.resolve("staged");
+        var result = check(raw, staged, true);
+        bg.platform().sync(() -> {
+          try {
+            var ws = bg.worlds().importWorld(name, owner, config, true, staged, "匯入伺服器上的世界 " + folder);
+            msg().send(sender, "world-imported", "folder", folder, "world", ws.label(), "chunks", result.chunks(), "dropped", result.dropped());
+            if (sender.player() instanceof ServerPlayer p && !p.isRemoved()) bg.realms().enter(p, ws);
+          } catch (IOException | RuntimeException e) {
+            importFailed(sender, folder, e);
+          } finally {
+            deleteTree(tmp);
+          }
+        });
+      } catch (IOException | RuntimeException e) {
+        deleteTree(tmp);
+        bg.platform().sync(() -> importFailed(sender, folder, e));
+      }
+    });
+  }
+
+  private void importFailed(Sender sender, String folder, Throwable e) {
+    if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "匯入世界 " + folder + " 失敗", e);
+    msg().send(sender, "world-import-failed", "folder", folder, "error", String.valueOf(e.getMessage()));
+  }
+
   private void failed(UUID uuid, Pending up, Throwable e) {
     if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "上傳單人世界失敗", e);
     var online = bg.platform().server().getPlayerList().getPlayer(uuid);
@@ -193,6 +244,11 @@ final class WorldUpload {
    * 寫進 {@code staged}。
    */
   private Result unpack(Path zip, Path raw, Path staged, long max, boolean gameMaster) throws IOException {
+    extract(zip, raw, max);
+    return check(raw, staged, gameMaster);
+  }
+
+  private static void extract(Path zip, Path raw, long max) throws IOException {
     long total = 0;
     try (var in = new ZipInputStream(Files.newInputStream(zip))) {
       var buf = new byte[1 << 16];
@@ -208,6 +264,10 @@ final class WorldUpload {
         }
       }
     }
+  }
+
+  /** 逐個 chunk 讀 {@code raw} 的 region 與實體檔、升級到目前的版本、檢查位置，清掉不允許的東西後寫進 {@code staged}。 */
+  private Result check(Path raw, Path staged, boolean gameMaster) throws IOException {
     var upgrader = bg.workspace().upgrader();
     int current = upgrader.current();
     var masterBlocks = new HashSet<String>();
@@ -270,7 +330,7 @@ final class WorldUpload {
         }
       }
     }
-    if (chunks == 0) throw new Workspace.Refused("存檔裡沒有可以用的 chunk");
+    if (chunks == 0) throw new Workspace.Refused("世界裡沒有可以用的 chunk");
     return new Result(chunks, dropped);
   }
 
