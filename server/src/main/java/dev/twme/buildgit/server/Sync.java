@@ -231,7 +231,7 @@ final class Sync {
   private Workspace target(ServerPlayer p, Yaml record) throws Workspace.Refused {
     var id = record.getString("world");
     if (id == null) {
-      if (!bg.realms().inServerWorld(p.level())) throw new Workspace.Refused("這個範圍是從伺服器世界取出的：請先回伺服器世界（/bg home）再送回");
+      if (!bg.realms().inServerWorld(p.level())) throw new Workspace.Refused("這個範圍是從伺服器世界取出的：請先回伺服器世界再送回");
       if (!bg.platform().hasPermission(p, "buildgit.push")) throw new Workspace.Refused("你沒有送回伺服器世界的權限");
       return bg.workspace();
     }

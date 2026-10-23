@@ -383,7 +383,6 @@ final class Menu {
     var role = here.role(p.getUUID());
     if (here.buildWorld() != null && (role == WorldConfig.Role.OWNER || role == WorldConfig.Role.MANAGER || realms.admin(p)))
       put(items, bottom + 7, "comparator", "menu-world-settings", "world settings", p, null);
-    if (here.buildWorld() != null) put(items, bottom + 8, "oak_door", "worlds-home", "home", p, null);
     bg.platform().openMenu(p, msg.get("worlds-title", "tab", msg.get("worlds-tab-" + tab)), items);
   }
 

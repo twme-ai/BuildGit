@@ -49,7 +49,7 @@ public final class BgCommand {
   private static final int OUTLINE_SECONDS = 60;
   private static final int HERE_RADIUS = 8;
   /** 不需要版本庫已經開啟的子指令。 */
-  private static final Set<String> WORLDLESS = Set.of("init", "reload", "help", "load", "new", "open", "home", "worlds", "world", "backup");
+  private static final Set<String> WORLDLESS = Set.of("init", "reload", "help", "load", "new", "open", "worlds", "world", "backup");
 
   private interface Handler {
     void run(Sender sender, String[] args) throws IOException;
@@ -120,7 +120,6 @@ public final class BgCommand {
     sub("submit", "buildgit.world.create|buildgit.world.admin", this::submit, null);
     sub("fork", "buildgit.world.create|buildgit.world.admin", this::fork, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
     sub("open", null, this::openWorld, (s, b) -> b.isEmpty() ? worldNames(s) : List.of());
-    sub("home", null, (s, a) -> home(s), null);
     sub("worlds", null, this::worlds, (s, b) -> b.isEmpty() ? Menu.WORLD_TABS : List.of());
     // 只打 /bg 也是選單；menu <頁> 給草稿清單翻頁
     sub("menu", "buildgit.menu", (s, a) -> {
@@ -171,7 +170,7 @@ public final class BgCommand {
           List.of("view"), List.of("inspect", "blame"))),
       new HelpSection("restore", List.of(List.of("revert"), List.of("restore"))),
       new HelpSection("single", List.of(List.of("pull"), List.of("load"), List.of("push"))),
-      new HelpSection("worlds", List.of(List.of("new"), List.of("open", "home"), List.of("worlds"), List.of("world"), List.of("fork"),
+      new HelpSection("worlds", List.of(List.of("new"), List.of("open"), List.of("worlds"), List.of("world"), List.of("fork"),
           List.of("submit"))),
       new HelpSection("merge", List.of(List.of("merge"))),
       new HelpSection("other", List.of(List.of("sel"), List.of("who"), List.of("mark"))));
@@ -2455,8 +2454,9 @@ public final class BgCommand {
       msg().send(sender, "world-unknown", "world", w.getFirst());
       return;
     }
+    // 回伺服器世界交給其他插件（例如 /spawn）
     if (ws.buildWorld() == null) {
-      home(sender);
+      msg().send(sender, "world-server-open");
       return;
     }
     if (!ws.isOpen()) throw new Workspace.Refused("這個建築世界的版本庫無法開啟，請管理員看主控台");
@@ -2466,13 +2466,6 @@ public final class BgCommand {
       return;
     }
     bg.realms().enter(p, ws);
-  }
-
-  /** {@code home}：回到進入建築世界之前的位置；不知道時到伺服器主世界的 (0, 0)。 */
-  private void home(Sender sender) {
-    var p = player(sender);
-    if (p == null) return;
-    if (bg.realms().home(p)) msg().send(sender, "world-home", "world", bg.worlds().serverWorldName());
   }
 
   private enum Visibility { PUBLIC, PRIVATE }
