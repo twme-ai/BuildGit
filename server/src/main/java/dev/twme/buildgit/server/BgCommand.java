@@ -283,7 +283,8 @@ public final class BgCommand {
   }
 
   private CompletableFuture<Suggestions> suggest(Sub sub, int start, Sender sender, SuggestionsBuilder builder) {
-    if (sub.suggester() == null || !ws(sender).isOpen() && !sub.names().contains("load")) return builder.buildFuture();
+    // 還沒 init 的世界裡，不需要版本庫的子指令（new、open 等）照樣補全
+    if (sub.suggester() == null || !ws(sender).isOpen() && !WORLDLESS.contains(sub.names().getFirst())) return builder.buildFuture();
     var input = builder.getInput();
     if (start < 0 || start > input.length()) return builder.buildFuture();
     var typed = input.substring(start);
@@ -296,7 +297,8 @@ public final class BgCommand {
     boolean keys = sub.names().contains("new") && current.indexOf(':') < 0;
     var seen = new HashSet<String>();
     try {
-      for (var option : sub.suggester().suggest(sender, before)) {
+      var options = sub.names().contains("new") && current.startsWith("layers:") ? layerOptions(current) : sub.suggester().suggest(sender, before);
+      for (var option : options) {
         if (keys && option.indexOf(':') > 0) option = option.substring(0, option.indexOf(':') + 1);
         if (option.toLowerCase(Locale.ROOT).startsWith(current) && seen.add(option)) b.suggest(option);
       }
@@ -2254,6 +2256,22 @@ public final class BgCommand {
       list.add("block:" + (id.getNamespace().equals("minecraft") ? id.getPath() : id.toString()));
     list.removeIf(o -> used.contains(o.substring(0, o.indexOf(':'))));
     list.add("confirm");
+    return list;
+  }
+
+  private static final List<String> LAYER_EXAMPLES =
+      List.of("layers:bedrock,2*dirt,grass_block", "layers:bedrock,3*stone,sandstone,sand;desert", "layers:bedrock,124*air,stone");
+
+  /** {@code layers:} 的補全：還沒寫時只給幾個例子（和方塊混在一起會被排序埋掉）；寫到一半時把最後一段補成方塊，分號後面補成生態域。 */
+  private List<String> layerOptions(String current) {
+    if (current.equals("layers:")) return LAYER_EXAMPLES;
+    var list = new ArrayList<String>();
+    int cut = Math.max(Math.max(current.lastIndexOf(','), current.lastIndexOf('*')), Math.max(current.lastIndexOf(';'), "layers:".length() - 1));
+    var prefix = current.substring(0, cut + 1);
+    var ids = current.indexOf(';') >= 0
+        ? bg.platform().server().registryAccess().lookupOrThrow(net.minecraft.core.registries.Registries.BIOME).keySet()
+        : net.minecraft.core.registries.BuiltInRegistries.BLOCK.keySet();
+    for (var id : ids) list.add(prefix + (id.getNamespace().equals("minecraft") ? id.getPath() : id.toString()));
     return list;
   }
 
