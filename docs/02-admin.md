@@ -155,6 +155,7 @@ LuckPerms 範例：
 | `player-worlds.allow-inventory-isolation` | `true` | 擁有者能不能為自己的世界打開背包隔離與起始物品 |
 | `player-worlds.max-loaded` | 20 | 同時載入的建築世界上限，草稿與檢視世界各算一個（伺服器世界不算）；滿了玩家要開新的世界時被拒絕，請他稍後再試 |
 | `player-worlds.allowed-types`／`allowed-terrain` | `[]`（全部） | 一般玩家建立時能選的類型（`overworld`、`nether`、`end`）與地形（`normal`、`large-biomes`、`amplified`、`flat`、`void`）；管理員不受限制 |
+| `player-worlds.unmanaged-settings` | `[]` | 交給其他插件管的世界規則：`time`、`weather`、`difficulty`、`mobs`、`nature`。列出的 BuildGit 不在建築世界裡設定（不改遊戲規則、時間、天氣、難度），世界設定選單不列、`/bg world settings` 也不能改。已經設過的遊戲規則留在世界裡；伺服器世界本來就不受影響 |
 | `player-worlds.templates` | `[]` | 可以當範本的建築世界（`擁有者/名稱`）；也可以在遊戲裡用 `/bg world template on|off [世界]` 設定（記在那個世界的 `repo.yml`）；建立對話框多一個「範本」，從範本建立等於 fork 它，不受 allowed-* 限制 |
 | `player-worlds.trash-days` | 7 | 刪除的建築世界在回收區保留幾天；過期的在啟動時與每天檢查一次後真正刪掉（回收區記在 `buildgit/trash.yml`） |
 | `player-worlds.world-name` | `bw_{owner-name}_{name}` | 建築世界的資料夾名稱（見 §7.1）；只影響之後建立的世界 |
@@ -204,7 +205,7 @@ LuckPerms 範例：
 
 | 指令 | 做什麼 |
 |---|---|
-| `/bg new [name:名稱] [選項]` | 打開建立對話框：填名稱、選世界類型（主世界、地獄、終界）、地形（一般、大型生態域、巨型化、超平坦、虛空）、規則（建築用、原版），有設範本時可選範本，再填種子、超平坦的層、虛空腳下的方塊，按「建立」後傳送進去。名稱用小寫英文、數字、`_`、`-`，留空就自動編號。也可以直接寫選項，寫法是「名稱:值」，Tab 會補全：`name:`、`type:`、`terrain:`、`rules:`、`seed:…`、`layers:…`（寫法和原版超平坦的預設代碼相同）、`block:…`、`template:擁有者/名稱`；寫了的選項會先填進對話框，加上 `confirm` 不開對話框直接建立。`from:<存檔>`（寫在最後，可以有空格）把自己電腦上的單人世界上傳成新的建築世界，要裝 BuildGit 用戶端、設定 `player-worlds.upload`（見 §7.1） |
+| `/bg new [name:名稱] [選項]` | 打開建立對話框：填名稱、選世界類型（主世界、地獄、終界）、地形（一般、大型生態域、巨型化、超平坦、虛空）、規則（建築用、原版），有設範本時可選範本，再填種子、超平坦的層、虛空腳下的方塊，按「建立」後傳送進去。名稱用小寫英文、數字、`_`、`-`，留空就自動編號。也可以直接寫選項，寫法是「名稱:值」，Tab 會補全：`name:`、`type:`、`terrain:`、`rules:`、`seed:…`、`layers:…`（寫法和原版超平坦的預設代碼相同，由下往上，從世界最底下開始疊，例如 `layers:bedrock,2*dirt,grass_block`、沙漠 `layers:bedrock,3*stone,sandstone,sand;desert`）、`block:…`、`template:擁有者/名稱`；寫了的選項會先填進對話框，加上 `confirm` 不開對話框直接建立。`from:<存檔>`（寫在最後，可以有空格）把自己電腦上的單人世界上傳成新的建築世界，要裝 BuildGit 用戶端、設定 `player-worlds.upload`（見 §7.1） |
 | `/bg open <世界>` | 進入建築世界：自己的寫名稱，別人的寫 `擁有者/名稱`；寫伺服器世界的名稱就是回去 |
 | `/bg home` | 回到進入建築世界之前在伺服器世界的位置 |
 | `/bg fork <擁有者/名稱> [新名稱]` | 複製一個建築世界成自己的私人世界，main 的歷史一起帶過來；成員都可以，訪客要那個世界允許複製。不給新名稱時用原本的名稱 |

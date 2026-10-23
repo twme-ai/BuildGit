@@ -1228,8 +1228,10 @@ public final class Workspace {
   /**
    * 建築世界的遊戲規則與設定（每次載入、改設定時都設定，Fabric 的世界不記）：旁觀者不生成新地形、地獄門不能用
    * （03-worlds §2.2、§4.1）、終界類型沒有終界龍；時間、天氣、難度、生物、自然變化、世界邊界照設定（§3）。
+   * {@code player-worlds.unmanaged-settings} 列的不碰，交給其他插件。
    */
   private void applyRules(ServerLevel level) {
+    var pw = tracker.settings().playerWorlds();
     platform.gameRule(level, GameRules.SPECTATORS_GENERATE_CHUNKS, false);
     platform.gameRule(level, GameRules.ALLOW_ENTERING_NETHER_USING_PORTALS, false);
     level.setDragonFight(null);
@@ -1237,20 +1239,28 @@ public final class Workspace {
     var border = level.getWorldBorder();
     border.setCenter(config.border > 0 ? config.borderX : 0, config.border > 0 ? config.borderZ : 0);
     border.setSize(borderSize());
-    platform.gameRule(level, GameRules.ADVANCE_TIME, config.time == null);
-    if (config.time != null) platform.time(level, config.time);
-    platform.gameRule(level, GameRules.ADVANCE_WEATHER, config.weather == WorldConfig.Weather.CYCLE);
-    if (config.weather != WorldConfig.Weather.CYCLE)
-      platform.weather(level, config.weather != WorldConfig.Weather.CLEAR, config.weather == WorldConfig.Weather.THUNDER);
-    platform.difficulty(level, config.difficulty != null ? config.difficulty : platform.server().getWorldData().getDifficulty());
-    for (var rule : List.of(GameRules.SPAWN_MOBS, GameRules.SPAWN_MONSTERS, GameRules.SPAWN_PATROLS, GameRules.SPAWN_PHANTOMS,
-        GameRules.SPAWN_WANDERING_TRADERS, GameRules.SPAWN_WARDENS, GameRules.RAIDS))
-      platform.gameRule(level, rule, config.mobs);
-    platform.gameRule(level, GameRules.MOB_GRIEFING, config.nature);
-    platform.gameRule(level, GameRules.SPREAD_VINES, config.nature);
-    platform.gameRule(level, GameRules.RANDOM_TICK_SPEED, config.nature ? GameRules.RANDOM_TICK_SPEED.defaultValue() : 0);
-    platform.gameRule(level, GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER,
-        config.nature ? GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER.defaultValue() : 0);
+    if (pw.manages("time")) {
+      platform.gameRule(level, GameRules.ADVANCE_TIME, config.time == null);
+      if (config.time != null) platform.time(level, config.time);
+    }
+    if (pw.manages("weather")) {
+      platform.gameRule(level, GameRules.ADVANCE_WEATHER, config.weather == WorldConfig.Weather.CYCLE);
+      if (config.weather != WorldConfig.Weather.CYCLE)
+        platform.weather(level, config.weather != WorldConfig.Weather.CLEAR, config.weather == WorldConfig.Weather.THUNDER);
+    }
+    if (pw.manages("difficulty"))
+      platform.difficulty(level, config.difficulty != null ? config.difficulty : platform.server().getWorldData().getDifficulty());
+    if (pw.manages("mobs"))
+      for (var rule : List.of(GameRules.SPAWN_MOBS, GameRules.SPAWN_MONSTERS, GameRules.SPAWN_PATROLS, GameRules.SPAWN_PHANTOMS,
+          GameRules.SPAWN_WANDERING_TRADERS, GameRules.SPAWN_WARDENS, GameRules.RAIDS))
+        platform.gameRule(level, rule, config.mobs);
+    if (pw.manages("nature")) {
+      platform.gameRule(level, GameRules.MOB_GRIEFING, config.nature);
+      platform.gameRule(level, GameRules.SPREAD_VINES, config.nature);
+      platform.gameRule(level, GameRules.RANDOM_TICK_SPEED, config.nature ? GameRules.RANDOM_TICK_SPEED.defaultValue() : 0);
+      platform.gameRule(level, GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER,
+          config.nature ? GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER.defaultValue() : 0);
+    }
   }
 
   /** 改了設定：已載入的世界（含草稿、檢視世界）當場套用。 */

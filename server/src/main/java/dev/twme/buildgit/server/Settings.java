@@ -48,11 +48,20 @@ public record Settings(
    * @param allowedTypes 一般玩家能選的類型；空的是全部
    * @param allowedTerrain 一般玩家能選的地形；空的是全部
    * @param templates 可以當範本的建築世界（{@code 擁有者/名稱}）
+   * @param unmanaged 交給其他插件管的世界規則（{@link #UNMANAGEABLE} 裡的）：BuildGit 不設定，擁有者也不能改
    */
   public record PlayerWorlds(boolean enabled, int maxPerPlayer, int border, int maxBorder, boolean separateInventories,
       boolean allowInventoryIsolation, int trashDays, int maxLoaded, Set<WorldConfig.Type> allowedTypes, Set<WorldConfig.Terrain> allowedTerrain,
       List<String> templates, String serverWorldName, String worldName, String repo, String objects, String genesis,
-      String uploadConnection, String uploadEndpoint, long uploadMaxBytes) {
+      String uploadConnection, String uploadEndpoint, long uploadMaxBytes, Set<String> unmanaged) {
+    /** 可以交給其他插件管的設定：都是遊戲規則、時間、天氣、難度這類別的插件也會設的。 */
+    static final List<String> UNMANAGEABLE = List.of("time", "weather", "difficulty", "mobs", "nature");
+
+    /** BuildGit 管不管這個設定。 */
+    boolean manages(String key) {
+      return !unmanaged.contains(key);
+    }
+
     boolean allowed(WorldConfig.Type type) {
       return allowedTypes.isEmpty() || allowedTypes.contains(type);
     }
@@ -146,7 +155,18 @@ public record Settings(
             c.getString("player-worlds.paths.genesis", "{repo}/genesis").strip(),
             c.getString("player-worlds.upload.connection", "").strip(),
             c.getString("player-worlds.upload.public-endpoint", "").strip(),
-            Math.max(1, c.getLong("player-worlds.upload.max-mb", 512)) * 1024 * 1024));
+            Math.max(1, c.getLong("player-worlds.upload.max-mb", 512)) * 1024 * 1024,
+            unmanaged(c, log)));
+  }
+
+  private static Set<String> unmanaged(Yaml c, Logger log) {
+    var set = new HashSet<String>();
+    for (var s : c.getStringList("player-worlds.unmanaged-settings")) {
+      var key = s.strip().toLowerCase(Locale.ROOT);
+      if (PlayerWorlds.UNMANAGEABLE.contains(key)) set.add(key);
+      else log.warning("player-worlds.unmanaged-settings 裡的 " + s + " 不認得，略過（可以寫 " + String.join("、", PlayerWorlds.UNMANAGEABLE) + "）");
+    }
+    return Set.copyOf(set);
   }
 
   /** 負數表示不卸載；否則至少 30 秒：開世界加傳送可能要好幾秒，太短會在玩家抵達前就卸載。 */

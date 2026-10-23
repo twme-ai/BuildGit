@@ -264,6 +264,7 @@ final class Menu {
     int i = 0;
     for (var e : SETTINGS.entrySet()) {
       var key = e.getKey();
+      if (!bg.settings().playerWorlds().manages(key)) continue; // 交給其他插件管的不列
       var values = e.getValue();
       String action;
       if (values.isEmpty()) action = "world settings " + key + " menu";

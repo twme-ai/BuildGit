@@ -99,6 +99,11 @@ player-worlds:
   # 可以當範本的建築世界（擁有者/名稱），例如 [admin/spawn-template]。建立選單的地形多一個「範本」，
   # 從範本建立等於 fork 它（不受 allowed-types、allowed-terrain 限制，範本本身是私人的也可以）。
   templates: []
+  # 交給其他插件（或原版指令）管的世界規則：BuildGit 不在建築世界裡設定它們，世界設定選單也不列、擁有者不能改。
+  # 可以寫 time（時間）、weather（天氣）、difficulty（難度）、mobs（生物生成）、nature（作物生長、火焰蔓延、
+  # 生物破壞方塊等）。例如由別的插件控制時間與天氣：unmanaged-settings: [time, weather]
+  # 已經設過的遊戲規則會留在世界裡，不會被改回原版的預設。伺服器世界本來就不受這些設定影響。
+  unmanaged-settings: []
   # 伺服器世界在 /bg open 等指令裡的名稱；空白時用 server.properties 的 level-name（預設 world）。
   server-world-name: ""
   # 世界資料夾的名稱。{name} 是建築世界的名稱（必須有），{owner-name} 是擁有者的玩家名稱（小寫），

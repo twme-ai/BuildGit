@@ -128,7 +128,7 @@ public final class BgCommand {
         : b.size() == 1 && (b.getFirst().equals("unlist") || b.getFirst().equals("relist")) ? worldNames(s)
         : b.size() == 1 && b.getFirst().equals("template") ? List.of("on", "off")
         : b.size() == 2 && b.getFirst().equals("template") ? worldNames(s)
-        : b.size() == 1 && b.getFirst().equals("settings") ? List.copyOf(Menu.SETTINGS.keySet())
+        : b.size() == 1 && b.getFirst().equals("settings") ? Menu.SETTINGS.keySet().stream().filter(bg.settings().playerWorlds()::manages).toList()
         : b.size() == 2 && b.getFirst().equals("settings") ? b.get(1).startsWith("kit-") ? List.of("clear") : Menu.SETTINGS.getOrDefault(b.get(1), List.of())
         : b.size() == 1 && b.getFirst().equals("members") ? List.of("list", "add", "remove")
         : b.size() == 1 && b.getFirst().equals("visibility") ? List.of("public", "private")
@@ -2563,6 +2563,7 @@ public final class BgCommand {
     var c = ws.config();
     var key = a.getFirst();
     var value = a.size() == 2 ? a.get(1).toLowerCase(Locale.ROOT) : "";
+    if (!bg.settings().playerWorlds().manages(key)) throw new Workspace.Refused("這台伺服器的這項設定交給其他插件管理（player-worlds.unmanaged-settings），不能在這裡改");
     if (Menu.TEXT_SETTINGS.contains(key) || key.equals("icon")) {
       text(sender, p, ws, key, String.join(" ", a.subList(1, a.size())).strip(), menu);
       return;
