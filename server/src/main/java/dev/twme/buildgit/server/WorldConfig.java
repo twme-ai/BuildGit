@@ -65,8 +65,12 @@ public final class WorldConfig {
   public GameType visitorMode = GameType.SPECTATOR;
   /** 冒險模式的訪客能不能按按鈕、拉桿、開門、踩壓力板。 */
   public boolean visitorInteract;
-  /** 背包隔離（03-worlds §2.2）；伺服器設定 {@code separate-inventories} 時一律隔離。 */
-  public boolean inventory;
+  /** 成員、訪客各自的背包隔離（03-worlds §2.2）；伺服器設定 {@code separate-inventories} 時一律隔離。 */
+  public boolean inventoryMember, inventoryVisitor;
+  /** 每次進來都換上起始物品；關掉時只有第一次給，之後是自己上次留在這裡的背包。 */
+  public boolean kitMemberReset = true, kitVisitorReset = true;
+  /** 死後重生時重給起始物品（還在這個世界、背包隔離時）。 */
+  public boolean kitMemberRespawn = true, kitVisitorRespawn = true;
   /** 訪客能不能 fork（公開時才有訪客）。 */
   public boolean allowFork = true;
   /** 接不接受 fork 的世界提出併回。 */
@@ -211,7 +215,14 @@ public final class WorldConfig {
       c.memberMode = mode(y.getString("settings.member-mode"), MEMBER_MODES, GameType.CREATIVE);
       c.visitorMode = mode(y.getString("settings.visitor-mode"), VISITOR_MODES, GameType.SPECTATOR);
       c.visitorInteract = y.getBoolean("settings.visitor-interact", false);
-      c.inventory = y.getBoolean("settings.inventory", false);
+      // 舊版只有一個背包隔離（成員與訪客一起），成員的背包一直保留、訪客每次重設
+      boolean inventory = y.getBoolean("settings.inventory", false);
+      c.inventoryMember = y.getBoolean("settings.inventory-member", inventory);
+      c.inventoryVisitor = y.getBoolean("settings.inventory-visitor", inventory);
+      c.kitMemberReset = y.getBoolean("settings.kit-member-reset", false);
+      c.kitVisitorReset = y.getBoolean("settings.kit-visitor-reset", true);
+      c.kitMemberRespawn = y.getBoolean("settings.kit-member-respawn", false); // 舊版死後不重給
+      c.kitVisitorRespawn = y.getBoolean("settings.kit-visitor-respawn", false);
       c.allowFork = y.getBoolean("settings.allow-fork", true);
       c.acceptSubmissions = y.getBoolean("settings.accept-submissions", true);
       c.respawn = y.getBoolean("settings.respawn", true);
@@ -307,7 +318,13 @@ public final class WorldConfig {
     y.set("settings.member-mode", memberMode.getName());
     y.set("settings.visitor-mode", visitorMode.getName());
     y.set("settings.visitor-interact", visitorInteract);
-    y.set("settings.inventory", inventory);
+    y.set("settings.inventory", inventoryMember || inventoryVisitor); // 給舊版讀
+    y.set("settings.inventory-member", inventoryMember);
+    y.set("settings.inventory-visitor", inventoryVisitor);
+    y.set("settings.kit-member-reset", kitMemberReset);
+    y.set("settings.kit-visitor-reset", kitVisitorReset);
+    y.set("settings.kit-member-respawn", kitMemberRespawn);
+    y.set("settings.kit-visitor-respawn", kitVisitorRespawn);
     y.set("settings.allow-fork", allowFork);
     y.set("settings.accept-submissions", acceptSubmissions);
     y.set("settings.respawn", respawn);

@@ -83,7 +83,7 @@ player-worlds:
   # 擁有者用 /bg world settings border 能設定的最大邊長。
   max-border: 4096
   # true：所有建築世界都隔離背包（進去換成那個世界自己的背包，出來換回來；生存伺服器建議）。
-  # false：照每個世界的設定（/bg world settings inventory，預設不隔離）。
+  # false：照每個世界的設定（/bg world settings inventory-member、inventory-visitor，預設不隔離）。
   separate-inventories: false
   # 擁有者能不能為自己的世界打開背包隔離與起始物品。
   allow-inventory-isolation: true

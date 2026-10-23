@@ -179,10 +179,15 @@ final class Menu {
     SETTINGS.put("member-mode", List.of("creative", "survival", "adventure"));
     SETTINGS.put("visitor-mode", List.of("spectator", "adventure"));
     SETTINGS.put("visitor-interact", List.of("off", "on"));
-    SETTINGS.put("inventory", List.of("off", "on"));
-    // 起始物品：不帶值是存下身上的背包，clear 是清空
+    // 背包隔離與起始物品，成員、訪客各一組；起始物品不帶值是打開編輯箱，clear 是清空
+    SETTINGS.put("inventory-member", List.of("off", "on"));
     SETTINGS.put("kit-member", List.of());
+    SETTINGS.put("kit-member-reset", List.of("off", "on"));
+    SETTINGS.put("kit-member-respawn", List.of("off", "on"));
+    SETTINGS.put("inventory-visitor", List.of("off", "on"));
     SETTINGS.put("kit-visitor", List.of());
+    SETTINGS.put("kit-visitor-reset", List.of("off", "on"));
+    SETTINGS.put("kit-visitor-respawn", List.of("off", "on"));
     // 清單上的樣子：顯示名稱與簡介是文字，圖示不帶值是手上的物品
     SETTINGS.put("display-name", List.of());
     SETTINGS.put("description", List.of());
@@ -216,7 +221,12 @@ final class Menu {
       case "member-mode" -> c.memberMode.getName();
       case "visitor-mode" -> c.visitorMode.getName();
       case "visitor-interact" -> c.visitorInteract ? "on" : "off";
-      case "inventory" -> ws.isolated() ? "on" : "off";
+      case "inventory-member" -> ws.isolated(false) ? "on" : "off";
+      case "inventory-visitor" -> ws.isolated(true) ? "on" : "off";
+      case "kit-member-reset" -> c.kitMemberReset ? "on" : "off";
+      case "kit-visitor-reset" -> c.kitVisitorReset ? "on" : "off";
+      case "kit-member-respawn" -> c.kitMemberRespawn ? "on" : "off";
+      case "kit-visitor-respawn" -> c.kitVisitorRespawn ? "on" : "off";
       case "allow-fork" -> c.allowFork ? "on" : "off";
       case "respawn" -> c.respawn ? "on" : "off";
       case "accept-submissions" -> c.acceptSubmissions ? "on" : "off";
@@ -236,7 +246,8 @@ final class Menu {
           (long) Math.floor(c.border == 0 ? 0 : c.borderZ));
       case "spawn" -> c.spawn == null ? msg.get("value-spawn-unset")
           : msg.get("value-position", "x", (long) Math.floor(c.spawn.x()), "z", (long) Math.floor(c.spawn.z()));
-      case "inventory" -> bg.settings().playerWorlds().separateInventories() ? msg.get("value-inventory-forced") : msg.get("value-" + v);
+      case "inventory-member", "inventory-visitor" ->
+          bg.settings().playerWorlds().separateInventories() ? msg.get("value-inventory-forced") : msg.get("value-" + v);
       case "kit-member", "kit-visitor" -> {
         int n = Inventories.count(ws.kitFile(key.equals("kit-visitor")));
         yield n <= 0 ? msg.get("value-kit-empty") : msg.get("value-kit", "count", n);
@@ -255,11 +266,12 @@ final class Menu {
     var header = new ArrayList<>(List.of(msg.get("settings-header-lore")));
     if (!bg.worlds().kept(ws).isEmpty()) header.add(msg.get("settings-kept", "branches", String.join("、", bg.worlds().kept(ws))));
     items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), header, null));
-    var slots = List.of(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 28, 29, 30, 31, 32, 33);
+    var slots = java.util.stream.IntStream.range(9, 36).boxed().toList();
     var icons = Map.ofEntries(Map.entry("time", "clock"), Map.entry("weather", "water_bucket"), Map.entry("difficulty", "iron_sword"),
         Map.entry("mobs", "zombie_head"), Map.entry("nature", "wheat"), Map.entry("border", "barrier"), Map.entry("border-center", "compass"),
         Map.entry("spawn", "red_bed"), Map.entry("respawn", "respawn_anchor"), Map.entry("member-mode", "diamond_pickaxe"), Map.entry("visitor-mode", "ender_eye"),
-        Map.entry("visitor-interact", "lever"), Map.entry("inventory", "chest"), Map.entry("kit-member", "bundle"), Map.entry("kit-visitor", "map"),
+        Map.entry("visitor-interact", "lever"), Map.entry("inventory-member", "chest"), Map.entry("kit-member", "bundle"), Map.entry("kit-member-reset", "repeater"), Map.entry("kit-member-respawn", "totem_of_undying"),
+        Map.entry("inventory-visitor", "ender_chest"), Map.entry("kit-visitor", "map"), Map.entry("kit-visitor-reset", "comparator"), Map.entry("kit-visitor-respawn", "skeleton_skull"),
         Map.entry("display-name", "name_tag"), Map.entry("description", "writable_book"), Map.entry("icon", icon(ws)),
         Map.entry("allow-fork", "cartography_table"), Map.entry("accept-submissions", "hopper"));
     int i = 0;
@@ -278,7 +290,7 @@ final class Menu {
         action = "world settings " + key + " " + next + " menu";
       }
       var lore = List.of(msg.get("settings-current", "value", settingValue(ws, key)), msg.get("setting-" + key + "-lore"),
-          key.startsWith("kit-") ? msg.get("settings-click-kit", "key", key)
+          key.equals("kit-member") || key.equals("kit-visitor") ? msg.get("settings-click-kit", "key", key)
               : TEXT_SETTINGS.contains(key) ? msg.get("settings-click-text", "key", key)
               : key.equals("icon") ? msg.get("settings-click-icon")
               : msg.get(values.isEmpty() ? "settings-click-here" : "settings-click-next"));

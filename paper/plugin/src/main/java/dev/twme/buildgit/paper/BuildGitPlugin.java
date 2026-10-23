@@ -262,7 +262,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
   public void onRespawn(PlayerRespawnEvent e) {
     // 死後按重生是 DEATH，自動重生等插件呼叫的是 PLUGIN；終界門出來的不算
     if (e.getRespawnReason() == PlayerRespawnEvent.RespawnReason.END_PORTAL) return;
-    var r = bg.respawn(PaperPlatform.level(e.getPlayer().getWorld()), PaperPlatform.level(e.getRespawnLocation().getWorld()));
+    var r = bg.respawn(handle(e.getPlayer()), PaperPlatform.level(e.getPlayer().getWorld()), PaperPlatform.level(e.getRespawnLocation().getWorld()));
     if (r != null) e.setRespawnLocation(new org.bukkit.Location(r.level().getWorld(), r.x(), r.y(), r.z(), r.yaw(), r.pitch()));
   }
 

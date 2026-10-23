@@ -135,9 +135,9 @@ public final class Hooks {
   }
 
   /** 死後重生的地方，見 {@link BuildGit#respawn}。 */
-  public static BuildGit.Respawn respawn(ServerLevel died, ServerLevel target) {
+  public static BuildGit.Respawn respawn(ServerPlayer player, ServerLevel died, ServerLevel target) {
     var b = bg;
-    return b == null ? null : b.respawn(died, target);
+    return b == null ? null : b.respawn(player, died, target);
   }
 
   /** 檢視世界裡不能改東西。 */

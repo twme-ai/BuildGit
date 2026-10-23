@@ -258,19 +258,19 @@ final class Realms {
 
   /** 照所在的世界換背包；換不了（寫不進檔案）時維持原狀。 */
   private void inventory(ServerPlayer p, Workspace ws, Yaml state) {
-    var target = ws.buildWorld() != null && ws.isolated() ? ws.buildWorld().id() : null;
+    boolean visitor = ws.buildWorld() != null && visitor(p, ws);
+    var target = ws.buildWorld() != null && ws.isolated(visitor) ? ws.buildWorld().id() : null;
     var worn = state.getString("inventory");
     if (Objects.equals(target, worn)) return;
     try {
       if (worn == null) Inventories.write(inventoryFile(p.getUUID(), "server"), Inventories.capture(p));
-      else if (state.getBoolean("inventory-keep", false)) Inventories.write(inventoryFile(p.getUUID(), worn), Inventories.capture(p));
+      else Inventories.write(inventoryFile(p.getUUID(), worn), Inventories.capture(p)); // 進來時才照「每次重設」決定要不要用
     } catch (IOException e) {
       bg.platform().log().log(Level.WARNING, "無法收起玩家 " + p.getScoreboardName() + " 的背包", e);
       return;
     }
-    boolean visitor = target != null && visitor(p, ws);
     state.set("inventory", target);
-    state.set("inventory-keep", target != null && !visitor ? true : null);
+    state.set("inventory-keep", null); // 舊版記的，現在離開時一律收起
     save(p.getUUID(), state);
     var upgrader = bg.workspace().upgrader();
     if (target == null) {
@@ -283,8 +283,27 @@ final class Realms {
       }
       return;
     }
-    var own = visitor ? null : Inventories.read(inventoryFile(p.getUUID(), target));
-    Inventories.restore(p, own != null ? own : Inventories.read(ws.kitFile(visitor)), upgrader);
+    var own = inventoryFile(p.getUUID(), target);
+    if (ws.kitReset(visitor)) {
+      try {
+        Files.deleteIfExists(own); // 之後改成只給第一次時，不會換上很久以前留下的背包
+      } catch (IOException e) {
+        // 下次收起時會覆蓋
+      }
+    }
+    var kept = ws.kitReset(visitor) ? null : Inventories.read(own);
+    Inventories.restore(p, kept != null ? kept : Inventories.read(ws.kitFile(visitor)), upgrader);
+  }
+
+  /** 死後重生（重生前呼叫，這時還是死掉的玩家）：重生後還穿著這個世界的背包、打開了死後重給時，換上起始物品（終界箱不動）。 */
+  void died(ServerPlayer dead, Workspace ws) {
+    var id = dead.getUUID();
+    bg.platform().later(1, () -> {
+      var p = bg.platform().server().getPlayerList().getPlayer(id);
+      if (p == null || bg.workspace(p.level()) != ws || ws.buildWorld() == null || !ws.buildWorld().id().equals(load(id).getString("inventory"))) return;
+      boolean visitor = visitor(p, ws);
+      if (ws.kitRespawn(visitor)) Inventories.giveKit(p, Inventories.read(ws.kitFile(visitor)), bg.workspace().upgrader());
+    });
   }
 
   private Path inventoryFile(UUID player, String name) {

@@ -1009,14 +1009,22 @@ public final class BgCommand {
   // ---- 草稿（設計 §6.2） ----
 
   /** 主控台也可以用：從主世界開草稿並載入世界，不傳送。 */
+  /** 沒給名稱的草稿：玩家名稱加上還沒用過的編號（例如 steve-1），主控台是 draft-1。 */
+  private static String draftName(Sender sender, Workspace ws) throws IOException {
+    var base = sender.player() == null ? "" : sender.player().getScoreboardName().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]", "").replaceAll("^[_-]+", "");
+    if (base.isEmpty()) base = "draft";
+    base = base.substring(0, Math.min(base.length(), 26));
+    for (int n = 1; ; n++) if (!ws.branches().containsKey(base + "-" + n)) return base + "-" + n;
+  }
+
   private void tryDraft(Sender sender, String[] args) throws IOException {
     var ws = ws(sender);
     var w = words(args);
-    if (w.size() != 1) {
+    if (w.size() > 1) {
       msg().send(sender, "usage-try");
       return;
     }
-    String name = w.getFirst().toLowerCase(Locale.ROOT);
+    String name = w.isEmpty() ? draftName(sender, ws) : w.getFirst().toLowerCase(Locale.ROOT);
     var from = current(sender);
     if (Workspace.isScratch(from.branch())) from = ws.worktree(ws.source(from.branch()));
     if (from == null) from = ws.main();
@@ -2590,7 +2598,7 @@ public final class BgCommand {
       text(sender, p, ws, key, String.join(" ", a.subList(1, a.size())).strip(), menu);
       return;
     }
-    boolean kit = key.startsWith("kit-");
+    boolean kit = key.equals("kit-member") || key.equals("kit-visitor");
     if (a.size() > 2 || !Menu.SETTINGS.containsKey(key) || (kit ? !value.isEmpty() && !value.equals("clear") : value.isEmpty() != Menu.SETTINGS.get(key).isEmpty())) {
       msg().send(sender, "usage-world-settings");
       return;
@@ -2625,18 +2633,28 @@ public final class BgCommand {
       case "allow-fork" -> c.allowFork = onOff(value, key);
       case "respawn" -> c.respawn = onOff(value, key);
       case "accept-submissions" -> c.acceptSubmissions = onOff(value, key);
-      case "inventory" -> {
+      case "inventory-member", "inventory-visitor" -> {
         var pw = bg.settings().playerWorlds();
         if (pw.separateInventories()) throw new Workspace.Refused("伺服器設定所有建築世界都隔離背包，不能關掉");
         if (!pw.allowInventoryIsolation()) throw new Workspace.Refused("伺服器不允許擁有者打開背包隔離");
-        c.inventory = onOff(value, key);
+        if (key.equals("inventory-member")) c.inventoryMember = onOff(value, key);
+        else c.inventoryVisitor = onOff(value, key);
         modes = true;
       }
+      case "kit-member-reset" -> c.kitMemberReset = onOff(value, key);
+      case "kit-visitor-reset" -> c.kitVisitorReset = onOff(value, key);
+      case "kit-member-respawn" -> c.kitMemberRespawn = onOff(value, key);
+      case "kit-visitor-respawn" -> c.kitVisitorRespawn = onOff(value, key);
       case "kit-member", "kit-visitor" -> {
-        if (!ws.isolated()) throw new Workspace.Refused("要先打開背包隔離（/bg world settings inventory on），才能設定起始物品");
-        var file = ws.kitFile(key.equals("kit-visitor"));
-        if (value.equals("clear")) java.nio.file.Files.deleteIfExists(file);
-        else Inventories.write(file, Inventories.items(p));
+        boolean visitor = key.equals("kit-visitor");
+        if (!ws.isolated(visitor))
+          throw new Workspace.Refused("要先打開" + (visitor ? "訪客" : "成員") + "的背包隔離（/bg world settings " + (visitor ? "inventory-visitor" : "inventory-member")
+              + " on），才能設定起始物品");
+        if (!value.equals("clear")) {
+          KitEditor.open(bg, p, ws, visitor, menu);
+          return;
+        }
+        java.nio.file.Files.deleteIfExists(ws.kitFile(visitor));
       }
       case "border" -> {
         int max = bg.settings().playerWorlds().maxBorder();

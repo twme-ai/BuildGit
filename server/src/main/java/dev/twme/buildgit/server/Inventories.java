@@ -14,16 +14,20 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.item.ItemStack;
 
 /**
  * 背包隔離與起始物品（03-worlds §2.2）存的檔案：背包、終界箱、經驗、狀態效果。物品存成原版物品的 NBT（{@code ItemStack} 的寫法），
  * 連同寫下時的資料版本，讀取時用 DataFixer 升級；經驗與狀態效果用 BuildGit 自己的寫法（效果寫 id），不隨版本變。
- * 起始物品只有背包。
+ * 起始物品只有背包（含裝備與副手）。
  */
 final class Inventories {
   private Inventories() {}
+
+  /** 背包的格數：0～35 是快捷欄與背包，36～39 是靴子、護腿、胸甲、頭盔，40 是副手。 */
+  static final int SLOTS = 41;
 
   /** 身上的全部：背包、終界箱、經驗、狀態效果。 */
   static CompoundTag capture(ServerPlayer p) {
@@ -51,8 +55,8 @@ final class Inventories {
     return tag;
   }
 
-  /** 只有背包（起始物品）。 */
-  static CompoundTag items(ServerPlayer p) {
+  /** 只有背包。 */
+  private static CompoundTag items(ServerPlayer p) {
     var tag = new CompoundTag();
     tag.putInt("DataVersion", dev.twme.buildgit.server.nms.LiveReader.dataVersion());
     tag.put("items", slots(p, p.getInventory()));
@@ -80,6 +84,33 @@ final class Inventories {
           e.getBooleanOr("particles", true), e.getBooleanOr("icon", true)));
     }
     p.inventoryMenu.broadcastChanges();
+  }
+
+  /** 背包換成起始物品（死後重給），其他（終界箱、經驗、狀態效果）不動。 */
+  static void giveKit(ServerPlayer p, CompoundTag kit, DataUpgrader upgrader) {
+    if (kit == null) kit = new CompoundTag();
+    fill(p, p.getInventory(), kit.getListOrEmpty("items"), kit.getIntOr("DataVersion", upgrader.current()), upgrader);
+    p.inventoryMenu.broadcastChanges();
+  }
+
+  /** 起始物品放進和背包一樣編號的箱子（給編輯箱用）。 */
+  static SimpleContainer kit(ServerPlayer p, Path file, DataUpgrader upgrader) {
+    var c = new SimpleContainer(SLOTS);
+    var tag = read(file);
+    if (tag != null) fill(p, c, tag.getListOrEmpty("items"), tag.getIntOr("DataVersion", upgrader.current()), upgrader);
+    return c;
+  }
+
+  /** 和背包一樣編號的箱子存成起始物品；全空時刪掉檔案。 */
+  static void writeKit(ServerPlayer p, Path file, Container c) throws IOException {
+    if (c.isEmpty()) {
+      Files.deleteIfExists(file);
+      return;
+    }
+    var tag = new CompoundTag();
+    tag.putInt("DataVersion", dev.twme.buildgit.server.nms.LiveReader.dataVersion());
+    tag.put("items", slots(p, c));
+    write(file, tag);
   }
 
   /** 檔案裡有幾件物品（給選單顯示起始物品）；沒有檔案時是 -1。 */

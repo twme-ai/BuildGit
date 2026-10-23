@@ -6,7 +6,7 @@
 
 BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE、Axiom，以及它們引起的連帶變化，例如水流、紅石、方塊掉落；也包括 `/fillbiome`、`//setbiome` 等改的生態域），像 git 一樣存成一個個版本。玩家可以：
 
-- 開「草稿」（正式版的副本）試做，滿意了再併回正式版（每個世界大家看到的那一份）；
+- 開「草稿」（main 的副本）試做，滿意了再併回 main（每個世界大家看到的那一份）；
 - 查歷史、看某一格是誰在哪次存檔改的；
 - 撤銷某次存檔，或把整個世界、某個範圍還原到舊版本。
 
@@ -41,8 +41,8 @@ BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE
 | 權限集 | 適合給誰 | 可以做的事 |
 |---|---|---|
 | `buildgit.role.viewer` | 訪客、評審 | 選單；看狀態、歷史、存檔內容、方塊是誰改的（`status`、`log`、`graph`、`show`、`diff`、`blame`、`inspect`、`who`、`sel`、`branch list`）；進出草稿、唯讀看舊版本（`go`、`back`、`view`） |
-| `buildgit.role.builder` | 一般建築師 | viewer 全部，加上開草稿（`try`）、存檔（`save`）、帶到單人世界改再送回（`pull`、`push`）。**不能把草稿併回正式版** |
-| `buildgit.role.manager` | 負責審核、維護正式版的人 | builder 全部，加上併回（`publish`）、自訂訊息存檔（`commit`）、處理衝突與底層合併（`merge`）、撤銷（`revert`）、還原（`restore`）、手動補記（`mark`）、建立與刪除草稿（`branch create`、`branch delete`） |
+| `buildgit.role.builder` | 一般建築師 | viewer 全部，加上開草稿（`try`）、存檔（`save`）、帶到單人世界改再送回（`pull`、`push`）。**不能把草稿併回 main** |
+| `buildgit.role.manager` | 負責審核、維護 main 的人 | builder 全部，加上併回（`publish`）、自訂訊息存檔（`commit`）、處理衝突與底層合併（`merge`）、撤銷（`revert`）、還原（`restore`）、手動補記（`mark`）、建立與刪除草稿（`branch create`、`branch delete`） |
 | `buildgit.admin` | 伺服器管理員 | manager 全部，加上 `init`、`reload`、`disk`、`genesis`、`backup`、管理所有建築世界（`buildgit.world.admin`） |
 
 LuckPerms 範例：
@@ -56,13 +56,13 @@ LuckPerms 範例：
 
 | 情境 | 值 |
 |---|---|
-| `buildgit:location` | `main`（正式版）、`draft`（草稿）、`view`（檢視過去的版本）、`resolve`（衝突整合） |
-| `buildgit:branch` | 分支名稱，正式版是 `main`；整合時是要併入的分支 |
+| `buildgit:location` | `main`、`draft`（草稿）、`view`（檢視過去的版本）、`resolve`（衝突整合） |
+| `buildgit:branch` | 分支名稱（例如 `main`）；整合時是要併入的分支 |
 | `buildgit:world` | 伺服器世界的名稱（通常是 `world`），或建築世界的 `擁有者/名稱` |
 | `buildgit:role` | 在建築世界裡的角色 `owner`、`manager`、`builder`、`visitor`；往下包含，擁有者同時是 `manager`、`builder` |
 
 ```
-# 只在草稿裡能用 WorldEdit，正式版不行
+# 只在草稿裡能用 WorldEdit，main 不行
 /lp group builder permission set worldedit.* true buildgit:location=draft
 # 只有 house 這個草稿能併回
 /lp group builder permission set buildgit.publish true buildgit:branch=house
@@ -88,7 +88,7 @@ LuckPerms 範例：
 | `buildgit.inspect` | `inspect`：檢查模式，點方塊看是誰改的 |
 | `buildgit.who` | `who`：每位玩家在哪個草稿 |
 | `buildgit.sel` | `sel`：不用 WorldEdit 時的選取範圍 |
-| `buildgit.go` | `go`：到某個草稿或正式版 |
+| `buildgit.go` | `go`：到某個草稿或 main |
 | `buildgit.back` | `back`：回到來源世界 |
 | `buildgit.view` | `view`：唯讀看舊版本 |
 | `buildgit.try` | `try`：開草稿 |
@@ -119,7 +119,7 @@ LuckPerms 範例：
 
 - 包含關係由 BuildGit 自己判斷，Paper 與 Fabric 相同，所以在 Fabric 上給權限集也有效。
 - 因為這樣，**對權限集裡的單一節點設成 false 不會把它拿掉**。想少給某一項時，請改成逐項給節點，不要用權限集。
-- 沒有某項權限的玩家看不到那個子指令；`/bg help` 也只列出自己能用的，所在的地方（正式版、草稿、整合世界）最常用的排前面，`/bg help admin` 列出管理指令。
+- 沒有某項權限的玩家看不到那個子指令；`/bg help` 也只列出自己能用的，所在的地方（main、草稿、整合世界）最常用的排前面，`/bg help admin` 列出管理指令。
 - 有衝突時，有 `publish`、`revert` 或 `merge` 權限的人也能處理衝突整合（`merge.resolve` 是給只負責處理衝突的人）。
 - 玩家的建築本身不需要任何 BuildGit 權限：只要世界受版本控制，誰改的都會記錄。
 
@@ -194,8 +194,8 @@ LuckPerms 範例：
 ## 7. 世界的載入與卸載
 
 - **草稿世界**：有人需要時才載入（`try`、`go`、併回、玩家重新上線回到草稿）。一個草稿的所有世界都沒人超過 `worlds.unload-idle-seconds` 後，存到磁碟並卸載；下次進去自動載入，內容不會不見。
-- **正式版的世界**（受版本控制的原本世界）：多世界插件要卸載它時，只有在**它和所有草稿裡對應的世界都沒有玩家**、沒有在存檔或併回、起點世界也不在複製中時才放行，否則 BuildGit 會擋下並在主控台說明原因（Fabric 無法擋下）。
-- 正式版的世界卸載後，還沒存的變更會保留，再次載入時接回。
+- **main 的世界**（受版本控制的原本世界）：多世界插件要卸載它時，只有在**它和所有草稿裡對應的世界都沒有玩家**、沒有在存檔或併回、起點世界也不在複製中時才放行，否則 BuildGit 會擋下並在主控台說明原因（Fabric 無法擋下）。
+- main 的世界卸載後，還沒存的變更會保留，再次載入時接回。
 - **建築世界**（§7.1）：沒人、沒有草稿與檢視、沒有未存的變更時，經過 `worlds.unload-idle-seconds` 後卸載；`/bg open` 或有人上線回到裡面時自動載入。`worlds.keep-loaded` 列出的（與是建築世界的大廳）一直載入。
 - **世界沒載入時不能寫入**：版本是先記錄、再寫進世界的，所以只要分支有任何受版本控制的世界沒載入，併回、撤銷、還原、衝突整合都會被拒絕，並告訴你要先載入哪個世界。用多世界插件把它載回來就能繼續。
 
@@ -237,8 +237,10 @@ LuckPerms 範例：
 | `member-mode` | `creative`、`survival`、`adventure` | 成員進來時的遊戲模式 |
 | `visitor-mode` | `spectator`、`adventure` | 訪客進來時的遊戲模式 |
 | `visitor-interact` | `on`、`off` | 冒險模式的訪客能不能按按鈕、拉桿、開門、踩壓力板 |
-| `inventory` | `on`、`off` | 背包隔離：這個世界有自己的背包（見下面） |
-| `kit-member`／`kit-visitor` | （不用值）或 `clear` | 把自己身上的背包存成成員／訪客的起始物品，`clear` 清空；要先打開背包隔離 |
+| `inventory-member`／`inventory-visitor` | `on`、`off` | 成員／訪客的背包隔離：在這個世界有自己的背包（見下面） |
+| `kit-member`／`kit-visitor` | （不用值）或 `clear` | 打開大箱子放成員／訪客的起始物品（含裝備與副手），關上就存好；`clear` 清空；要先打開那個角色的背包隔離 |
+| `kit-member-reset`／`kit-visitor-reset` | `on`／`off`（預設 `on`） | 每次進來都換上起始物品；關掉時只有第一次給，之後是自己上次留在這裡的背包 |
+| `kit-member-respawn`／`kit-visitor-respawn` | `on`／`off`（預設 `on`） | 死後在這個世界重生時，背包換成起始物品 |
 | `display-name` | 文字（最多 32 字），不給是清掉 | 清單上顯示的名稱，可以用中文；指令裡還是用原本的名稱 |
 | `description` | 文字（最多 120 字），不給是清掉 | 清單上的簡介 |
 | `icon` | 物品 id，不給是手上的物品 | 清單上的圖示（預設草方塊） |
@@ -250,7 +252,7 @@ LuckPerms 範例：
 - **角色**：在建築世界裡，BuildGit 的指令權限由那個世界的角色決定，不看你給的 `buildgit.role.*`：擁有者與管理者等於 manager，建造者等於 builder，訪客只能看（`status`、`log`、`diff`、`blame` 等），不能改方塊、不能進草稿或檢視舊版本。有 `buildgit.world.admin` 的人在任何世界都能做所有事。`init`、`reload`、`backup` 等伺服器管理照舊看權限節點。
 - 成員被移除或世界改成私人時，裡面沒資格的人會被送回伺服器世界；離線期間被移除的，上線時送回。
 - **遊戲模式**：進建築世界時換成這個世界設定的模式（預設成員創造、訪客旁觀者）；回伺服器世界時換回原本的模式。原本的模式與 `/bg home` 的位置記在 `buildgit/players/<uuid>.yml`，重啟後照樣恢復。
-- **背包**：預設所有世界共通。打開背包隔離（`inventory on`，或伺服器設 `player-worlds.separate-inventories: true`）後，進這個世界時把原本的背包、終界箱、經驗、狀態效果收起來，換成自己在這個世界的那一份（第一次進來時是成員的起始物品），回伺服器世界時換回原本的。訪客的不保留，每次進來都拿訪客的起始物品。收起來的放在 `buildgit/players/<uuid>/`（原本的是 `server.dat`，各世界是 `<世界 id>.dat`），起始物品在世界的版本庫旁邊（`kit-member.dat`、`kit-visitor.dat`）；都記下資料版本，升級 Minecraft 後讀取時照樣升級物品。
+- **背包**：預設所有世界共通。打開背包隔離（成員、訪客分開：`inventory-member on`、`inventory-visitor on`，或伺服器設 `player-worlds.separate-inventories: true` 兩者都隔離）後，進這個世界時把原本的背包、終界箱、經驗、狀態效果收起來，換成這個世界的那一份，回伺服器世界時換回原本的。預設每次進來都換上起始物品（`kit-*-reset off` 時只有第一次給，之後是自己上次留下的），死後重生也重給（`kit-*-respawn`）。從舊版升級的世界照舊：成員的背包保留、訪客每次重設、死後不重給。收起來的放在 `buildgit/players/<uuid>/`（原本的是 `server.dat`，各世界是 `<世界 id>.dat`），起始物品在世界的版本庫旁邊（`kit-member.dat`、`kit-visitor.dat`）；都記下資料版本，升級 Minecraft 後讀取時照樣升級物品。
 - **訪客的限制**：不能改方塊，也不能開箱子、和實體互動；WorldEdit、Axiom 的編輯會被擋下；走到世界邊界（預設 `player-worlds.border`，1024×1024）外會被拉回來。冒險模式的訪客在 `visitor-interact` 打開時可以按機關，造成的改變記成那個訪客改的，之後成員存檔時會一起存進去。
 - **傳送門**：建築世界裡的地獄門、終界門、折躍門都不能用（不然會被送到伺服器的地獄、終界）。
 - **建築用規則**（建立時選）：上面的設定預設成固定正午與晴天、和平、不生成生物、沒有自然變化；「原版」是正常流動、照伺服器的難度、生成生物、有自然變化。建立後都可以用 `/bg world settings` 改。建築世界一律關掉「旁觀者生成地形」與地獄門，終界類型沒有終界龍。
@@ -340,7 +342,7 @@ BuildGit 可以把備份送到 S3 相容的物件儲存（AWS S3、Backblaze B2�
 
 1. 裝好同一個或更新的 Minecraft 版本、BuildGit 與原本的資料包、模組，先啟動一次讓世界產生。要讓起點世界以外的地形一樣，換了 Minecraft 版本時請在世界產生前把 `server.properties` 的 `level-seed` 設成原本的種子（還原時會提醒）。
 2. 把原本的 `s3.yml`、`backup.yml` 放回去，`/bg reload`。不必先 `/bg init`：還沒有版本庫時 `/bg backup status`、`list`、`restore`（伺服器世界）照樣能用。
-3. 在主控台執行 `/bg backup restore history-s3`。下載完會先在旁邊把正式版的世界從「起點世界＋main 的最新存檔」重建好；看到「已下載好」後重新啟動，版本庫、這些世界的 `region`／`entities`、`level.dat` 會換成備份的。
+3. 在主控台執行 `/bg backup restore history-s3`。下載完會先在旁邊把 main 的世界從「起點世界＋main 的最新存檔」重建好；看到「已下載好」後重新啟動，版本庫、這些世界的 `region`／`entities`、`level.dat` 會換成備份的。
 4. 有世界資料夾的備份時，接著 `/bg backup restore world-s3` 再重新啟動一次，玩家資料、沒存檔的變更等也會回來。
 5. 建築世界一個一個用 `/bg backup restore history-s3 world=<擁有者/名稱>` 放回去（不必重新啟動）。
 
@@ -364,7 +366,7 @@ BuildGit 可以把備份送到 S3 相容的物件儲存（AWS S3、Backblaze B2�
 - Paper 上有 Axiom bypass 權限（`axiomadmin.bypass_region_checks`）的玩家：方塊與實體照常記錄，但 Axiom 生態域筆刷的變更記錄不到。BuildGit 是讀 AxiomPaper 的內部來記錄這些玩家，AxiomPaper 改版後可能對不上，這時會自動停用並在主控台警告，這些玩家的方塊編輯就記錄不到。這種玩家開啟 Axiom 時會收到提醒。
 - DebugStickPro 凍結中的方塊（伺服器上暫時是屏障）先不存檔，解凍後才存進版本；凍結期間 `/bg status` 會一直顯示它未存。
 - 非玩家造成的實體移除（例如盔甲座被苦力怕炸掉）不記錄，和方塊的自然變化一樣。
-- 生態域：草稿和正式版改了同一處（4×4×4 格）的生態域時，併回保留正式版的，併回預覽會列出數量，需要的話再用 `/fillbiome` 修正。帶到單人世界改（`pull`／`push`）不帶生態域。其他插件以 API 改的生態域記錄不到，可以用 `/bg mark` 補記。
+- 生態域：草稿和 main 改了同一處（4×4×4 格）的生態域時，併回保留 main 的，併回預覽會列出數量，需要的話再用 `/fillbiome` 修正。帶到單人世界改（`pull`／`push`）不帶生態域。其他插件以 API 改的生態域記錄不到，可以用 `/bg mark` 補記。
 - `/place feature` 這類世界產生器放的大型結構可能記錄不完整，可以用 `/bg mark` 補記範圍。
 - 伺服器當機時，最後約 1 秒內的變更可能沒記到（`tracking.journal-flush-ticks`）。
 - Fabric 版的 Axiom 記錄讀的是 Axiom 模組的內部，Axiom 改版後可能對不上，這時會自動停用並在主控台警告（「這個版本的 Axiom 和 BuildGit 對不上」），Axiom 的編輯就記錄不到。
@@ -378,7 +380,7 @@ BuildGit 可以把備份送到 S3 相容的物件儲存（AWS S3、Backblaze B2�
 
 **併回時說「這些世界沒有載入」**：用多世界插件把列出的世界載入後再試一次。
 
-**刪除草稿時說「有還沒併回的存檔」**：草稿裡有存過、但還沒併回正式版的內容，刪掉就找不回來。確定不要了再加 `--force`。
+**刪除草稿時說「有還沒併回的存檔」**：草稿裡有存過、但還沒併回 main 的內容，刪掉就找不回來。確定不要了再加 `--force`。
 
 **init 之後不能開草稿**：起點世界還在背景複製，完成時會通知。
 

@@ -1268,10 +1268,20 @@ public final class Workspace {
     for (var level : sources.keySet()) if (loaded(level)) applyRules(level);
   }
 
-  /** 這個建築世界有沒有自己的背包：伺服器強制，或擁有者打開（伺服器允許時）。 */
-  boolean isolated() {
+  /** 這個建築世界的成員或訪客有沒有自己的背包：伺服器強制，或擁有者打開（伺服器允許時）。 */
+  boolean isolated(boolean visitor) {
     var pw = tracker.settings().playerWorlds();
-    return config != null && (pw.separateInventories() || pw.allowInventoryIsolation() && config.inventory);
+    return config != null && (pw.separateInventories() || pw.allowInventoryIsolation() && (visitor ? config.inventoryVisitor : config.inventoryMember));
+  }
+
+  /** 成員或訪客每次進來都換上起始物品（不然只有第一次）。 */
+  boolean kitReset(boolean visitor) {
+    return visitor ? config.kitVisitorReset : config.kitMemberReset;
+  }
+
+  /** 成員或訪客死後重生時重給起始物品。 */
+  boolean kitRespawn(boolean visitor) {
+    return visitor ? config.kitVisitorRespawn : config.kitMemberRespawn;
   }
 
   /** 成員或訪客的起始物品，放在版本庫旁邊（跟著這個世界走）。 */

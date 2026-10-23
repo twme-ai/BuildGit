@@ -24,7 +24,7 @@ public abstract class ServerPlayerMixin {
   private void buildgit$respawn(boolean useCharge, TeleportTransition.PostTeleportTransition post, CallbackInfoReturnable<TeleportTransition> cir) {
     var self = (ServerPlayer) (Object) this;
     if (!self.isDeadOrDying()) return;
-    var r = Hooks.respawn(self.level(), cir.getReturnValue().newLevel());
+    var r = Hooks.respawn(self, self.level(), cir.getReturnValue().newLevel());
     if (r != null) cir.setReturnValue(new TeleportTransition(r.level(), new Vec3(r.x(), r.y(), r.z()), Vec3.ZERO, r.yaw(), r.pitch(), post));
   }
 }
