@@ -31,8 +31,10 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 
 ```sh
 ./gradlew build
-# 產物：paper/plugin/build/libs/BuildGit-<版本>-paper-26.2.jar
+# 產物：paper/plugin-26_3/build/libs/BuildGit-<版本>-paper-26.3.jar
+#       paper/plugin/build/libs/BuildGit-<版本>-paper-26.2.jar
 #       paper/plugin-1_21_11/build/libs/BuildGit-<版本>-paper-1.21.11.jar
+#       fabric/mc26_3/build/libs/BuildGit-<版本>-fabric-26.3.jar
 #       fabric/mc26_2/build/libs/BuildGit-<版本>-fabric-26.2.jar
 #       fabric/mc1_21_11/build/libs/BuildGit-<版本>-fabric-1.21.11.jar
 ```
@@ -45,7 +47,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 幾個詞：
 
 - **伺服器世界**：伺服器原本的世界，大家一起蓋的地方。`/bg home` 回到這裡。
-- **建築世界**：用 `/bg new` 建立、屬於自己的獨立世界，可以邀別人進來。建立時選的「主世界／地獄／終界」只是天空和環境像原版的哪個維度。
+- **建築世界**：用 `/bg new` 建立、屬於自己的獨立世界，有自己的歷史與草稿，可以邀別人進來。建立時選的「主世界／地獄／終界」只是天空和環境像原版的哪個維度。
 - **正式版**：每個世界（伺服器世界或建築世界）大家看到的那一份。
 - **草稿**：從正式版複製出來的試做副本，滿意了再併回正式版。
 
@@ -53,7 +55,13 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 
 ### 最快上手：輸入 `/bg`
 
-`/bg` 會打開一個箱子選單，常用功能都在裡面，點一下就執行。上排是動作，下排是所有草稿，點草稿就會過去。
+`/bg` 會打開一個箱子選單，標題是「這個世界的版本與草稿 · 世界名稱」，點一下就執行：
+
+- **上面三排**：這個世界的正式版和所有草稿，點一下就過去；你所在的那個是綠色玻璃。
+- **第四排**：依你在哪裡而變的動作（在草稿裡是「回去」「併回」，在整合世界裡是「衝突清單」「完成整合」）；最右邊是建築世界清單，在自己管理的建築世界裡旁邊多一個「這個世界的設定」。
+- **最下排**：檢查模式、歷史｜標出未存的變更、狀態、存檔｜誰在哪裡、選取範圍。
+
+看不到的按鈕是你沒有那個權限。指令忘了就打 `/bg help`，只會列出你能用的。
 
 ### 一次完整的流程
 
@@ -118,6 +126,18 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 
 取出之後伺服器上別人改的部分照常合併，兩邊都改到同一格時就是一般的衝突。
 
+### 自己的建築世界
+
+伺服器開放的話，可以建立自己的建築世界（管理員隨時可以）：
+
+1. `/bg new`：打開建立對話框，填名稱（留空自動取）、選類型（主世界／地獄／終界）、地形（一般、超平坦、虛空等）、規則，有範本時也可以選範本，按「建立」就會過去。
+   也可以直接打選項，按 Tab 補全：`/bg new name:house type:nether terrain:flat`，加上 `confirm` 不開對話框直接建立。
+2. 裡面一樣可以開草稿、存檔、併回，和伺服器世界的歷史分開。
+3. `/bg world members add <玩家>` 邀人一起蓋，`/bg world visibility public` 公開給大家參觀。
+4. `/bg world settings` 打開設定選單：時間、天氣、生物、遊戲模式、出生點、清單上的名稱與簡介等。
+5. `/bg worlds` 看大家的建築世界，點一下進去；`/bg home` 回伺服器世界。
+6. 想改別人的世界？`/bg fork <擁有者/名稱>` 複製一份成自己的，改好用 `/bg submit` 送回去給對方併回。
+
 ### 小提示
 
 - 只有管理員在裡面執行過 `/bg init` 的世界受版本控制；地獄、終界與 Multiverse 等多世界插件的世界要各自 init。init 不會讓伺服器暫停：起點世界在背景複製。
@@ -146,7 +166,11 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg push <名稱> [草稿]   把單人世界改過的範圍送回，存成草稿
 /bg disk                 BuildGit 用掉的磁碟空間（管理員）
 /bg backup [status|now|list|fetch|restore]  備份版本紀錄與世界資料夾到 S3 或本機、取回分支、從備份還原（管理員，見管理員手冊 §8.1）
-/bg new [name:名稱]、open <世界>、home、worlds  建立、進出、列出建築世界：每個建築世界有自己的歷史與草稿（管理員，見管理員手冊 §7.1）
+/bg new [name:名稱] [選項]  建立建築世界（不帶選項開對話框；伺服器開放時一般玩家也能用，見管理員手冊 §7.1）
+/bg open <世界>、home、worlds  進入建築世界、回伺服器世界、建築世界清單
+/bg fork、submit         複製別人的建築世界、把改動送回去
+/bg world settings|members|visibility|…  管理所在的建築世界
+/bg help [admin]         列出自己能用的指令
 /bg log、show、diff、blame、inspect、who、sel
 ```
 
