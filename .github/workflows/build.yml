@@ -42,7 +42,7 @@ jobs:
       - name: 編譯與測試
         run: ./gradlew --no-daemon build -PbuildgitVersion=${{ steps.version.outputs.version }}
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: BuildGit-${{ steps.version.outputs.version }}
           path: |
@@ -50,7 +50,7 @@ jobs:
             fabric/*/build/libs/BuildGit-*-fabric-*.jar
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: test-reports
@@ -63,7 +63,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           pattern: BuildGit-*
           merge-multiple: true
