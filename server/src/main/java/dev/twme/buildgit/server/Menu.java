@@ -126,14 +126,15 @@ final class Menu {
     var rules = new ArrayList<Dialogs.Option>();
     for (var r : WorldConfig.Rules.values()) rules.add(new Dialogs.Option(WorldConfig.key(r), msg.get("world-rules-" + WorldConfig.key(r))));
     inputs.add(Dialogs.choice("rules", msg.get("world-create-rules"), rules, WorldConfig.key(o.rules())));
-    var command = "bg new name:$(name) type:$(type) terrain:$(terrain) rules:$(rules) seed:$(seed) layers:$(layers) block:$(block)";
+    // 留空的欄位變成「選項名後面直接是下一個選項名」，new 當作沒給
+    var command = "bg new $(name) type $(type) terrain $(terrain) rules $(rules) seed $(seed) layers $(layers) block $(block)";
     var templates = templates();
     if (!templates.isEmpty()) {
       var list = new ArrayList<Dialogs.Option>();
       list.add(new Dialogs.Option("none", msg.get("world-create-no-template")));
       for (var t : templates) list.add(new Dialogs.Option(t.label(), Component.text(t.config().displayName != null ? t.config().displayName : t.label())));
       inputs.add(Dialogs.choice("template", msg.get("world-create-template"), list, o.template() == null ? "none" : o.template()));
-      command += " template:$(template)";
+      command += " template $(template)";
     }
     inputs.add(Dialogs.text("seed", msg.get("world-create-seed"), o.seed(), 64));
     inputs.add(Dialogs.text("layers", msg.get("world-create-layers"), o.layers(), 256));

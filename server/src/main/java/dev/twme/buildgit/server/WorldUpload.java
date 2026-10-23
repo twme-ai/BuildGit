@@ -68,7 +68,7 @@ final class WorldUpload {
     return bg.messages();
   }
 
-  /** {@code /bg new <名稱> from:<存檔>}（主執行緒）：先檢查能不能建立，再請用戶端打包。 */
+  /** {@code /bg new <名稱> from <存檔>}（主執行緒）：先檢查能不能建立，再請用戶端打包。 */
   void start(ServerPlayer p, String name, WorldConfig config, boolean admin, String save) throws IOException {
     var pw = bg.settings().playerWorlds();
     if (pw.uploadConnection().isEmpty()) throw new Workspace.Refused("這台伺服器沒有開放上傳單人世界");

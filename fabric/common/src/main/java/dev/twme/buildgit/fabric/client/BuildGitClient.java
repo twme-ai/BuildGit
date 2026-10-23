@@ -23,7 +23,7 @@ import org.slf4j.LoggerFactory;
 /**
  * 用戶端的入口（設計 §6.7）：收下伺服器送來的範圍，伺服器要求時把改過的範圍送回；連上時列出還沒送回的範圍。
  * 範圍檔放在 {@code .minecraft/buildgit/sync/}，單人世界的 {@code /bg load} 也讀這裡。
- * {@code /bgc open <名稱>} 離開伺服器、在專屬的單人世界打開範圍。伺服器的 {@code /bg new … from:<存檔>} 要求時，
+ * {@code /bgc open <名稱>} 離開伺服器、在專屬的單人世界打開範圍。伺服器的 {@code /bg new … from <存檔>} 要求時，
  * 把 {@code .minecraft/saves/<存檔>} 打包上傳。
  */
 public final class BuildGitClient implements ClientModInitializer {

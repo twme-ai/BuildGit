@@ -122,7 +122,7 @@ player-worlds:
     objects: "{buildgit}/objects"
     # 起點世界
     genesis: "{repo}/genesis"
-  # 把單人世界上傳成新的建築世界（/bg new <名稱> from:<存檔>，要裝 BuildGit 用戶端）。只帶主世界的方塊與實體，
+  # 把單人世界上傳成新的建築世界（/bg new <名稱> from <存檔>，要裝 BuildGit 用戶端）。只帶主世界的方塊與實體，
   # 不帶歷史。用戶端直接上傳到 S3（伺服器發 15 分鐘有效的預簽網址），伺服器再下載、檢查每個 chunk。
   upload:
     # s3.yml 的連線名稱；空白時不開放上傳。上傳暫存在 bucket 的 uploads/ 下，處理完就刪掉

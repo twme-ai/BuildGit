@@ -131,7 +131,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 伺服器開放的話，可以建立自己的建築世界（管理員隨時可以）：
 
 1. `/bg new`：打開建立對話框，填名稱（留空自動取）、選類型（主世界／地獄／終界）、地形（一般、超平坦、虛空等）、規則，有範本時也可以選範本，按「建立」就會過去。
-   也可以直接打選項，按 Tab 補全：`/bg new name:house type:nether terrain:flat`，加上 `confirm` 不開對話框直接建立。
+   也可以直接打名稱和選項，選項名和值用空白隔開，按 Tab 補全：`/bg new house type nether terrain flat`，加上 `confirm` 不開對話框直接建立。
 2. 裡面一樣可以開草稿、存檔、併回，和伺服器世界的歷史分開。
 3. `/bg world members add <玩家>` 邀人一起蓋，`/bg world visibility public` 公開給大家參觀。
 4. `/bg world settings` 打開設定選單：時間、天氣、生物、遊戲模式、出生點、清單上的名稱與簡介等。
@@ -166,7 +166,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg push <名稱> [草稿]   把單人世界改過的範圍送回，存成草稿
 /bg disk                 BuildGit 用掉的磁碟空間（管理員）
 /bg backup [status|now|list|fetch|restore]  備份版本紀錄與世界資料夾到 S3 或本機、取回分支、從備份還原（管理員，見管理員手冊 §8.1）
-/bg new [name:名稱] [選項]  建立建築世界（不帶選項開對話框；伺服器開放時一般玩家也能用，見管理員手冊 §7.1）
+/bg new [名稱] [選項]    建立建築世界（不帶選項開對話框；伺服器開放時一般玩家也能用，見管理員手冊 §7.1）
 /bg open <世界>、home、worlds  進入建築世界、回伺服器世界、建築世界清單
 /bg fork、submit         複製別人的建築世界、把改動送回去
 /bg world settings|members|visibility|…  管理所在的建築世界
