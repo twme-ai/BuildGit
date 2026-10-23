@@ -59,7 +59,8 @@ final class PaperPlatform implements Platform, Listener {
 
   private record Pending(ServerLevel template, Synthesizer blocks, Synthesizer entities) {}
 
-  private record Holder(Map<Integer, String> actions, Inventory[] inventory) implements InventoryHolder {
+  /** @param version 原地換過幾次內容（{@link #openMenu}） */
+  private record Holder(Map<Integer, String> actions, Inventory[] inventory, int[] version) implements InventoryHolder {
     @Override
     public Inventory getInventory() {
       return inventory[0];
@@ -407,9 +408,23 @@ final class PaperPlatform implements Platform, Listener {
 
   @Override
   public void openMenu(ServerPlayer player, Component title, List<MenuItem> items) {
-    var holder = new Holder(new HashMap<>(), new Inventory[1]);
+    // 同一個選單已經開著時原地換內容：重開畫面會把游標移回中間
+    var view = bukkit(player).getOpenInventory();
+    if (view.getTopInventory().getHolder(false) instanceof Holder open && view.title().equals(title)) {
+      view.getTopInventory().clear();
+      open.actions().clear();
+      fill(view.getTopInventory(), open.actions(), items);
+      open.version()[0]++;
+      return;
+    }
+    var holder = new Holder(new HashMap<>(), new Inventory[1], new int[1]);
     var inv = Bukkit.createInventory(holder, MENU_ROWS * 9, title);
     holder.inventory()[0] = inv;
+    fill(inv, holder.actions(), items);
+    bukkit(player).openInventory(inv);
+  }
+
+  private static void fill(Inventory inv, Map<Integer, String> actions, List<MenuItem> items) {
     for (var item : items) {
       var material = Material.matchMaterial(item.item());
       var stack = new ItemStack(material == null ? Material.PAPER : material);
@@ -419,9 +434,8 @@ final class PaperPlatform implements Platform, Listener {
         else m.lore(item.lore().stream().map(line -> line.decoration(TextDecoration.ITALIC, false)).toList());
       });
       inv.setItem(item.slot(), stack);
-      if (item.action() != null) holder.actions().put(item.slot(), item.action());
+      if (item.action() != null) actions.put(item.slot(), item.action());
     }
-    bukkit(player).openInventory(inv);
   }
 
   @EventHandler
@@ -431,8 +445,13 @@ final class PaperPlatform implements Platform, Listener {
     if (!(e.getWhoClicked() instanceof Player p) || e.getClickedInventory() != e.getInventory()) return;
     var action = holder.actions().get(e.getSlot());
     if (action == null) return;
-    p.closeInventory();
-    Bukkit.getScheduler().runTask(plugin, () -> p.performCommand("bg " + action));
+    // 結尾是 menu 的動作做完會再打開同一個選單（原地換內容），先不關；沒換成（例如失敗）才關掉，讓玩家看到訊息
+    if (!action.endsWith(" menu")) p.closeInventory();
+    int version = holder.version()[0];
+    Bukkit.getScheduler().runTask(plugin, () -> {
+      p.performCommand("bg " + action);
+      if (p.getOpenInventory().getTopInventory().getHolder(false) == holder && holder.version()[0] == version) p.closeInventory();
+    });
   }
 
   @EventHandler

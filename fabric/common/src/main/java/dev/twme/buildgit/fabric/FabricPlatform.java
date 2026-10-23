@@ -36,6 +36,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.BossEvent;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -495,14 +496,46 @@ final class FabricPlatform implements Platform {
   }
 
   void quit(ServerPlayer player) {
+    menus.remove(player.getUUID());
     var bar = bars.remove(player.getUUID());
     if (bar != null) bar.removeAllPlayers();
   }
 
   @Override
   public void openMenu(ServerPlayer player, Component title, List<MenuItem> items) {
-    var container = new SimpleContainer(MENU_ROWS * 9);
-    var actions = new HashMap<Integer, String>();
+    // 同一個選單已經開著時原地換內容：重開畫面會把游標移回中間
+    var open = menus.get(player.getUUID());
+    if (open != null && player.containerMenu == open.menu()[0] && open.title().equals(title)) {
+      open.container().clearContent();
+      open.actions().clear();
+      fill(open.container(), open.actions(), items);
+      open.version()[0]++;
+      player.containerMenu.broadcastChanges();
+      return;
+    }
+    var state = new OpenMenu(new SimpleContainer(MENU_ROWS * 9), new HashMap<>(), title, new AbstractContainerMenu[1], new int[1]);
+    fill(state.container(), state.actions(), items);
+    menus.put(player.getUUID(), state);
+    player.openMenu(new SimpleMenuProvider((id, inventory, p) -> state.menu()[0] = Versions.chestMenu(id, inventory, state.container(), slot -> {
+      var action = state.actions().get(slot);
+      if (action == null) return;
+      // 點擊還在處理中，下一刻再執行。結尾是 menu 的動作做完會再打開同一個選單（原地換內容），先不關；
+      // 沒換成（例如失敗）才關掉，讓玩家看到訊息
+      int version = state.version()[0];
+      later(1, () -> {
+        if (!action.endsWith(" menu")) player.closeContainer();
+        performCommand(player, "bg " + action);
+        if (player.containerMenu == state.menu()[0] && state.version()[0] == version) player.closeContainer();
+      });
+    }), vanilla(title)));
+  }
+
+  /** 開著的 BuildGit 選單；{@code version} 是原地換過幾次內容。 */
+  private record OpenMenu(SimpleContainer container, Map<Integer, String> actions, Component title, AbstractContainerMenu[] menu, int[] version) {}
+
+  private final Map<UUID, OpenMenu> menus = new HashMap<>();
+
+  private void fill(SimpleContainer container, Map<Integer, String> actions, List<MenuItem> items) {
     for (var item : items) {
       var id = Identifier.tryParse(item.item());
       var type = id == null ? Items.PAPER : BuiltInRegistries.ITEM.getValue(id);
@@ -513,15 +546,6 @@ final class FabricPlatform implements Platform {
       container.setItem(item.slot(), stack);
       if (item.action() != null) actions.put(item.slot(), item.action());
     }
-    player.openMenu(new SimpleMenuProvider((id, inventory, p) -> Versions.chestMenu(id, inventory, container, slot -> {
-      var action = actions.get(slot);
-      if (action == null) return;
-      // 點擊還在處理中，下一刻再關閉畫面並執行
-      later(1, () -> {
-        player.closeContainer();
-        performCommand(player, "bg " + action);
-      });
-    }), vanilla(title)));
   }
 
   @Override

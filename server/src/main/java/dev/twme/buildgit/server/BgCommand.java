@@ -2685,7 +2685,8 @@ public final class BgCommand {
     } else if (value.isEmpty() && menu) {
       // 選單裡沒辦法打字：開對話框，填好執行不帶 menu 的指令（留空是清掉）
       var current = key.equals("display-name") ? c.displayName : c.description;
-      Dialogs.open(bg, p, msg().get("setting-" + key), msg().get("setting-" + key + "-lore"),
+      p.closeContainer(); // 從設定選單點進來時選單還開著（見各平台的 openMenu）
+    Dialogs.open(bg, p, msg().get("setting-" + key), msg().get("setting-" + key + "-lore"),
           List.of(Dialogs.text("value", msg().get("setting-" + key), current, key.equals("display-name") ? DISPLAY_NAME_MAX : DESCRIPTION_MAX)),
           msg().get("dialog-save"), msg().get("dialog-cancel"), "bg world settings " + key + " $(value)");
       return;
