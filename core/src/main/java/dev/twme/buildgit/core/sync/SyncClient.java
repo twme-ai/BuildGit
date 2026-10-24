@@ -50,10 +50,14 @@ public final class SyncClient {
   /** 打包好、等著上傳的存檔。 */
   private volatile Path packed;
   /** 伺服器要上傳的存檔與大小上限，等玩家回答。 */
-  public record ImportRequest(String save, long max) {}
+  /** @param id 這次要求的編號：同意按鈕帶著它，點到舊的提示不會同意新的要求 */
+  public record ImportRequest(int id, String save, long max) {}
 
   private final Consumer<ImportRequest> ask;
   private volatile ImportRequest asking;
+  private int requests;
+  /** 每次離開伺服器加一：離開前開始的打包，完成時不再送出、也不留下。 */
+  private volatile int connection;
 
   /** 不上傳單人世界（測試用）。 */
   public SyncClient(Path folder) {
@@ -71,18 +75,26 @@ public final class SyncClient {
     this.ask = ask;
   }
 
-  /** 玩家回答上傳的要求：同意就打包，否則告訴伺服器拒絕了。沒有等著回答的要求時回傳 false。 */
-  public boolean answer(boolean yes) {
+  /**
+   * 玩家回答上傳的要求：同意就打包，否則告訴伺服器拒絕了。{@code id} 是按鈕帶的要求編號，null 是最新的要求（自己打的指令）。
+   * 沒有等著回答的要求、或編號不是現在這個時回傳 false。
+   */
+  public synchronized boolean answer(Integer id, boolean yes) {
     var r = asking;
+    if (r == null || id != null && id != r.id()) return false;
     asking = null;
-    if (r == null) return false;
-    if (yes) background(() -> later.accept(pack(r.save(), r.max())));
+    int conn = connection;
+    if (yes) background(() -> {
+      var reply = pack(r.save(), r.max(), conn);
+      if (reply != null && conn == connection) later.accept(reply);
+    });
     else later.accept(importError("declined"));
     return true;
   }
 
   /** 離開伺服器時：沒回答的要求與打包好的存檔作廢，不會上傳到下一台伺服器。 */
-  public void reset() {
+  public synchronized void reset() {
+    connection++;
     asking = null;
     packed = null;
   }
@@ -118,8 +130,11 @@ public final class SyncClient {
         case Frame.IMPORT -> {
           var a = new String(f.data(), StandardCharsets.UTF_8).split("\n");
           if (a.length != 2 || !a[1].matches("\\d{1,15}")) return List.of();
-          asking = new ImportRequest(a[0], Long.parseLong(a[1]));
-          ask.accept(asking);
+          ImportRequest r;
+          synchronized (this) {
+            r = asking = new ImportRequest(++requests, a[0], Long.parseLong(a[1]));
+          }
+          ask.accept(r);
           return List.of();
         }
         case Frame.IMPORT_URL -> {
@@ -182,7 +197,8 @@ public final class SyncClient {
   }
 
   /** 把存檔的主世界打包成 {@code import.zip}，回報大小與 SHA-256。 */
-  private Frame pack(String save, long max) {
+  /** @return 要回給伺服器的封包；打包途中離開了伺服器時為 null（打包的檔案刪掉） */
+  private Frame pack(String save, long max, int conn) {
     try {
       if (saves == null || save.isEmpty() || save.contains("/") || save.contains("\\") || save.equals(".") || save.equals(".."))
         return importError("no-save");
@@ -221,7 +237,13 @@ public final class SyncClient {
         Files.deleteIfExists(zip);
         return importError(total == 0 ? "no-save" : "too-big");
       }
-      packed = zip;
+      synchronized (this) {
+        if (conn != connection) {
+          Files.deleteIfExists(zip);
+          return null;
+        }
+        packed = zip;
+      }
       var text = Files.size(zip) + "\n" + HexFormat.of().formatHex(md.digest());
       return new Frame(Frame.IMPORT_READY, IMPORT, 0, 0, text.getBytes(StandardCharsets.UTF_8));
     } catch (IOException | GeneralSecurityException | RuntimeException e) {

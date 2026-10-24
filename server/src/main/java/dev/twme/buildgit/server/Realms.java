@@ -330,6 +330,7 @@ final class Realms {
       for (var p : List.copyOf(bg.platform().server().getPlayerList().getPlayers())) if (blocked(p)) toLobby(p);
       return;
     }
+    KitEditor.close(bg, ws, false);
     for (var p : List.copyOf(bg.platform().server().getPlayerList().getPlayers()))
       if (bg.workspace(p.level()) == ws) {
         if (canEnter(p, ws)) apply(p);
@@ -339,6 +340,7 @@ final class Realms {
 
   /** 世界要改名、轉讓、刪除：裡面的人（含草稿、檢視世界）立刻送回伺服器世界。 */
   void evictAll(Workspace ws, String key, Object... args) {
+    KitEditor.close(bg, ws, true);
     for (var p : List.copyOf(bg.platform().server().getPlayerList().getPlayers()))
       if (bg.workspace(p.level()) == ws) {
         bg.messages().send(bg.platform().sender(p), key, args);

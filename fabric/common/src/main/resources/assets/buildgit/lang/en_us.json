@@ -3,5 +3,5 @@
   "buildgit.import.ask": "Server %s wants to upload your singleplayer world \"%s\" (blocks and entities of the overworld, at most %s MB). ",
   "buildgit.import.yes": "[Upload]",
   "buildgit.import.no": "[Cancel]",
-  "buildgit.import.none": "The server hasn't asked to upload a world."
+  "buildgit.import.none": "No upload request is waiting (or this prompt is out of date)."
 }

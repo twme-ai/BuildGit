@@ -4,6 +4,7 @@ import dev.twme.buildgit.core.sync.Frame;
 import dev.twme.buildgit.core.sync.SyncClient;
 import dev.twme.buildgit.fabric.SyncPayload;
 import dev.twme.buildgit.fabric.mc.ClientVersions;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
@@ -54,10 +55,10 @@ public final class BuildGitClient implements ClientModInitializer {
     ClientCommandRegistrationCallback.EVENT.register((dispatcher, registries) -> dispatcher.register(LiteralArgumentBuilder.<FabricClientCommandSource>literal("bgc")
         .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("open").then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("name", StringArgumentType.word())
             .executes(ctx -> open(ctx.getSource(), folder, StringArgumentType.getString(ctx, "name")))))
-        // /bgc import yes|no：回答伺服器上傳單人世界的要求
+        // /bgc import yes|no [編號]：回答伺服器上傳單人世界的要求（按鈕帶編號）
         .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("import")
-            .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("yes").executes(ctx -> answer(ctx.getSource(), sync, true)))
-            .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("no").executes(ctx -> answer(ctx.getSource(), sync, false))))));
+            .then(answerCommand("yes", sync, true))
+            .then(answerCommand("no", sync, false)))));
     ClientTickEvents.END_CLIENT_TICK.register(client -> {
       if (next != null) {
         var run = next;
@@ -86,17 +87,23 @@ public final class BuildGitClient implements ClientModInitializer {
     var mc = Minecraft.getInstance();
     var server = mc.getCurrentServer() == null ? "?" : mc.getCurrentServer().ip;
     var yes = Component.translatableWithFallback("buildgit.import.yes", "[Upload]")
-        .withStyle(s -> s.withColor(ChatFormatting.GREEN).withUnderlined(true).withClickEvent(new ClickEvent.RunCommand("/bgc import yes")));
+        .withStyle(s -> s.withColor(ChatFormatting.GREEN).withUnderlined(true).withClickEvent(new ClickEvent.RunCommand("/bgc import yes " + r.id())));
     var no = Component.translatableWithFallback("buildgit.import.no", "[Cancel]")
-        .withStyle(s -> s.withColor(ChatFormatting.GRAY).withUnderlined(true).withClickEvent(new ClickEvent.RunCommand("/bgc import no")));
+        .withStyle(s -> s.withColor(ChatFormatting.GRAY).withUnderlined(true).withClickEvent(new ClickEvent.RunCommand("/bgc import no " + r.id())));
     ClientVersions.chat(mc, Component.translatableWithFallback("buildgit.import.ask",
         "Server %s wants to upload your singleplayer world \"%s\" (blocks and entities of the overworld, at most %s MB). ", server, r.save(),
         r.max() / 1024 / 1024).withStyle(ChatFormatting.YELLOW).append(yes).append(" ").append(no));
   }
 
-  private static int answer(FabricClientCommandSource source, SyncClient sync, boolean yes) {
-    if (sync.answer(yes)) return 1;
-    source.sendError(Component.translatableWithFallback("buildgit.import.none", "The server hasn't asked to upload a world."));
+  private static LiteralArgumentBuilder<FabricClientCommandSource> answerCommand(String word, SyncClient sync, boolean yes) {
+    return LiteralArgumentBuilder.<FabricClientCommandSource>literal(word).executes(ctx -> answer(ctx.getSource(), sync, null, yes))
+        .then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("id", IntegerArgumentType.integer(1))
+            .executes(ctx -> answer(ctx.getSource(), sync, IntegerArgumentType.getInteger(ctx, "id"), yes)));
+  }
+
+  private static int answer(FabricClientCommandSource source, SyncClient sync, Integer id, boolean yes) {
+    if (sync.answer(id, yes)) return 1;
+    source.sendError(Component.translatableWithFallback("buildgit.import.none", "No upload request is waiting (or this prompt is out of date)."));
     return 0;
   }
 

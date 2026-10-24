@@ -128,7 +128,11 @@ final class Restore {
       files += downloads.size();
 
       var levelDir = ws.mainLevelDirectory(dim);
-      if (levelDir == null && sameVersion && entry.get("world") != null) levelDir = inside(root, String.valueOf(entry.get("world")));
+      if (levelDir == null && sameVersion && entry.get("world") != null) {
+        // 快照記的位置要真的是個世界的存檔目錄，不然不換
+        var recorded = inside(root, String.valueOf(entry.get("world")));
+        if (worldFolder(root, recorded) != null) levelDir = recorded;
+      }
       if (Boolean.TRUE.equals(entry.get("lazy"))) {
         // 延遲複製：起點世界缺的 chunk 只在主世界存檔裡，世界資料夾不換，由管理員用同一時間的世界備份
         if (levelDir != null) Files.writeString(genesisDir.resolve("lazy"), levelDir.toAbsolutePath().normalize().toString());
@@ -163,11 +167,12 @@ final class Restore {
       // level.dat 等：同一版本才換（不同版本的世界資料夾結構不同，換了可能觸發舊世界的升級流程）
       var seed = entry.get("seed");
       if (sameVersion) {
-        for (var line : strings(entry.get("level-files")))
-          levelFiles.put(inside(root, line.substring(line.indexOf(' ') + 1)), line.substring(0, line.indexOf(' ')));
-        if (entry.get("level-dat") != null) { // 第一階段的快照
-          var line = String.valueOf(entry.get("level-dat"));
-          levelFiles.put(inside(root, line.substring(line.indexOf(' ') + 1)), line.substring(0, line.indexOf(' ')));
+        var lines = new ArrayList<>(strings(entry.get("level-files")));
+        if (entry.get("level-dat") != null) lines.add(String.valueOf(entry.get("level-dat"))); // 第一階段的快照
+        for (var line : lines) {
+          var target = inside(root, line.substring(line.indexOf(' ') + 1));
+          if (!levelFile(levelDir, target)) throw new Workspace.Refused("快照裡的路徑不對：" + target);
+          levelFiles.put(target, line.substring(0, line.indexOf(' ')));
         }
       } else if (seed != null && ws.mainSeed(dim) != null && !String.valueOf(seed).equals(String.valueOf(ws.mainSeed(dim)))) {
         warnings.add(dim + " 的種子是 " + ws.mainSeed(dim) + "，備份是 " + seed + "：起點世界以外的地方會生成不同的地形；"
@@ -388,7 +393,16 @@ final class Restore {
       if (Workspace.ownWorldName(world) && !world.contains(".before-restore-")) plan.add(move(platform.levelFolder(world).toAbsolutePath().normalize(), null));
     for (var world : manifest.getStringList("worlds")) {
       var source = inside(files, world);
-      if (Files.isDirectory(source)) plan.add(move(inside(server, world), source));
+      if (!Files.isDirectory(source)) continue;
+      // 只換世界資料夾：現有的要有 level.dat，沒有的只能建在伺服器目錄的第一層
+      var target = inside(server, world);
+      if (!Files.isRegularFile(source.resolve("level.dat"))
+          || (Files.exists(target) ? !Files.isRegularFile(target.resolve("level.dat")) : !target.getParent().equals(server)))
+      {
+        warnings.add(world + " 看起來不是世界資料夾，不換");
+        continue;
+      }
+      plan.add(move(target, source));
     }
     for (var skipped : manifest.getStringList("skipped")) warnings.add(skipped + " 從來沒有玩家進去過，沒有備份，不換");
     if (repoRel != null && Files.isDirectory(inside(files, repoRel))) {
@@ -499,6 +513,22 @@ final class Restore {
     }
     if (!p.startsWith(base) || p.equals(base)) throw new Workspace.Refused("快照裡的路徑不對：" + rel);
     return p;
+  }
+
+  /** 存檔目錄所在的世界資料夾（往上找 level.dat，最多 4 層、不出 {@code root}）；不在世界裡時為 null。 */
+  private static Path worldFolder(Path root, Path dir) {
+    var d = dir.toAbsolutePath().normalize();
+    for (int i = 0; i < 4 && d != null && d.startsWith(root) && !d.equals(root); i++, d = d.getParent())
+      if (Files.isRegularFile(d.resolve("level.dat"))) return d;
+    return null;
+  }
+
+  /** 備份帶的世界設定檔只能是存檔目錄往上幾層的 {@code level.dat} 或 {@code data/minecraft/world_gen_settings.dat}（和備份時找的一樣）。 */
+  private static boolean levelFile(Path levelDir, Path target) {
+    var d = levelDir.toAbsolutePath().normalize();
+    for (int i = 0; i < 4 && d != null; i++, d = d.getParent())
+      if (target.equals(d.resolve("level.dat")) || target.equals(d.resolve("data").resolve("minecraft").resolve("world_gen_settings.dat"))) return true;
+    return false;
   }
 
   /** 起點世界裡一個維度的目錄（{@code <命名空間>/<路徑>}）；維度 id 照 Minecraft 的格式檢查。 */

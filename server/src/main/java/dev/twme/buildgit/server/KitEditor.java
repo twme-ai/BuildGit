@@ -62,6 +62,29 @@ final class KitEditor {
     }
   }
 
+  /**
+   * 角色變了、世界要改名、轉讓、刪除時：沒有資格的人開著的編輯箱立刻關上（照關上那時的內容存下），之後不能再放東西進去。
+   * 不在關上時才拒絕寫回：箱子裡的物品就是起始物品本身，不寫回又把物品還給玩家會多出一份。
+   */
+  static void close(BuildGit bg, Workspace ws, boolean all) {
+    var files = java.util.Set.of(ws.kitFile(false).toAbsolutePath().normalize(), ws.kitFile(true).toAbsolutePath().normalize());
+    for (var e : java.util.List.copyOf(EDITING.entrySet())) {
+      if (!files.contains(e.getKey()) || e.getValue().stale()) continue;
+      var p = e.getValue().player();
+      var role = ws.role(p.getUUID());
+      if (all || !bg.realms().admin(p) && role != WorldConfig.Role.OWNER && role != WorldConfig.Role.MANAGER) p.closeContainer();
+    }
+  }
+
+  /** 箱子裡的物品放回玩家的背包，放不下的掉在腳下。 */
+  private static void giveBack(ServerPlayer p, SimpleContainer items) {
+    for (int i = 0; i < items.getContainerSize(); i++) {
+      var stack = items.getItem(i);
+      if (!stack.isEmpty()) p.getInventory().add(stack); // 放得下的部分從 stack 扣掉
+      if (!stack.isEmpty()) p.level().addFreshEntity(new ItemEntity(p.level(), p.getX(), p.getY(), p.getZ(), stack));
+    }
+  }
+
   /** 打開成員或訪客的起始物品；{@code menu} 是從設定選單點進來的，關上後回到設定選單。 */
   static void open(BuildGit bg, ServerPlayer p, Workspace ws, boolean visitor, boolean menu) {
     var msg = bg.messages();
@@ -114,11 +137,7 @@ final class KitEditor {
         } catch (IOException e) {
           // 存不了時箱子裡的物品放回玩家的背包，放不下的掉在腳下
           bg.platform().log().log(Level.WARNING, "無法存下 " + ws.label() + " 的起始物品", e);
-          for (int i = 0; i < out.getContainerSize(); i++) {
-            var stack = out.getItem(i);
-            if (!stack.isEmpty()) p.getInventory().add(stack); // 放得下的部分從 stack 扣掉
-            if (!stack.isEmpty()) p.level().addFreshEntity(new ItemEntity(p.level(), p.getX(), p.getY(), p.getZ(), stack));
-          }
+          giveBack(p, out);
           msg.send(bg.platform().sender(p), "kit-save-failed");
           return;
         }
