@@ -21,6 +21,9 @@ public final class Outlines {
 
   record Shape(Box box, int color) {}
 
+  /** 改動的一區：相連（含斜角）的 chunk 算一區；{@code box} 是區裡改動格的範圍。 */
+  record Area(String dimension, Box box, int chunks, int cells) {}
+
   private final Platform platform;
   /** 玩家目前看到的外框：所在世界與客戶端上的實體 id。 */
   private record Shown(ServerLevel world, int[] ids) {}
@@ -73,6 +76,53 @@ public final class Outlines {
     var result = new ArrayList<Shape>();
     groups.forEach((k, b) -> result.add(new Shape(new Box(b[0], b[1], b[2], b[3], b[4], b[5]), colors.get(k))));
     return result.size() > MAX ? result.subList(0, MAX) : result;
+  }
+
+  /** 把改動格依 chunk 分區（相連、含斜角的 chunk 算一區），改得多的在前。遠處的小改動也會自成一區，不會被漏看。 */
+  static List<Area> areas(Collection<Workspace.Changed> changed) {
+    var byDim = new HashMap<String, Map<Long, int[]>>(); // chunk → 改動格的範圍與格數
+    for (var c : changed) {
+      var p = c.pos();
+      long key = (long) (p.x() >> 4) << 32 | (p.z() >> 4) & 0xffffffffL;
+      var b = byDim.computeIfAbsent(c.dimension(), k -> new HashMap<>()).computeIfAbsent(key, k -> new int[] {p.x(), p.y(), p.z(), p.x(), p.y(), p.z(), 0});
+      b[0] = Math.min(b[0], p.x());
+      b[1] = Math.min(b[1], p.y());
+      b[2] = Math.min(b[2], p.z());
+      b[3] = Math.max(b[3], p.x());
+      b[4] = Math.max(b[4], p.y());
+      b[5] = Math.max(b[5], p.z());
+      b[6]++;
+    }
+    var result = new ArrayList<Area>();
+    byDim.forEach((dim, chunks) -> {
+      var left = new HashSet<>(chunks.keySet());
+      while (!left.isEmpty()) {
+        var first = left.iterator().next();
+        left.remove(first);
+        var queue = new ArrayDeque<Long>(List.of(first));
+        int[] box = {Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE};
+        int count = 0, cells = 0;
+        while (!queue.isEmpty()) {
+          long k = queue.poll();
+          var b = chunks.get(k);
+          count++;
+          cells += b[6];
+          for (int i = 0; i < 3; i++) {
+            box[i] = Math.min(box[i], b[i]);
+            box[i + 3] = Math.max(box[i + 3], b[i + 3]);
+          }
+          int cx = (int) (k >> 32), cz = (int) k;
+          for (int dx = -1; dx <= 1; dx++)
+            for (int dz = -1; dz <= 1; dz++) {
+              long q = (long) (cx + dx) << 32 | (cz + dz) & 0xffffffffL;
+              if (left.remove(q)) queue.add(q);
+            }
+        }
+        result.add(new Area(dim, new Box(box[0], box[1], box[2], box[3], box[4], box[5]), count, cells));
+      }
+    });
+    result.sort(Comparator.comparingInt(Area::cells).reversed());
+    return result;
   }
 
   static List<Shape> cells(Collection<BlockPos> cells, int color) {

@@ -67,6 +67,9 @@ public final class BgCommand {
   private final Set<UUID> inspecting = new HashSet<>();
   /** 進入檢視世界之前的位置，{@code back} 回到這裡。 */
   private final Map<UUID, Location> returnTo = new HashMap<>();
+  /** 上次預覽、diff 列出的改動區（{@code publish goto}、{@code diff goto} 用）：在哪個版本的世界、哪幾區。 */
+  private record ListedAreas(Workspace ws, String branch, List<Outlines.Area> areas) {}
+  private final Map<UUID, ListedAreas> listedAreas = new HashMap<>();
   private final List<Sub> subs = new ArrayList<>();
 
   BgCommand(BuildGit bg) {
@@ -469,6 +472,45 @@ public final class BgCommand {
     });
   }
 
+  /**
+   * 改動分成兩區以上時列出每一區（相連的 chunk 算一區），點一下前往 {@code branch} 那個版本的世界裡的那一區；
+   * 遠處的小改動不會因為外框只在身邊顯示而被漏看。{@code command} 是前往用的指令（{@code /bg publish goto}）。
+   */
+  private void listAreas(Sender sender, Workspace ws, String branch, Collection<Workspace.Changed> changed, String command) {
+    var areas = Outlines.areas(changed);
+    if (areas.size() < 2) return;
+    if (sender.player() instanceof ServerPlayer p) listedAreas.put(p.getUUID(), new ListedAreas(ws, branch, areas));
+    msg().send(sender, "areas-header", "count", areas.size());
+    for (int i = 0; i < Math.min(10, areas.size()); i++) {
+      var a = areas.get(i);
+      var b = a.box();
+      var line = msg().get("areas-entry", "n", i + 1, "cells", a.cells(), "chunks", a.chunks(), "dimension", a.dimension(), "from",
+          b.minX() + " " + b.minY() + " " + b.minZ(), "to", b.maxX() + " " + b.maxY() + " " + b.maxZ());
+      sender.send(sender.isPlayer() ? line.clickEvent(ClickEvent.runCommand(command + " " + (i + 1))) : line);
+    }
+    if (areas.size() > 10) msg().send(sender, "areas-more", "count", areas.size() - 10);
+  }
+
+  /** 前往上次列出的第 {@code n} 區（那一區的正中間、最高的改動上方）。 */
+  private void gotoArea(Sender sender, String n) throws IOException {
+    var p = player(sender);
+    if (p == null) return;
+    var listed = listedAreas.get(p.getUUID());
+    int i = parseInt(n, 0);
+    if (listed == null || i < 1 || i > listed.areas().size() || !listed.ws().isOpen() || !listed.ws().branches().containsKey(listed.branch())) {
+      msg().send(sender, "areas-none");
+      return;
+    }
+    var a = listed.areas().get(i - 1);
+    var world = listed.ws().openBranch(listed.branch()).world(a.dimension());
+    if (world == null) {
+      msg().send(sender, "areas-none");
+      return;
+    }
+    var b = a.box();
+    bg.platform().teleport(p, world, (b.minX() + b.maxX()) / 2.0 + .5, b.maxY() + 1, (b.minZ() + b.maxZ()) / 2.0 + .5, p.getYRot(), p.getXRot());
+  }
+
   /** diff 的結果；玩家的後面接著關閉外框的按鈕。 */
   private void sendDiff(Sender sender, Component text) {
     sender.send(msg().prefixed(sender.isPlayer() ? text.append(Component.text(" ")).append(button("diff-off-button", "/bg diff off")) : text));
@@ -753,8 +795,13 @@ public final class BgCommand {
       msg().send(sender, "diff-off");
       return;
     }
+    if (w.size() == 2 && w.getFirst().equals("goto")) {
+      gotoArea(sender, w.get(1));
+      return;
+    }
+    var here = current(sender);
     if (w.isEmpty()) {
-      var table = current(sender).table();
+      var table = here.table();
       ws.async(() -> {
         var changed = new ArrayList<Workspace.Changed>();
         table.markedSections().forEach((key, cells) -> {
@@ -764,6 +811,7 @@ public final class BgCommand {
         ws.sync(() -> {
           sendDiff(sender, msg().get("diff-unsaved", "cells", changed.size()));
           outline(sender, changed);
+          listAreas(sender, ws, here.branch(), changed, "/bg diff goto");
         });
       });
       return;
@@ -808,6 +856,7 @@ public final class BgCommand {
       sendDiff(sender, msg().get("diff-summary", "added", r.counts()[0], "removed", r.counts()[1], "modified", r.counts()[2], "entities", r.entities()));
       if (r.biomes() > 0) msg().send(sender, "biomes-outlined", "count", r.biomes());
       outline(sender, r.changed());
+      listAreas(sender, ws, here.branch(), r.changed(), "/bg diff goto");
     }));
   }
 
@@ -1241,6 +1290,10 @@ public final class BgCommand {
     var ws = ws(sender);
     var flags = flags(args);
     var w = words(args);
+    if (w.size() == 2 && w.getFirst().equals("goto")) {
+      gotoArea(sender, w.get(1));
+      return;
+    }
     boolean cancel = w.size() > (sender.isPlayer() ? 0 : 1) && w.getLast().equals("cancel");
     if (cancel) w.removeLast();
     Worktree draft;
@@ -1318,6 +1371,7 @@ public final class BgCommand {
         if (!preview.result().biomeConflicts().isEmpty())
           msg().send(viewer, "publish-preview-biome-conflicts", "count", preview.result().biomeConflicts().size(), "target", branchLabel(target.branch()));
         outline(viewer, preview.changed());
+        listAreas(viewer, ws, source, preview.changed(), "/bg publish goto");
       }
       String command = "/bg publish " + (sender.isPlayer() ? "" : source + " ") + (selection ? "--selection " : "") + "confirm";
       if (sender.isPlayer())
