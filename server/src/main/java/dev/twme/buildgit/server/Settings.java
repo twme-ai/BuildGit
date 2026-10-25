@@ -179,7 +179,7 @@ public record Settings(
         c.getBoolean("integrations.luckperms-contexts", true),
         Math.max(1, c.getLong("sync.max-blocks", 12_000_000)),
         Math.max(1, c.getInt("sync.radius", 80)),
-        c.getLong("init.lazy-copy-above-mb", -1),
+        c.getLong("init.lazy-copy-above-mb", 512),
         c.getString("init.genesis-dir", ""),
         new PlayerWorlds(c.getBoolean("player-worlds.enabled", false), Math.max(0, c.getInt("player-worlds.max-per-player", 3)),
             Math.clamp(c.getInt("player-worlds.border", 1024), 16, 59_999_968),

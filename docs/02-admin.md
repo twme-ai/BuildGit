@@ -26,7 +26,7 @@ BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE
 - **每個世界各自 init**：在主世界 init 不會連帶管理地獄、終界；Multiverse 等多世界插件的世界也一樣，進去那個世界再 init。
 - init 會把這個世界目前的樣子複製一份當「起點世界」，**在背景進行，伺服器不會暫停**。複製完成前，這個世界的變更先不存檔，也還不能開草稿；完成時會通知。
 - 起點世界大約和那個世界的資料夾一樣大，請先確認磁碟空間。快的磁碟不夠大時，可以用 `init.genesis-dir` 把起點世界放到另一顆較大、較便宜的硬碟上（見 §6），仍然完整複製，不用遵守延遲複製的規則。
-- **大世界可以改用延遲複製**（`init.lazy-copy-above-mb`，預設關閉）：世界存檔超過設定的大小時，init 不複製整個世界，立刻完成；每個 chunk 第一次被載入時才把它的原樣複製進起點世界，沒載入過的 chunk 直接讀世界自己的存檔。起點世界只會有玩家實際去過的範圍。代價是要遵守下面的規則，否則沒載入過的 chunk 的起點會被悄悄改掉、無法復原：
+- **大世界可以改用延遲複製**（`init.lazy-copy-above-mb`，預設 512 MB）：世界存檔超過設定的大小時，init 不複製整個世界，立刻完成；每個 chunk 第一次被載入時才把它的原樣複製進起點世界，沒載入過的 chunk 直接讀世界自己的存檔。起點世界只會有玩家實際去過的範圍。代價是要遵守下面的規則，否則沒載入過的 chunk 的起點會被悄悄改掉、無法復原：
   - 不要在 BuildGit 沒有執行時開這個世界：包括先拿掉插件開服、拿到單人遊戲開、伺服器的 `--forceUpgrade`／`--eraseCache` 啟動參數；
   - 不要用離線工具改它的存檔（MCA Selector、刪除或修剪 region 檔、換掉世界資料夾）；
   - 不要把世界資料夾和 `buildgit/` 分開還原或搬移（§8）。
@@ -160,7 +160,7 @@ LuckPerms 範例：
 | `sync.max-blocks` | 12000000 | `/bg pull` 一次最多帶走的方塊數 |
 | `sync.radius` | 80 | 沒有選取範圍、也不在改過的草稿裡時，`/bg pull` 帶走玩家周圍多少格（水平半徑、整個高度） |
 | `init.genesis-dir` | 空白 | 起點世界放在哪個資料夾（相對於伺服器目錄或絕對路徑）；空白為 `buildgit/genesis`。要重新啟動才生效（見 §6） |
-| `init.lazy-copy-above-mb` | -1 | 世界存檔超過這個大小（MB）時 init 改用延遲複製（見 §3）；0 一律延遲複製，-1 一律完整複製 |
+| `init.lazy-copy-above-mb` | 512 | 世界存檔超過這個大小（MB）時 init 改用延遲複製（見 §3）；0 一律延遲複製，-1 一律完整複製 |
 | `integrations.worldedit`／`axiom`／`debugstickpro` | true | 是否記錄 WorldEdit／FAWE、Axiom、DebugStickPro 的編輯 |
 | `player-worlds.enabled` | `false` | 一般玩家（有 `buildgit.world.create`）能不能建立建築世界 |
 | `player-worlds.max-per-player` | 3 | 每人最多擁有幾個建築世界 |
