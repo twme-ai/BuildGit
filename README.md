@@ -90,6 +90,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 | 過去的存檔 | `/bg log`；每頁 8 筆，點 **[下一頁]** 或 `/bg log 2` 翻頁 |
 | 所有草稿的分支歷史圖（像 `git log --graph`） | `/bg log --graph`；每頁 8 筆，點 **[下一頁]** 或 `/bg log --graph 2` 往前翻；加 `--all` 連自動存檔一起顯示 |
 | 某次存檔改了哪些 | `/bg diff <存檔編號>`：列出誰改了幾格並在世界裡標出；加 `--cells` 列出每一格 |
+| 在原地比較改前、改後 | `/bg diff` 之後點 **[改前/改後]**（或 `/bg diff flip`）：只有你看到改前的樣子，世界不變；再按一次回到現在 |
 | 舊版本長什麼樣子 | `/bg view <存檔編號>`（唯讀，不能動；`/bg back` 回來） |
 | 看建築一步一步蓋起來 | `/bg play [起點] [終點]`：在唯讀世界裡依序播放存檔，自己走動看；起點、終點可以是存檔編號、日期（`10-20`、`10-20/14:00`）或多久以前（`3h`、`2d`）。播放中 `/bg play pause\|resume\|next\|prev\|goto <步>\|speed <秒>\|stop` |
 | 有哪些草稿、誰在裡面 | `/bg branch list` |

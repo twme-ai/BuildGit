@@ -10,6 +10,9 @@ import com.mojang.brigadier.tree.LiteralCommandNode;
 import dev.twme.buildgit.core.model.Author;
 import dev.twme.buildgit.core.model.BlockPos;
 import dev.twme.buildgit.core.model.Box;
+import dev.twme.buildgit.core.model.Cell;
+import dev.twme.buildgit.core.overlay.OverlayReader;
+import dev.twme.buildgit.server.nms.LiveWriter;
 import dev.twme.buildgit.core.overlay.TreeDiff;
 import dev.twme.buildgit.core.repo.Changeset;
 import dev.twme.buildgit.core.repo.Commit;
@@ -32,6 +35,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -67,6 +71,7 @@ public final class BgCommand {
   private final Set<UUID> inspecting = new HashSet<>();
   /** 進入檢視世界之前的位置，{@code back} 回到這裡。 */
   private final Map<UUID, Location> returnTo = new HashMap<>();
+  private final Flips flips = new Flips();
   /** 上次預覽、diff 列出的改動區（{@code publish goto}、{@code diff goto} 用）：在哪個版本的世界、哪幾區。 */
   private record ListedAreas(Workspace ws, String branch, List<Outlines.Area> areas) {}
   private final Map<UUID, ListedAreas> listedAreas = new HashMap<>();
@@ -84,7 +89,7 @@ public final class BgCommand {
     sub("status", "buildgit.status", (s, a) -> status(s), null);
     sub("save", "buildgit.save", (s, a) -> save(s, String.join(" ", a)), null);
     sub("log", "buildgit.log", this::log, (s, b) -> concat(List.of("--graph", "--all", "--author"), draftNames(s)));
-    sub("diff", "buildgit.diff", this::diff, (s, b) -> b.isEmpty() ? concat(List.of("off"), recentCommits(s)) : b.size() < 2 ? concat(List.of("--cells"), recentCommits(s)) : List.of());
+    sub("diff", "buildgit.diff", this::diff, (s, b) -> b.isEmpty() ? concat(List.of("off", "flip"), recentCommits(s)) : b.size() < 2 ? concat(List.of("--cells"), recentCommits(s)) : List.of());
     sub(List.of("inspect", "i"), "buildgit.inspect", (s, a) -> toggleInspect(s), null);
     sub("mark", "buildgit.mark", this::mark, this::suggestMark);
     sub("sel", "buildgit.sel", this::sel, (s, b) -> b.isEmpty() ? List.of("pos1", "pos2", "show", "clear") : List.of());
@@ -537,7 +542,9 @@ public final class BgCommand {
 
   /** diff 的結果；玩家的後面接著關閉外框的按鈕。 */
   private void sendDiff(Sender sender, Component text) {
-    sender.send(msg().prefixed(sender.isPlayer() ? text.append(Component.text(" ")).append(button("diff-off-button", "/bg diff off")) : text));
+    sender.send(msg().prefixed(sender.isPlayer()
+        ? text.append(Component.text(" ")).append(button("diff-flip-button", "/bg diff flip")).append(Component.text(" ")).append(button("diff-off-button", "/bg diff off"))
+        : text));
   }
 
   private Component button(String key, String command) {
@@ -800,7 +807,10 @@ public final class BgCommand {
     var w = words(args);
     var repo = ws.repo();
     if (w.size() == 1 && w.getFirst().equals("off")) {
-      if (sender.player() instanceof ServerPlayer p) bg.outlines().clear(p);
+      if (sender.player() instanceof ServerPlayer p) {
+        bg.outlines().clear(p);
+        flips.reset(p);
+      }
       msg().send(sender, "diff-off");
       return;
     }
@@ -808,18 +818,49 @@ public final class BgCommand {
       gotoArea(sender, w.get(1));
       return;
     }
+    if (w.size() == 1 && w.getFirst().equals("flip")) {
+      var p = player(sender);
+      if (p == null) return;
+      msg().send(sender, switch (flips.toggle(p)) {
+        case BEFORE -> "diff-flip-before";
+        case AFTER -> "diff-flip-after";
+        case TOO_MANY -> "diff-flip-too-many";
+        case NONE -> "diff-flip-none";
+      }, "max", Flips.MAX);
+      return;
+    }
     var here = current(sender);
+    // 改前／改後切換（/bg diff flip）只看玩家所在的世界
+    var level = sender.player() instanceof ServerPlayer p ? p.level() : null;
+    var dim = level == null ? null : ws.logicalDimension(level);
     if (w.isEmpty()) {
       var table = here.table();
+      var head = repo.commit(repo.head(here.branch())).tree();
       ws.async(() -> {
         var changed = new ArrayList<Workspace.Changed>();
         table.markedSections().forEach((key, cells) -> {
           for (int i = cells.nextSetBit(0); i >= 0; i = cells.nextSetBit(i + 1))
             changed.add(new Workspace.Changed(key.dimension(), key.pos(i), Workspace.Kind.MODIFIED));
         });
+        Map<net.minecraft.core.BlockPos, BlockState> before = null;
+        if (level != null) try {
+          var saved = new OverlayReader(repo.overlays(), head);
+          var cells = new LinkedHashMap<BlockPos, Cell>();
+          for (var c : changed) {
+            if (!c.dimension().equals(dim)) continue;
+            if (cells.size() > Flips.MAX) break;
+            var cell = saved.cell(dim, c.pos());
+            cells.put(c.pos(), cell != null ? cell : ws.genesisCell(dim, c.pos()));
+          }
+          before = flipStates(level, cells);
+        } catch (IOException e) {
+          bg.platform().log().log(java.util.logging.Level.WARNING, "無法讀取存檔時的方塊", e);
+        }
+        var flip = before;
         ws.sync(() -> {
           sendDiff(sender, msg().get("diff-unsaved", "cells", changed.size()));
           outline(sender, changed);
+          if (level != null && sender.player() instanceof ServerPlayer p) flips.set(p, level, flip);
           listAreas(sender, ws, here.branch(), changed, "/bg diff goto");
         });
       });
@@ -841,7 +882,8 @@ public final class BgCommand {
       to = single.tree();
       from = single.parents().isEmpty() ? to : repo.commit(single.parents().getFirst()).tree();
     }
-    record Counted(List<Workspace.Changed> changed, int[] counts, int entities, int biomes, Changeset changeset) {}
+    record Counted(List<Workspace.Changed> changed, int[] counts, int entities, int biomes, Changeset changeset,
+        Map<net.minecraft.core.BlockPos, BlockState> before) {}
     CompletableFuture.supplyAsync(() -> {
       try {
         // 只看一次存檔時，變更紀錄可能很大，一起在背景讀
@@ -850,13 +892,16 @@ public final class BgCommand {
         var changed = new ArrayList<Workspace.Changed>();
         var cache = new HashMap<dev.twme.buildgit.core.model.SectionKey, dev.twme.buildgit.core.model.Cell[]>();
         int[] counts = new int[3];
+        var cells = new LinkedHashMap<BlockPos, Cell>();
         for (var c : diff.cells()) {
           var k = ws.kind(c.dimension(), c.pos(), c.before(), c.after(), cache);
           counts[k.ordinal()]++;
           changed.add(new Workspace.Changed(c.dimension(), c.pos(), k));
+          if (c.dimension().equals(dim) && cells.size() <= Flips.MAX)
+            cells.put(c.pos(), c.before() != null ? c.before() : ws.genesisCell(dim, c.pos()));
         }
         for (var bc : diff.biomes()) changed.add(new Workspace.Changed(bc.key().dimension(), bc.corner(), Workspace.Kind.BIOME));
-        return new Counted(changed, counts, diff.entities().size(), diff.biomes().size(), changeset);
+        return new Counted(changed, counts, diff.entities().size(), diff.biomes().size(), changeset, level == null ? null : flipStates(level, cells));
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -869,8 +914,19 @@ public final class BgCommand {
       sendDiff(sender, msg().get("diff-summary", "added", r.counts()[0], "removed", r.counts()[1], "modified", r.counts()[2], "entities", r.entities()));
       if (r.biomes() > 0) msg().send(sender, "biomes-outlined", "count", r.biomes());
       outline(sender, r.changed());
+      if (level != null && sender.player() instanceof ServerPlayer p) flips.set(p, level, r.before());
       listAreas(sender, ws, here.branch(), r.changed(), "/bg diff goto");
     }));
+  }
+
+  /** diff 的改前方塊，給 {@link Flips}（背景）；超過 {@link Flips#MAX} 格時是 null。 */
+  private static Map<net.minecraft.core.BlockPos, BlockState> flipStates(ServerLevel level, Map<BlockPos, Cell> cells) throws IOException {
+    if (cells.size() > Flips.MAX) return null;
+    var parsed = new HashMap<String, BlockState>();
+    var states = new HashMap<net.minecraft.core.BlockPos, BlockState>();
+    for (var e : cells.entrySet())
+      states.put(new net.minecraft.core.BlockPos(e.getKey().x(), e.getKey().y(), e.getKey().z()), LiveWriter.state(level, e.getValue(), parsed));
+    return states;
   }
 
   private void mark(Sender sender, String[] args) {
