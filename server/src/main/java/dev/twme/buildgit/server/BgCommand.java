@@ -77,8 +77,9 @@ public final class BgCommand {
     sub("help", null, this::help, (s, b) -> b.isEmpty() ? List.of("admin") : List.of());
     sub("init", "buildgit.init", (s, a) -> init(s), null);
     sub("reload", "buildgit.reload", (s, a) -> {
-      bg.reload();
+      var before = bg.reload();
       msg().send(s, "reloaded");
+      reportChanges(s, before, bg.loadedConfig());
     }, null);
     sub("status", "buildgit.status", (s, a) -> status(s), null);
     sub("save", "buildgit.save", (s, a) -> save(s, String.join(" ", a)), null);
@@ -92,8 +93,8 @@ public final class BgCommand {
       else disk(s);
     }, (s, b) -> b.isEmpty() ? List.of("clean") : List.of());
     sub("genesis", "buildgit.genesis", this::genesis, (s, b) -> b.isEmpty() ? List.of("upgrade") : List.of());
-    sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list", "restore", "fetch")
-        : b.size() == 1 && List.of("now", "list", "restore").contains(b.getFirst()) ? bg.backup().jobs().stream().map(j -> j.name).toList() : List.of());
+    sub("backup", "buildgit.backup", this::backup, (s, b) -> b.isEmpty() ? List.of("status", "now", "list", "test", "restore", "fetch")
+        : b.size() == 1 && List.of("now", "list", "test", "restore").contains(b.getFirst()) ? bg.backup().jobs().stream().map(j -> j.name).toList() : List.of());
     sub("try", "buildgit.try", this::tryDraft, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("go", "buildgit.go", this::go, (s, b) -> b.isEmpty() ? draftNames(s) : List.of());
     sub("back", "buildgit.back", (s, a) -> back(s), null);
@@ -136,6 +137,32 @@ public final class BgCommand {
         : b.size() == 2 && b.get(1).equals("add") ? onlineNames()
         : b.size() == 2 && b.get(1).equals("remove") ? memberNames(s)
         : b.size() == 3 && b.get(1).equals("add") ? List.of("builder", "manager") : List.of());
+  }
+
+  /** 列出 reload 前後改了哪些設定；金鑰只說有改，不顯示內容。 */
+  private void reportChanges(Sender sender, Map<String, String> before, Map<String, String> after) {
+    var keys = new LinkedHashSet<>(before.keySet());
+    keys.addAll(after.keySet());
+    var changed = keys.stream().filter(k -> !java.util.Objects.equals(before.get(k), after.get(k))).toList();
+    if (changed.isEmpty()) {
+      msg().send(sender, "reload-unchanged");
+      return;
+    }
+    int shown = 0;
+    for (var k : changed) {
+      if (shown++ == 30) {
+        msg().send(sender, "reload-more", "count", changed.size() - 30);
+        break;
+      }
+      int space = k.indexOf(' ');
+      String path = k.substring(space + 1);
+      if (path.contains("secret") || path.contains("access-key")) msg().send(sender, "reload-change-hidden", "file", k.substring(0, space), "key", path);
+      else msg().send(sender, "reload-change", "file", k.substring(0, space), "key", path, "old", value(before.get(k)), "new", value(after.get(k)));
+    }
+  }
+
+  private Component value(String v) {
+    return v == null ? msg().get("reload-unset") : Component.text(v);
   }
 
   /** {@code permissions}：以 {@code |} 分隔，有其中一個就能用（子指令各有權限時）。 */
@@ -1418,7 +1445,7 @@ public final class BgCommand {
   }
 
   /**
-   * {@code /bg backup [status|now [工作]|list [工作]|restore <工作> [快照]|fetch <分支> [新名稱]] [world=<世界>]}：備份工作
+   * {@code /bg backup [status|now [工作]|list [工作]|test [工作]|restore <工作> [快照]|fetch <分支> [新名稱]] [world=<世界>]}：備份工作
    * （設計 §2.5～§2.7）。{@code world=} 指定建築世界（03-worlds §6.3），沒給是伺服器世界。
    */
   private void backup(Sender sender, String[] args) {
@@ -1433,10 +1460,10 @@ public final class BgCommand {
     String action = args.length == 0 ? "status" : args[0];
     int max = switch (action) {
       case "restore", "fetch" -> 3;
-      case "now", "list" -> 2;
+      case "now", "list", "test" -> 2;
       default -> 1;
     };
-    if (args.length > max || !List.of("status", "now", "list", "restore", "fetch").contains(action)
+    if (args.length > max || !List.of("status", "now", "list", "test", "restore", "fetch").contains(action)
         || List.of("restore", "fetch").contains(action) && args.length < 2) {
       msg().send(sender, "usage-backup");
       return;
@@ -1446,7 +1473,7 @@ public final class BgCommand {
       return;
     }
     var jobs = backup.jobs();
-    if (List.of("now", "list", "restore").contains(action) && args.length > 1) {
+    if (List.of("now", "list", "test", "restore").contains(action) && args.length > 1) {
       var job = backup.job(args[1]);
       if (job == null) {
         msg().send(sender, "backup-unknown-job", "job", args[1], "jobs", String.join(", ", jobs.stream().map(j -> j.name).toList()));
@@ -1459,7 +1486,7 @@ public final class BgCommand {
       return;
     }
     // 還沒有版本庫（新主機）或開不了時，只能看狀態、列快照、還原伺服器世界（不必先 /bg init）
-    if (!ws.isOpen() && !(List.of("status", "list").contains(action) && world == null || action.equals("restore") && world == null)) {
+    if (!ws.isOpen() && !(List.of("status", "list", "test").contains(action) && world == null || action.equals("restore") && world == null)) {
       if (bg.openError() != null) msg().send(sender, "open-failed", "error", bg.openError());
       else msg().send(sender, "not-initialized");
       return;
@@ -1526,6 +1553,26 @@ public final class BgCommand {
             else msg().send(sender, "backup-world-done", "job", job.name, "snapshot", r.snapshot(), "files", r.files(), "kept", r.kept(),
                 "skipped", r.skipped().size());
             if (e == null && !job.incomplete.isEmpty()) msg().send(sender, "backup-incomplete", "dims", String.join(", ", job.incomplete));
+          }));
+        }
+      }
+      case "test" -> {
+        for (var job : jobs) {
+          msg().send(sender, "backup-test-start", "job", job.name, "target", job.target + "/" + job.prefix);
+          backup.test(job).whenComplete((r, e) -> ws.sync(() -> {
+            if (e != null) {
+              msg().send(sender, "backup-test-failed", "job", job.name, "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+              return;
+            }
+            if (r.error() == null) msg().send(sender, "backup-test-ok", "job", job.name, "list", r.listMs(), "write", r.writeMs(), "read", r.readMs());
+            else msg().send(sender, "backup-test-failed", "job", job.name, "error", r.error());
+            if (r.versioningError() != null) msg().send(sender, "backup-test-versioning-error", "error", r.versioningError());
+            else if (r.versioning() != null)
+              msg().send(sender, switch (r.versioning()) {
+                case "Enabled" -> "backup-test-versioning-on";
+                case "Suspended" -> "backup-test-versioning-suspended";
+                default -> "backup-test-versioning-off";
+              });
           }));
         }
       }

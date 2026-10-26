@@ -157,6 +157,18 @@ public final class S3 implements BackupStore {
     return versioning;
   }
 
+  private static final Pattern STATUS = Pattern.compile("<Status>(.*?)</Status>");
+
+  /** 重新查 bucket 的版本控制：{@code Enabled}、{@code Suspended}，從沒開過時是空字串。 */
+  public String versioningStatus() throws IOException {
+    var r = request("GET", "", Map.of("versioning", ""), null);
+    check(r);
+    var m = STATUS.matcher(new String(r.body(), StandardCharsets.UTF_8));
+    String status = m.find() ? m.group(1) : "";
+    versioning = status.equals("Enabled");
+    return status;
+  }
+
   private static final Pattern VERSION = Pattern.compile("<(Version|DeleteMarker)>(.*?)</\\1>", Pattern.DOTALL),
       VERSION_ID = Pattern.compile("<VersionId>(.*?)</VersionId>");
 

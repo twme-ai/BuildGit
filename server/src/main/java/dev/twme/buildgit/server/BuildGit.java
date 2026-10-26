@@ -4,6 +4,9 @@ import dev.twme.buildgit.server.nms.CascadeUpdater;
 import dev.twme.buildgit.server.nms.CommandHook;
 import dev.twme.buildgit.server.track.Tracker;
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -190,6 +193,7 @@ public final class BuildGit {
     worlds.open();
     worlds.purge();
     backup.start();
+    loadedConfig = configValues();
   }
 
   /** 版本庫存在但開不了（例如被較新的 Minecraft 寫過）的原因；沒有錯誤時為 null。 */
@@ -210,12 +214,35 @@ public final class BuildGit {
     workspace().close();
   }
 
-  void reload() {
+  /** 重新讀取設定；回傳上次載入時的設定值，和 {@link #loadedConfig()} 比較就是這次改了什麼。 */
+  Map<String, String> reload() {
+    var before = loadedConfig;
     settings = Settings.load(platform.configDir(), platform.log());
     messages = new Messages(platform.configDir(), settings.language(), platform.log());
     tracker.settings(settings);
     backup.start();
     worlds.keepLoaded();
+    loadedConfig = configValues();
+    return before;
+  }
+
+  /** reload 比較的設定檔。 */
+  private static final List<String> CONFIG_FILES = List.of("config.yml", Backup.FILE, Backup.S3_FILE);
+  /** 上次載入時設定檔裡的值（升級設定檔、搬移舊設定之後）。 */
+  private Map<String, String> loadedConfig = Map.of();
+
+  Map<String, String> loadedConfig() {
+    return loadedConfig;
+  }
+
+  /** 設定檔裡每個值（「檔名 路徑」→ 值）。 */
+  private Map<String, String> configValues() {
+    var values = new LinkedHashMap<String, String>();
+    for (var file : CONFIG_FILES) {
+      var y = Yaml.load(platform.configDir().resolve(file));
+      for (var path : y.paths()) values.put(file + " " + path, Yaml.scalar(y.get(path)));
+    }
+    return values;
   }
 
   /** 每刻開始時（主執行緒）。 */

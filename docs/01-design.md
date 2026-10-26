@@ -316,7 +316,7 @@ timezone: ""                   # cron 用的時區；空白用伺服器的
 
 **指令**（權限 `buildgit.backup`）：
 - `/bg backup status`：每個工作的目的地、排程、上次成功的時間、上次的錯誤。
-- `/bg backup now [工作]`、`/bg backup list [工作]`：沒給名稱就是所有工作。
+- `/bg backup now [工作]`、`/bg backup list [工作]`、`/bg backup test [工作]`：沒給名稱就是所有工作。`test` 依序列出、查版本控制（S3）、寫入小檔案、讀回比對、刪除；`list`、`test` 用自己的執行緒，不排在上傳後面。
 - `/bg backup restore <工作> [快照]`（只能在主控台）、`/bg backup fetch <分支> [新名稱]`（從第一個版本紀錄工作取回）。
 
 ## 3. 變更追蹤

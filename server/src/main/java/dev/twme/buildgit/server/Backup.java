@@ -417,6 +417,51 @@ final class Backup {
     }, pool);
   }
 
+  /**
+   * {@code /bg backup test} 的結果。{@code versioning} 只有 S3 才有（見 {@link S3#versioningStatus}），查不到時是 null、
+   * 原因在 {@code versioningError}；{@code error} 是讀寫失敗的原因，成功時為 null。
+   */
+  record TestResult(long listMs, long writeMs, long readMs, String versioning, String versioningError, String error) {}
+
+  /** 在目的地列出；S3 查版本控制；再寫入一個小檔案、讀回比對、刪掉。列出失敗時整個失敗，之後的步驟各自回報。 */
+  CompletableFuture<TestResult> test(Job job) {
+    var pool = lists;
+    if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("工作 " + job.name + " 的目的地還沒設定：" + job.problem));
+    return CompletableFuture.supplyAsync(() -> {
+      var store = job.store;
+      long t0 = System.nanoTime();
+      try {
+        store.list(job.prefix + "snapshots/");
+      } catch (IOException | RuntimeException e) {
+        throw new CompletionException(new IOException("列出失敗：" + e.getMessage(), e));
+      }
+      long t1 = System.nanoTime();
+      String versioning = null, versioningError = null;
+      if (store instanceof S3 s3)
+        try {
+          versioning = s3.versioningStatus();
+        } catch (IOException | RuntimeException e) {
+          versioningError = e.getMessage();
+        }
+      String step = "寫入";
+      try {
+        long t2 = System.nanoTime();
+        var key = job.prefix + "buildgit-test-" + System.currentTimeMillis();
+        var data = ("BuildGit test " + java.time.Instant.now()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        store.put(key, data);
+        long t3 = System.nanoTime();
+        step = "讀回";
+        if (!java.util.Arrays.equals(store.get(key), data)) throw new IOException("讀回的內容和寫入的不一樣");
+        long t4 = System.nanoTime();
+        step = "刪除測試檔案";
+        purge(store, key);
+        return new TestResult((t1 - t0) / 1_000_000, (t3 - t2) / 1_000_000, (t4 - t3) / 1_000_000, versioning, versioningError, null);
+      } catch (IOException | RuntimeException e) {
+        return new TestResult((t1 - t0) / 1_000_000, 0, 0, versioning, versioningError, step + "失敗：" + e.getMessage());
+      }
+    }, pool);
+  }
+
   /** 下載快照準備還原（{@link Restore}）。 */
   CompletableFuture<Restore.Result> restore(Job job, String name) {
     var pool = uploads;

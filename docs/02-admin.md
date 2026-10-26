@@ -134,7 +134,7 @@ LuckPerms 範例：
 
 ## 5. 設定
 
-設定檔：Paper 在 `plugins/BuildGit/config.yml`，Fabric 在 `config/buildgit/config.yml`。改完執行 `/bg reload`。
+設定檔：Paper 在 `plugins/BuildGit/config.yml`，Fabric 在 `config/buildgit/config.yml`。改完執行 `/bg reload`，它會列出 `config.yml`、`backup.yml`、`s3.yml` 和上次載入時比起來改了哪些值（金鑰只說有改，不顯示內容）。
 
 - **外掛更新後自動補上新設定**：新版本多了設定時，啟動（或 `/bg reload`）會以新版的預設檔為範本、填回你設的值，新的設定與說明一起出現。原本的檔案留在 `config.yml.old`；你自己加的註解、已經不用的設定不會保留，需要時從那裡找回。設定檔有語法錯誤時不會動它。
 - **語言檔**：訊息在設定資料夾的 `lang/zh_tw.yml`、`lang/en_us.yml`，可以直接修改（MiniMessage 格式），改完執行 `/bg reload`。外掛更新後：沒改過的訊息換成新版、新的訊息補上，你改過的保留；原本的檔案留在 `.old`。`lang/.bundled/` 是上次寫出的內建版本，用來分辨哪些訊息改過，不要修改。
@@ -341,6 +341,7 @@ BuildGit 可以把備份送到 S3 相容的物件儲存（AWS S3、Backblaze B2�
 | `/bg backup status` | 每個工作的目的地、排程、上次成功的時間、上次的錯誤 |
 | `/bg backup now [工作]` | 立刻執行（沒給名稱就是所有工作） |
 | `/bg backup list [工作]` | 列出最近的快照 |
+| `/bg backup test [工作]` | 測試目的地：列出、寫入一個小檔案再讀回並刪掉，顯示各花多少時間；S3 另外顯示 bucket 有沒有開啟版本控制（`storage: auto` 依此選 versioned 或 hashed）。金鑰沒有 GetBucketVersioning 權限時會提醒，這種情況世界備份的 `storage: auto` 會失敗，要改設 `storage: hashed` |
 | `/bg backup fetch <分支> [新名稱]` | 從版本紀錄的備份取回一個分支（例如誤刪的草稿），不必重新啟動；名稱已有分支時要給新名稱 |
 | `/bg backup restore <工作> [快照]` | 下載快照準備還原（只能在主控台；沒給快照就用最新的） |
 | `… world=<擁有者/名稱>` | 加在 `list`、`fetch`、`restore` 後面：改成那個建築世界的快照。`restore` 不必重新啟動：下載完卸載那個世界、換上，原本的改名為 `….before-restore-<時間>` 留著；這台伺服器沒有這個世界時照備份放回去 |
@@ -353,7 +354,7 @@ BuildGit 可以把備份送到 S3 相容的物件儲存（AWS S3、Backblaze B2�
 **整台還原**（例如主機壞掉，在新主機上）：
 
 1. 裝好同一個或更新的 Minecraft 版本、BuildGit 與原本的資料包、模組，先啟動一次讓世界產生。要讓起點世界以外的地形一樣，換了 Minecraft 版本時請在世界產生前把 `server.properties` 的 `level-seed` 設成原本的種子（還原時會提醒）。
-2. 把原本的 `s3.yml`、`backup.yml` 放回去，`/bg reload`。不必先 `/bg init`：還沒有版本庫時 `/bg backup status`、`list`、`restore`（伺服器世界）照樣能用。
+2. 把原本的 `s3.yml`、`backup.yml` 放回去，`/bg reload`。不必先 `/bg init`：還沒有版本庫時 `/bg backup status`、`list`、`test`、`restore`（伺服器世界）照樣能用。
 3. 在主控台執行 `/bg backup restore history-s3`。下載完會先在旁邊把 main 的世界從「起點世界＋main 的最新存檔」重建好；看到「已下載好」後重新啟動，版本庫、這些世界的 `region`／`entities`、`level.dat` 會換成備份的。
 4. 有世界資料夾的備份時，接著 `/bg backup restore world-s3` 再重新啟動一次，玩家資料、沒存檔的變更等也會回來。
 5. 建築世界一個一個用 `/bg backup restore history-s3 world=<擁有者/名稱>` 放回去（不必重新啟動）。
