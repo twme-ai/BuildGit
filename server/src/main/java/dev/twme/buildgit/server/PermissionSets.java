@@ -21,18 +21,18 @@ public final class PermissionSets {
 
   /** 權限集 → 它直接包含的節點。其他節點都只管一個指令，彼此不包含。 */
   private static final Map<String, List<String>> INCLUDES = Map.of(
-      VIEWER, List.of("buildgit.menu", "buildgit.status", "buildgit.log", "buildgit.graph", "buildgit.show", "buildgit.diff",
-          "buildgit.blame", "buildgit.inspect", "buildgit.who", "buildgit.sel", "buildgit.branch.list", "buildgit.go", "buildgit.back",
+      VIEWER, List.of("buildgit.menu", "buildgit.status", "buildgit.log", "buildgit.diff",
+          "buildgit.inspect", "buildgit.sel", "buildgit.branch.list", "buildgit.go", "buildgit.back",
           "buildgit.view"),
       BUILDER, List.of(VIEWER, "buildgit.try", "buildgit.save", "buildgit.pull", "buildgit.push"),
-      MANAGER, List.of(BUILDER, "buildgit.publish", "buildgit.commit", "buildgit.merge", "buildgit.merge.resolve", "buildgit.revert",
-          "buildgit.restore", "buildgit.mark", "buildgit.branch.create", "buildgit.branch.delete"),
+      MANAGER, List.of(BUILDER, "buildgit.publish", "buildgit.merge", "buildgit.merge.resolve", "buildgit.revert",
+          "buildgit.restore", "buildgit.mark", "buildgit.branch.delete"),
       ADMIN, List.of(MANAGER, "buildgit.init", "buildgit.reload", "buildgit.disk", "buildgit.genesis", "buildgit.backup",
           "buildgit.world.admin"));
 
   /** 建築世界的訪客能用的：只能看（03-worlds §4），不能進草稿、不能檢視舊版本。 */
-  private static final Set<String> VISITOR = Set.of("buildgit.menu", "buildgit.status", "buildgit.log", "buildgit.graph", "buildgit.show",
-      "buildgit.diff", "buildgit.blame", "buildgit.inspect", "buildgit.who", "buildgit.sel", "buildgit.branch.list");
+  private static final Set<String> VISITOR = Set.of("buildgit.menu", "buildgit.status", "buildgit.log", "buildgit.diff",
+      "buildgit.inspect", "buildgit.sel", "buildgit.branch.list");
 
   /**
    * 玩家在建築世界裡的角色（由 BuildGit 設定）；在伺服器世界時為 null。不能進去的人當成訪客（很快就會被送回去）。

@@ -32,23 +32,11 @@ permissions:
   buildgit.log:
     description: 存檔歷史（log）
     default: op
-  buildgit.graph:
-    description: 分支歷史圖（graph）
-    default: op
-  buildgit.show:
-    description: 某次存檔的內容（show）
-    default: op
   buildgit.diff:
     description: 在世界裡標出差異（diff）
     default: op
-  buildgit.blame:
-    description: 看著的方塊是誰改的（blame）
-    default: op
   buildgit.inspect:
     description: 檢查模式（inspect）
-    default: op
-  buildgit.who:
-    description: 每位玩家在哪個草稿（who）
     default: op
   buildgit.sel:
     description: 不用 WorldEdit 時的選取範圍（sel）
@@ -77,9 +65,6 @@ permissions:
   buildgit.publish:
     description: 把草稿併回（publish）
     default: op
-  buildgit.commit:
-    description: 以自訂訊息存檔（commit）
-    default: op
   buildgit.merge:
     description: 底層合併任意分支（merge <分支>）
     default: op
@@ -97,9 +82,6 @@ permissions:
     default: op
   buildgit.branch.list:
     description: 列出草稿（branch list）
-    default: op
-  buildgit.branch.create:
-    description: 建立分支，不傳送（branch create）
     default: op
   buildgit.branch.delete:
     description: 刪除草稿與它的世界（branch delete）

@@ -62,7 +62,7 @@ final class Menu {
       put(items, second + 4, "emerald", "menu-merge-continue", "merge continue", p, null);
     } else if (inView) put(items, second + 3, "oak_door", "menu-back", "back", p, "buildgit.back");
     // 右：玩家與範圍
-    put(items, bottom + 7, "player_head", "menu-who", "who", p, "buildgit.who");
+    put(items, bottom + 7, "player_head", "menu-branches", "branch list", p, "buildgit.branch.list");
     put(items, bottom + 8, "wooden_axe", "menu-sel", "sel show", p, "buildgit.sel");
     // 分隔線右端：建築世界清單，在建築世界裡（擁有者與管理者）多一個設定
     put(items, second + 8, "filled_map", "menu-worlds", "worlds", p, null);

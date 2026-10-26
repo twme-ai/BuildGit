@@ -308,7 +308,7 @@ player-worlds:
    - 已實作：成員、角色、可見性。
      - `/bg world members [list|add <玩家> [builder|manager]|remove <玩家>]`、`/bg world visibility public|private`，在那個世界裡執行。邀請時對方要在線上（名字記在 `repo.yml`，移除時照名字找）。
      - 在建築世界裡，權限集（`buildgit.role.*`）包含的節點改由角色決定，不看伺服器給的節點；`buildgit.world.admin` 一律可以。`init`、`reload`、`backup` 這類伺服器管理照舊看節點。換世界、角色變了都重送指令清單。
-     - 訪客：`status`、`log`、`diff`、`blame` 等只看的指令可以用；不能進草稿、不能檢視舊版本、不能改方塊（和檢視世界同一組掛點）。
+     - 訪客：`status`、`log`、`diff`、`inspect` 等只看的指令可以用；不能進草稿、不能檢視舊版本、不能改方塊（和檢視世界同一組掛點）。
      - `open`、`worlds`、`home` 所有人都能用；私人世界對非成員當作不存在。成員被移除或改成私人時，裡面沒資格的人（含草稿、檢視世界）送回伺服器世界；上線時也檢查一次。
      - LuckPerms 情境 `buildgit:world`（一律有）與 `buildgit:role`（建築世界裡，往下包含）。
      - 選單版的成員管理與 `/bg worlds` 選單在第三階段做了（見下面）。

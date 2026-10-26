@@ -86,14 +86,14 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 |---|---|
 | 我還有多少沒存 | `/bg status` |
 | 在世界裡標出改過的方塊（會發光一陣子） | `/bg diff` |
-| 這個方塊是誰改的 | `/bg inspect` 開啟後點方塊；或看著方塊打 `/bg blame` |
+| 這個方塊是誰改的 | `/bg inspect` 開啟後點方塊 |
 | 過去的存檔 | `/bg log`；每頁 8 筆，點 **[下一頁]** 或 `/bg log 2` 翻頁 |
-| 所有草稿的分支歷史圖（像 `git log --graph`） | `/bg graph`；每頁 8 筆，點 **[下一頁]** 或 `/bg graph 2` 往前翻；加 `--all` 連自動存檔一起顯示 |
-| 某次存檔改了哪些 | `/bg show <存檔編號>` |
+| 所有草稿的分支歷史圖（像 `git log --graph`） | `/bg log --graph`；每頁 8 筆，點 **[下一頁]** 或 `/bg log --graph 2` 往前翻；加 `--all` 連自動存檔一起顯示 |
+| 某次存檔改了哪些 | `/bg diff <存檔編號>`：列出誰改了幾格並在世界裡標出；加 `--cells` 列出每一格 |
 | 舊版本長什麼樣子 | `/bg view <存檔編號>`（唯讀，不能動；`/bg back` 回來） |
-| 大家在哪個草稿 | `/bg who` |
+| 有哪些草稿、誰在裡面 | `/bg branch list` |
 
-存檔編號就是 `/bg log` 裡的那串黃色英數字，點一下就會顯示那次存檔的內容；打指令時只要打前幾碼，按 Tab 也會列出最近的存檔。
+存檔編號就是 `/bg log` 裡的那串黃色英數字，點一下就會列出那次存檔改了什麼，並在世界裡標出；打指令時只要打前幾碼，按 Tab 也會列出最近的存檔。
 
 ### 改壞了怎麼辦
 
@@ -159,15 +159,15 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg revert <存檔>        撤銷某次存檔
 /bg restore <存檔> [--selection] 還原到舊版本
 /bg view <存檔>          唯讀地看舊版本
-/bg branch list|create|delete <名稱> [--force]  管理草稿
-/bg graph [頁數] [--all]  分支歷史圖（分頁）
+/bg branch list|delete <名稱> [--force]  列出草稿與裡面的玩家、刪除草稿
+/bg log --graph [頁數] [--all]  分支歷史圖（分頁）
 /bg pull [名稱]          把選取範圍（沒選時是草稿改過的地方或周圍）帶到單人世界（用戶端要裝 BuildGit）
 /bg load <名稱>          （單人世界）放進取出的範圍
 /bg push <名稱> [草稿]   把單人世界改過的範圍送回，存成草稿
 /bg disk                 BuildGit 用掉的磁碟空間（管理員）
 /bg backup [status|now|list|fetch|restore]  備份版本紀錄與世界資料夾到 S3 或本機、取回分支、從備份還原（管理員，見管理員手冊 §8.1）
 /bg new [名稱] [選項]    建立建築世界（不帶選項開對話框；伺服器開放時一般玩家也能用，見管理員手冊 §7.1）
-/bg open <世界>、home、worlds  進入建築世界、回伺服器世界、建築世界清單
+/bg open <世界>、worlds  進入建築世界、建築世界清單
 /bg fork、submit         複製別人的建築世界、把改動送回去
 /bg world settings|members|visibility|…  管理所在的建築世界
 /bg help [admin]         列出自己能用的指令

@@ -40,9 +40,9 @@ BuildGit 只記錄**玩家造成的變更**（手動、指令、WorldEdit／FAWE
 
 | 權限集 | 適合給誰 | 可以做的事 |
 |---|---|---|
-| `buildgit.role.viewer` | 訪客、評審 | 選單；看狀態、歷史、存檔內容、方塊是誰改的（`status`、`log`、`graph`、`show`、`diff`、`blame`、`inspect`、`who`、`sel`、`branch list`）；進出草稿、唯讀看舊版本（`go`、`back`、`view`） |
+| `buildgit.role.viewer` | 訪客、評審 | 選單；看狀態、歷史、存檔內容、方塊是誰改的（`status`、`log`、`diff`、`inspect`、`sel`、`branch list`）；進出草稿、唯讀看舊版本（`go`、`back`、`view`） |
 | `buildgit.role.builder` | 一般建築師 | viewer 全部，加上開草稿（`try`）、存檔（`save`）、帶到單人世界改再送回（`pull`、`push`）。**不能把草稿併回 main** |
-| `buildgit.role.manager` | 負責審核、維護 main 的人 | builder 全部，加上併回（`publish`）、自訂訊息存檔（`commit`）、處理衝突與底層合併（`merge`）、撤銷（`revert`）、還原（`restore`）、手動補記（`mark`）、建立與刪除草稿（`branch create`、`branch delete`） |
+| `buildgit.role.manager` | 負責審核、維護 main 的人 | builder 全部，加上併回（`publish`）、處理衝突與底層合併（`merge`）、撤銷（`revert`）、還原（`restore`）、手動補記（`mark`）、刪除草稿（`branch delete`） |
 | `buildgit.admin` | 伺服器管理員 | manager 全部，加上 `init`、`reload`、`disk`、`genesis`、`backup`、管理所有建築世界（`buildgit.world.admin`） |
 
 LuckPerms 範例：
@@ -95,13 +95,9 @@ LuckPerms 範例：
 |---|---|
 | `buildgit.menu` | 只輸入 `/bg` 時打開選單（選單裡的按鈕仍各自看權限） |
 | `buildgit.status` | `status`：目前的分支與未存的變更；也決定看不看得到自動存檔通知 |
-| `buildgit.log` | `log`：存檔歷史 |
-| `buildgit.graph` | `graph`：分支歷史圖 |
-| `buildgit.show` | `show`：某次存檔改了什麼 |
-| `buildgit.diff` | `diff`：在世界裡標出差異 |
-| `buildgit.blame` | `blame`：看著的方塊是誰改的 |
+| `buildgit.log` | `log`：存檔歷史；`log --graph` 分支歷史圖 |
+| `buildgit.diff` | `diff`：在世界裡標出差異；`diff <存檔>` 也列出那次存檔誰改了幾格 |
 | `buildgit.inspect` | `inspect`：檢查模式，點方塊看是誰改的 |
-| `buildgit.who` | `who`：每位玩家在哪個草稿 |
 | `buildgit.sel` | `sel`：不用 WorldEdit 時的選取範圍 |
 | `buildgit.go` | `go`：到某個草稿或 main |
 | `buildgit.back` | `back`：回到來源世界 |
@@ -111,14 +107,12 @@ LuckPerms 範例：
 | `buildgit.pull` | `pull`：把選取範圍帶到單人世界 |
 | `buildgit.push` | `push`：把單人世界改過的範圍送回成草稿 |
 | `buildgit.publish` | `publish`：把草稿併回 |
-| `buildgit.commit` | `commit`：以自訂訊息存檔 |
 | `buildgit.merge` | `merge <分支>`：底層合併任意分支 |
 | `buildgit.merge.resolve` | `merge view`／`conflicts`／`goto`／`take`／`continue`／`abort`／`list`：處理衝突整合。有 `publish`、`revert`、`merge` 的人也能處理 |
 | `buildgit.revert` | `revert`：撤銷某次存檔 |
 | `buildgit.restore` | `restore`：把分支或範圍還原到舊版本 |
 | `buildgit.mark` | `mark`：手動補記範圍 |
-| `buildgit.branch.list` | `branch list`：列出草稿 |
-| `buildgit.branch.create` | `branch create`：建立分支，不傳送 |
+| `buildgit.branch.list` | `branch list`：列出草稿與裡面的玩家 |
 | `buildgit.branch.delete` | `branch delete`：刪除草稿與它的世界 |
 | `buildgit.init` | `init`：讓所在的世界開始受版本控制（會複製一份起點世界，占用和世界差不多的磁碟空間） |
 | `buildgit.reload` | `reload`：重新讀取設定與語言檔 |
@@ -267,7 +261,7 @@ LuckPerms 範例：
 - **誰能建立**：有 `buildgit.world.admin` 的人隨時可以；一般玩家要 `player-worlds.enabled: true` 並給 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）。`open`、`home`、`worlds` 所有人都能用，能進哪些世界看成員名單與可見性。
 - **上傳單人世界**：`/bg new <名稱> from <存檔>`，`<存檔>` 是玩家 `.minecraft/saves` 裡的資料夾名稱。只帶主世界的方塊與實體（地獄、終界、玩家資料都不帶），沒有歷史；存檔以外的地方照 `terrain`（預設虛空）生成。流程：伺服器請用戶端打包，用戶端先在聊天欄問玩家要不要上傳（顯示伺服器位址、存檔名稱與大小上限），按 **[同意上傳]**（或 `/bgc import yes`）才打包，按 **[取消]**（`/bgc import no`）就不傳（按鈕帶著這次要求的編號，點到舊的提示不算數）；發一個 15 分鐘有效、綁定大小的預簽上傳網址，用戶端直接傳到 S3 的 `uploads/<玩家 UUID>/<隨機>`；伺服器下載（超過大小就中止）、核對大小與 SHA-256、刪掉，再逐個 chunk 檢查：讀不懂、位置不對、沒生成完的不收，比伺服器新的版本存的整個拒絕，較舊的升級成目前的格式。不能用管理方塊的人（不是 op 或不在創造模式）上傳的指令方塊、結構方塊等換成空氣，指令方塊礦車拿掉，告示牌等的點擊指令清掉；`ignored-entities` 列的實體不收。要先在 `s3.yml` 設好連線、`player-worlds.upload.connection` 指定它；S3 的 endpoint 是內部位址時填 `public-endpoint`。玩家中途離開時伺服器會刪掉上傳到一半的檔案，但上傳可能在刪除之後才完成，建議替 bucket 的 `uploads/` 設一天後自動刪除的生命週期規則。
 - **匯入伺服器上的世界**（管理員，`buildgit.world.admin`）：`/bg new <名稱> import <世界資料夾> [owner <玩家>]`。`<世界資料夾>` 是伺服器目錄裡的資料夾（例如多世界插件的世界、放進來的存檔），補全會列出看起來是世界的資料夾。只帶主世界那一層的方塊與實體（26.x 的存檔讀 `dimensions/minecraft/overworld`；要帶地獄的話寫那個維度的資料夾），沒有歷史；原本的世界不動，載入著的會先存檔再複製。`owner` 是建好後的擁有者（要在線上，不受每人上限限制），沒寫就是自己；有寫 `owner` 時主控台也能用。和上傳一樣逐個 chunk 檢查、升級舊版本的資料，但管理方塊照樣保留。其他選項（`type`、`terrain`、`rules` 等）和 `/bg new` 相同，沒寫 `terrain` 時世界以外的地方是虛空。
-- **角色**：在建築世界裡，BuildGit 的指令權限由那個世界的角色決定，不看你給的 `buildgit.role.*`：擁有者與管理者等於 manager，建造者等於 builder，訪客只能看（`status`、`log`、`diff`、`blame` 等），不能改方塊、不能進草稿或檢視舊版本。有 `buildgit.world.admin` 的人在任何世界都能做所有事。`init`、`reload`、`backup` 等伺服器管理照舊看權限節點。
+- **角色**：在建築世界裡，BuildGit 的指令權限由那個世界的角色決定，不看你給的 `buildgit.role.*`：擁有者與管理者等於 manager，建造者等於 builder，訪客只能看（`status`、`log`、`diff`、`inspect` 等），不能改方塊、不能進草稿或檢視舊版本。有 `buildgit.world.admin` 的人在任何世界都能做所有事。`init`、`reload`、`backup` 等伺服器管理照舊看權限節點。
 - 成員被移除或世界改成私人時，裡面沒資格的人會被送回伺服器世界；離線期間被移除的，上線時送回。
 - **遊戲模式**：進建築世界時換成這個世界設定的模式（預設成員創造、訪客旁觀者）；回伺服器世界時換回原本的模式。原本的模式與進來前的位置（世界被刪、改名、被移出時送回那裡）記在 `buildgit/players/<uuid>.yml`。回伺服器世界沒有 BuildGit 的指令，交給伺服器原本的傳送指令（例如 `/spawn`、多世界插件），重啟後照樣恢復。
 - **背包**：預設所有世界共通。打開背包隔離（成員、訪客分開：`inventory-member on`、`inventory-visitor on`，或伺服器設 `player-worlds.inventory-isolation: always` 兩者都隔離、`never` 都不隔離）後，進這個世界時把原本的背包、終界箱、經驗、狀態效果收起來，換成這個世界的那一份，回伺服器世界時換回原本的。預設每次進來都換上起始物品（`kit-*-reset off` 時只有第一次給，之後是自己上次留下的），死後重生也重給（`kit-*-respawn`）。從舊版升級的世界照舊：成員的背包保留、訪客每次重設、死後不重給。收起來的放在 `buildgit/players/<uuid>/`（原本的是 `server.dat`，各世界是 `<世界 id>.dat`），起始物品在世界的版本庫旁邊（`kit-member.dat`、`kit-visitor.dat`）；都記下資料版本，升級 Minecraft 後讀取時照樣升級物品。

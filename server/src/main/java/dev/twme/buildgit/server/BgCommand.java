@@ -82,16 +82,11 @@ public final class BgCommand {
     }, null);
     sub("status", "buildgit.status", (s, a) -> status(s), null);
     sub("save", "buildgit.save", (s, a) -> save(s, String.join(" ", a)), null);
-    sub("commit", "buildgit.commit", (s, a) -> save(s, String.join(" ", a)), null);
-    sub("log", "buildgit.log", this::log, (s, b) -> concat(List.of("--all", "--author"), draftNames(s)));
-    sub("graph", "buildgit.graph", this::graph, (s, b) -> List.of("--all"));
-    sub("show", "buildgit.show", this::show, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of("--cells"));
-    sub("diff", "buildgit.diff", this::diff, (s, b) -> b.isEmpty() ? concat(List.of("off"), recentCommits(s)) : b.size() < 2 ? recentCommits(s) : List.of());
+    sub("log", "buildgit.log", this::log, (s, b) -> concat(List.of("--graph", "--all", "--author"), draftNames(s)));
+    sub("diff", "buildgit.diff", this::diff, (s, b) -> b.isEmpty() ? concat(List.of("off"), recentCommits(s)) : b.size() < 2 ? concat(List.of("--cells"), recentCommits(s)) : List.of());
     sub(List.of("inspect", "i"), "buildgit.inspect", (s, a) -> toggleInspect(s), null);
-    sub("blame", "buildgit.blame", (s, a) -> blame(s), null);
     sub("mark", "buildgit.mark", this::mark, this::suggestMark);
     sub("sel", "buildgit.sel", this::sel, (s, b) -> b.isEmpty() ? List.of("pos1", "pos2", "show", "clear") : List.of());
-    sub("who", "buildgit.who", (s, a) -> who(s), null);
     sub("disk", "buildgit.disk", (s, a) -> {
       if (a.length > 0 && a[0].equals("clean")) clean(s);
       else disk(s);
@@ -107,9 +102,8 @@ public final class BgCommand {
     sub("load", null, this::load, (s, b) -> b.isEmpty() && bg.platform().syncFolder() != null ? LocalSync.names(bg.platform().syncFolder()) : List.of());
     sub("view", "buildgit.view", this::view, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
     sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm", "cancel"), s.isPlayer() ? List.of() : draftNames(s)));
-    sub("branch", "buildgit.branch.list|buildgit.branch.create|buildgit.branch.delete", this::branch, (s, b) -> b.isEmpty() ? List.of("list", "create", "delete")
+    sub("branch", "buildgit.branch.list|buildgit.branch.delete", this::branch, (s, b) -> b.isEmpty() ? List.of("list", "delete")
         : b.size() == 1 && b.getFirst().equals("delete") ? draftNames(s)
-        : b.size() == 2 && b.getFirst().equals("create") ? draftNames(s)
         : b.size() == 1 && b.getFirst().equals("list") ? List.of("--all")
         : b.size() == 2 && b.getFirst().equals("delete") ? List.of("--force") : List.of());
     sub("merge", "buildgit.merge|buildgit.merge.resolve|buildgit.publish|buildgit.revert", this::merge, (s, b) -> b.isEmpty() ? concat(List.of("view", "conflicts", "goto", "take", "continue", "abort", "list"), draftNames(s))
@@ -169,14 +163,14 @@ public final class BgCommand {
 
   private static final List<HelpSection> HELP = List.of(
       new HelpSection("draft", List.of(List.of("try"), List.of("publish"), List.of("back"), List.of("go"), List.of("branch"))),
-      new HelpSection("history", List.of(List.of("status"), List.of("save"), List.of("log"), List.of("graph"), List.of("show"), List.of("diff"),
-          List.of("view"), List.of("inspect", "blame"))),
+      new HelpSection("history", List.of(List.of("status"), List.of("save"), List.of("log"), List.of("diff"),
+          List.of("view"), List.of("inspect"))),
       new HelpSection("restore", List.of(List.of("revert"), List.of("restore"))),
       new HelpSection("single", List.of(List.of("pull"), List.of("load"), List.of("push"))),
       new HelpSection("worlds", List.of(List.of("new"), List.of("open"), List.of("worlds"), List.of("world"), List.of("fork"),
           List.of("submit"))),
       new HelpSection("merge", List.of(List.of("merge"))),
-      new HelpSection("other", List.of(List.of("sel"), List.of("who"), List.of("mark"))));
+      new HelpSection("other", List.of(List.of("sel"), List.of("mark"))));
   private static final HelpSection ADMIN_HELP = new HelpSection("admin", List.of(List.of("disk"), List.of("genesis"), List.of("backup"),
       List.of("init", "reload")));
 
@@ -604,21 +598,29 @@ public final class BgCommand {
     }
   }
 
-  /** {@code log [分支] [頁數] [--all] [--author <玩家>]}：預設只列里程碑，自動存檔收合成一行；分頁顯示。 */
+  /**
+   * {@code log [分支] [頁數] [--all] [--author <玩家>] [--graph]}：預設只列里程碑，自動存檔收合成一行；分頁顯示。
+   * {@code --graph} 改畫所有草稿的分支歷史圖。
+   */
   private void log(Sender sender, String[] args) throws IOException {
     var ws = ws(sender);
     var repo = ws.repo();
     String branch = current(sender).branch();
     int page = 1;
-    boolean all = false;
+    boolean all = false, graph = false;
     String author = null;
     for (int i = 0; i < args.length; i++) {
       var a = args[i];
       if (a.isEmpty()) continue;
       if (a.equals("--all")) all = true;
+      else if (a.equals("--graph")) graph = true;
       else if (a.equals("--author") && i + 1 < args.length) author = args[++i];
       else if (a.chars().allMatch(Character::isDigit)) page = Math.min(200, Math.max(1, parseInt(a, 1)));
       else if (repo.refs().get(a).isPresent()) branch = a;
+    }
+    if (graph) {
+      graph(sender, page, all, author);
+      return;
     }
     var head = repo.head(branch);
     final int p = page;
@@ -657,9 +659,9 @@ public final class BgCommand {
   /** 每頁幾列：玩家聊天室窗沒打開時只顯示 10 行，留一行給翻頁。 */
   private static final int PAGE = 8;
 
-  /** 可點的存檔編號：點了就是 /bg show。 */
+  /** 可點的存檔編號：點了就是 /bg diff。 */
   private Component commitLink(ObjectId id) {
-    return msg().get("commit-link", "id", id.abbrev()).clickEvent(ClickEvent.runCommand("/bg show " + id.abbrev()));
+    return msg().get("commit-link", "id", id.abbrev()).clickEvent(ClickEvent.runCommand("/bg diff " + id.abbrev()));
   }
 
   /**
@@ -686,12 +688,9 @@ public final class BgCommand {
   /** 所有草稿的分支線用等寬字型畫，才會對齊。 */
   private static final net.kyori.adventure.key.Key MONO = net.kyori.adventure.key.Key.key("minecraft", "uniform");
 
-  /** {@code graph [頁數] [--all]}：像 git log --graph 的分支歷史圖，分頁顯示；預設略過自動存檔。 */
-  private void graph(Sender sender, String[] args) throws IOException {
+  /** {@code log --graph}：像 git log --graph 的分支歷史圖，分頁顯示；預設略過自動存檔。 */
+  private void graph(Sender sender, int page, boolean all, String author) throws IOException {
     var ws = ws(sender);
-    boolean all = flags(args).contains("--all");
-    var w = words(args);
-    int page = Math.min(200, Math.max(1, w.isEmpty() ? 1 : parseInt(w.getFirst(), 1)));
     // 分支線要從最上面一路排下來才正確，所以每頁都從頭算，只顯示這一頁；多算一列判斷有沒有下一頁
     int limit = page * PAGE + 1;
     var heads = new LinkedHashMap<ObjectId, List<String>>();
@@ -700,7 +699,14 @@ public final class BgCommand {
     bg.platform().async(() -> {
       List<Graph.Row> rows;
       try {
-        rows = Graph.build(repo, heads.keySet(), c -> !c.parents().isEmpty() && (all || !c.auto()), limit);
+        rows = Graph.build(repo, heads.keySet(), c -> {
+          if (c.parents().isEmpty() || !all && c.auto()) return false;
+          try {
+            return author == null || wrote(repo, c, author);
+          } catch (IOException e) {
+            throw new UncheckedIOException(e);
+          }
+        }, limit);
       } catch (IOException | RuntimeException e) {
         failed(sender, e);
         return;
@@ -714,7 +720,7 @@ public final class BgCommand {
             "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
             "message", c.auto() ? msg().get("log-auto") : Component.text(c.message())));
       }
-      showPage(sender, lines, page, "/bg graph%s" + (all ? " --all" : ""));
+      showPage(sender, lines, page, "/bg log --graph%s" + (all ? " --all" : "") + (author != null ? " --author " + author : ""));
     });
   }
 
@@ -737,38 +743,11 @@ public final class BgCommand {
     return false;
   }
 
-  private void show(Sender sender, String[] args) throws IOException {
-    var ws = ws(sender);
-    var repo = ws.repo();
-    boolean listCells = flags(args).contains("--cells");
-    var w = words(args);
-    var id = w.isEmpty() ? repo.head(current(sender).branch()) : resolve(ws, w.getFirst());
-    if (id == null) {
-      msg().send(sender, "unknown-commit", "id", w.getFirst());
-      return;
-    }
-    // 變更紀錄可能很大，在背景讀
-    record Shown(Commit commit, Changeset changeset) {}
-    CompletableFuture.supplyAsync(() -> {
-      try {
-        var c = repo.commit(id);
-        return new Shown(c, repo.changeset(c.changeset()));
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
-      }
-    }, ws::async).whenComplete((r, error) -> ws.sync(() -> {
-      if (error != null) failed(sender, Workspace.unwrap(error));
-      else show(sender, id, r.commit(), r.changeset(), listCells);
-    }));
-  }
-
+  /** {@code diff <存檔>} 的文字部分：存檔的作者、訊息，每位玩家改了幾格；{@code --cells} 列出每一格。 */
   private void show(Sender sender, ObjectId id, Commit c, Changeset cs, boolean listCells) {
-    var ws = ws(sender);
     msg().send(sender, "show-header", "id", id.abbrev(), "author", c.author().name(), "time", TIME.format(Instant.ofEpochMilli(c.time())),
         "message", c.message());
     cs.cellsByAuthor().forEach((a, n) -> msg().send(sender, "show-line", "author", a.name(), "cells", n));
-    if (!cs.entities().isEmpty()) msg().send(sender, "show-entities", "entities", cs.entities().size());
-    if (!cs.biomes().isEmpty()) msg().send(sender, "biomes-changed", "count", cs.biomes().size());
     if (listCells) {
       int shown = 0;
       for (var cell : cs.cells()) {
@@ -783,8 +762,8 @@ public final class BgCommand {
   }
 
   /**
-   * {@code diff}：未存的變更；{@code diff <存檔>}：那次存檔；{@code diff <a> <b>}：兩個版本之間。在世界裡顯示外框。
-   * {@code diff off}：清掉外框。
+   * {@code diff}：未存的變更；{@code diff <存檔> [--cells]}：那次存檔（另外列出作者與每人改了幾格，{@code --cells} 列出每一格）；
+   * {@code diff <a> <b>}：兩個版本之間。在世界裡顯示外框。{@code diff off}：清掉外框。
    */
   private void diff(Sender sender, String[] args) throws IOException {
     var ws = ws(sender);
@@ -822,18 +801,21 @@ public final class BgCommand {
       msg().send(sender, "unknown-commit", "id", a == null ? w.getFirst() : w.get(1));
       return;
     }
+    boolean listCells = flags(args).contains("--cells");
     ObjectId from, to;
-    if (b != null) {
+    Commit single = b == null ? repo.commit(a) : null;
+    if (single == null) {
       from = repo.commit(a).tree();
       to = repo.commit(b).tree();
     } else {
-      var c = repo.commit(a);
-      to = c.tree();
-      from = c.parents().isEmpty() ? to : repo.commit(c.parents().getFirst()).tree();
+      to = single.tree();
+      from = single.parents().isEmpty() ? to : repo.commit(single.parents().getFirst()).tree();
     }
-    record Counted(List<Workspace.Changed> changed, int[] counts, int entities, int biomes) {}
+    record Counted(List<Workspace.Changed> changed, int[] counts, int entities, int biomes, Changeset changeset) {}
     CompletableFuture.supplyAsync(() -> {
       try {
+        // 只看一次存檔時，變更紀錄可能很大，一起在背景讀
+        var changeset = single == null ? null : repo.changeset(single.changeset());
         var diff = TreeDiff.collect(repo.overlays(), from, to);
         var changed = new ArrayList<Workspace.Changed>();
         var cache = new HashMap<dev.twme.buildgit.core.model.SectionKey, dev.twme.buildgit.core.model.Cell[]>();
@@ -844,7 +826,7 @@ public final class BgCommand {
           changed.add(new Workspace.Changed(c.dimension(), c.pos(), k));
         }
         for (var bc : diff.biomes()) changed.add(new Workspace.Changed(bc.key().dimension(), bc.corner(), Workspace.Kind.BIOME));
-        return new Counted(changed, counts, diff.entities().size(), diff.biomes().size());
+        return new Counted(changed, counts, diff.entities().size(), diff.biomes().size(), changeset);
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -853,6 +835,7 @@ public final class BgCommand {
         failed(sender, Workspace.unwrap(error));
         return;
       }
+      if (single != null) show(sender, a, single, r.changeset(), listCells);
       sendDiff(sender, msg().get("diff-summary", "added", r.counts()[0], "removed", r.counts()[1], "modified", r.counts()[2], "entities", r.entities()));
       if (r.biomes() > 0) msg().send(sender, "biomes-outlined", "count", r.biomes());
       outline(sender, r.changed());
@@ -951,18 +934,6 @@ public final class BgCommand {
     }
   }
 
-  private void who(Sender sender) {
-    for (var p : bg.platform().server().getPlayerList().getPlayers()) {
-      var ws = bg.workspace(p.level());
-      var wt = ws.worktree(p.level());
-      var view = ws.view(p.level());
-      Component where = wt != null ? branchLabel(wt.branch())
-          : view != null ? msg().get("place-view", "id", view.commit().abbrev())
-          : msg().get("place-other", "world", bg.platform().levelName(p.level()));
-      msg().send(sender, "who-entry", "player", p.getScoreboardName(), "place", where);
-    }
-  }
-
   /** 玩家看著的方塊（不含流體）；沒有時為 null。 */
   private static BlockPos target(ServerPlayer p, double distance) {
     var hit = p.pick(distance, 1f, false);
@@ -981,14 +952,6 @@ public final class BgCommand {
       inspecting.add(p.getUUID());
       msg().send(s(p), "inspect-on");
     }
-  }
-
-  private void blame(Sender sender) {
-    var p = player(sender);
-    if (p == null) return;
-    var block = target(p, 10);
-    if (block == null) msg().send(s(p), "blame-no-target");
-    else describe(p, p.level(), block);
   }
 
   /**
@@ -1727,34 +1690,16 @@ public final class BgCommand {
         var dim = flags(args).contains("--all") ? null : here(sender);
         for (var e : ws.drafts().entrySet()) {
           if (dim != null && !ws.covers(e.getKey(), dim)) continue;
+          // 在這個草稿裡的玩家
           var wt = ws.worktree(e.getKey());
-          int players = 0;
-          if (wt != null) for (var world : wt.worlds().values()) players += world.players().size();
+          var players = new ArrayList<String>();
+          if (wt != null) for (var world : wt.worlds().values()) for (var p : world.players()) players.add(p.getScoreboardName());
           msg().send(sender, "branch-entry", "branch", branchLabel(e.getKey()), "head", e.getValue().abbrev(),
-              "time", TIME.format(Instant.ofEpochMilli(ws.repo().commit(e.getValue()).time())), "players", players);
+              "time", TIME.format(Instant.ofEpochMilli(ws.repo().commit(e.getValue()).time())),
+              "players", players.isEmpty() ? Component.empty() : msg().get("branch-players", "names", String.join("、", players)));
         }
         for (var s : ws.merges().all())
           msg().send(sender, "merge-entry", "id", s.id(), "source", s.source() == null ? s.base().abbrev() : s.source(), "target", s.target());
-      }
-      case "create" -> {
-        if (!sender.hasPermission("buildgit.branch.create")) {
-          msg().send(sender, "no-permission", "node", "buildgit.branch.create");
-          return;
-        }
-        if (w.size() < 2) {
-          msg().send(sender, "usage-branch");
-          return;
-        }
-        var name = w.get(1).toLowerCase(Locale.ROOT);
-        var from = w.size() > 2 ? w.get(2) : current(sender).branch();
-        if (name.equals(Repository.MAIN) || Workspace.isScratch(name) || !Workspace.BRANCH_NAME.matcher(name).matches()) {
-          msg().send(sender, "branch-bad-name");
-          return;
-        }
-        String dimension = draftWorld(sender, from);
-        if (dimension == null) return;
-        ws.createBranch(name, from, dimension);
-        msg().send(sender, "branch-created", "name", name, "from", branchLabel(from));
       }
       case "delete" -> {
         if (!sender.hasPermission("buildgit.branch.delete")) {
