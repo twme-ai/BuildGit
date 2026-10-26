@@ -930,6 +930,8 @@ public final class Workspace {
 
   /** 新生成的 chunk 以外的 chunk 載入了（主執行緒）：起點世界還在複製時，或延遲複製時，趁它被改之前先複製。 */
   public void chunkLoaded(ServerLevel world, int chunkX, int chunkZ) {
+    var at = played.get(world);
+    if (at != null) catchUp(world, at, chunkX, chunkZ);
     if (this.world != null || owners.get(world) != main()) return;
     String dim = Tracker.dimensionId(world);
     var copy = copies.get(dim);
@@ -973,6 +975,15 @@ public final class Workspace {
     var source = sources.get(world);
     if (source == null) return;
     int cx = chunk.getPos().getMinBlockX() >> 4, cz = chunk.getPos().getMinBlockZ() >> 4;
+    var play = played.get(world);
+    if (play != null) {
+      // 剛照目前播到的版本合成
+      try {
+        play.chunks().put(chunkKey(cx, cz), source.tree().tree());
+      } catch (IOException e) {
+        play.chunks().remove(chunkKey(cx, cz));
+      }
+    }
     async(() -> {
       try {
         var overlay = new OverlayReader(repo.overlays(), source.tree().tree()).chunk(source.dimension(), cx, cz);
@@ -1412,8 +1423,13 @@ public final class Workspace {
 
   /** 檢視世界的名稱；建築世界照 {@code player-worlds.view-world-name}，記在 views.yml，下次開啟時清掉。 */
   String viewName(ObjectId commit, String dimension) throws IOException {
-    if (world == null) return viewPrefix() + commit.hex().substring(0, 10) + suffix(dimension);
-    var name = registry.levelFolder(world, "view-world-name", "{commit}", commit.hex().substring(0, 10));
+    return viewName(commit, dimension, "");
+  }
+
+  /** @param tag 接在名稱後面（播放歷史每次一個世界）；一般的檢視世界是空字串 */
+  private String viewName(ObjectId commit, String dimension, String tag) throws IOException {
+    if (world == null) return viewPrefix() + commit.hex().substring(0, 10) + tag + suffix(dimension);
+    var name = registry.levelFolder(world, "view-world-name", "{commit}", commit.hex().substring(0, 10)) + tag;
     // 不能接管別的世界：同名的世界或資料夾不是這裡開過的檢視世界就拒絕
     if (!isViewFolder(name) && (platform.findLevel(name) != null || Files.exists(platform.levelFolder(name))))
       throw new Refused("已經有叫 " + name + " 的世界或資料夾，不能當檢視世界（請管理員調整 player-worlds.view-world-name）");
@@ -1435,6 +1451,126 @@ public final class Workspace {
     var world = createWorld(viewName(commit, dimension), template, new Pending(dimension, () -> tree));
     views.put(world, new View(commit, dimension));
     return world;
+  }
+
+  // ---- 播放歷史 ----
+
+  /**
+   * 播放歷史用的檢視世界（主執行緒）：每次播放自己一個（{@code tag}），不和一般的檢視世界共用。
+   * chunk 載入時從 {@code tree} 當下指向的版本合成，所以之後才走到的地方也是播放到的那一步。
+   */
+  public ServerLevel openPlayback(ObjectId start, String dimension, String tag, TreeSource tree) throws IOException {
+    if (world != null) openMain();
+    var template = mainWorld(dimension);
+    if (template == null) throw new IOException("主世界沒有維度 " + dimension);
+    if (copying(dimension)) throw new Refused("這個世界的起點世界還在背景複製，請稍後再試");
+    var level = createWorld(viewName(start, dimension, "_" + tag), template, new Pending(dimension, tree));
+    views.put(level, new View(start, dimension));
+    played.put(level, new Played(repo.commit(start).tree(), new HashMap<>()));
+    return level;
+  }
+
+  /**
+   * 播放世界：每個 chunk 現在是哪個版本的樣子。卸載過的 chunk 存在世界裡、不會重新合成，
+   * 再載入時照這裡補上之後播過的改動（{@link #catchUp}）。沒記到的 chunk 是開世界時生成的，是 {@code start} 的樣子。
+   */
+  private record Played(ObjectId start, Map<Long, ObjectId> chunks) {}
+
+  private final Map<ServerLevel, Played> played = new HashMap<>();
+
+  /** 兩個版本之間要寫的東西；走動時一次載入很多 chunk，同一組只算一次。 */
+  private final Map<String, CompletableFuture<Writes>> replays = new LinkedHashMap<>(8, 0.75f, true) {
+    @Override
+    protected boolean removeEldestEntry(Map.Entry<String, CompletableFuture<Writes>> eldest) {
+      return size() > 8;
+    }
+  };
+
+  private CompletableFuture<Writes> replayWrites(ObjectId from, ObjectId to) {
+    return replays.computeIfAbsent(from.hex() + to.hex(), k -> CompletableFuture.supplyAsync(() -> {
+      try {
+        return resolve(TreeDiff.collect(repo.overlays(), from, to));
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }, this::async));
+  }
+
+  /** 播放世界載入一個 chunk（主執行緒）：第一次載入是照目前的版本合成的；之前播到別的版本時補上差異。 */
+  private void catchUp(ServerLevel level, Played at, int cx, int cz) {
+    var source = sources.get(level);
+    if (source == null) return;
+    ObjectId now;
+    try {
+      now = source.tree().tree();
+    } catch (IOException e) {
+      return;
+    }
+    long key = chunkKey(cx, cz);
+    var was = at.chunks().put(key, now);
+    if (was == null) was = at.start();
+    if (was.equals(now)) return;
+    var from = was;
+    // 載入事件中不能改方塊（會等自己載完）：下一刻再寫
+    platform.later(1, () -> replay(level, source.dimension(), from, now, k -> k == key).whenComplete((v, e) -> {
+      if (e != null) log().log(Level.WARNING, "播放世界無法補上 chunk " + cx + "," + cz, unwrap(e));
+    }));
+  }
+
+  /** 播放到另一個存檔：更新檢視世界記著的版本（bossbar、inspect 看這個）。 */
+  void viewAt(ServerLevel level, ObjectId commit) {
+    var v = views.get(level);
+    if (v != null) views.put(level, new View(commit, v.dimension()));
+  }
+
+  /**
+   * 把播放世界從版本 {@code from} 換成 {@code to} 的樣子（主執行緒呼叫，完成時在主執行緒）。
+   * 只寫已載入的 chunk；沒載入的之後載入時照 {@link #openPlayback} 的來源合成。
+   */
+  CompletableFuture<Void> replay(ServerLevel level, String dimension, ObjectId from, ObjectId to) {
+    return replay(level, dimension, from, to, k -> true);
+  }
+
+  private CompletableFuture<Void> replay(ServerLevel level, String dimension, ObjectId from, ObjectId to, java.util.function.LongPredicate chunks) {
+    return replayWrites(from, to).thenComposeAsync(writes -> {
+      var at = played.containsKey(level) ? played.get(level).chunks() : new HashMap<Long, ObjectId>();
+      var futures = new ArrayList<CompletableFuture<?>>();
+      var parsed = new HashMap<String, net.minecraft.world.level.block.state.BlockState>();
+      writes.cells().getOrDefault(dimension, Map.of()).forEach((key, cells) -> {
+        int cx = (int) (key >> 32), cz = (int) (long) key;
+        if (!chunks.test(key) || !level.hasChunk(cx, cz)) return;
+        at.put(key, to);
+        futures.add(ticked.submit(level, cx, cz, cells.size(), i -> {
+          var w = cells.get(i);
+          try {
+            LiveWriter.setCell(level, w.pos().x(), w.pos().y(), w.pos().z(), w.cell(), parsed);
+          } catch (IOException e) {
+            throw new UncheckedIOException(e);
+          }
+        }));
+      });
+      writes.biomes().getOrDefault(dimension, Map.of()).forEach((key, sections) -> {
+        int cx = (int) (key >> 32), cz = (int) (long) key;
+        if (!chunks.test(key) || !level.hasChunk(cx, cz)) return;
+        at.put(key, to);
+        var chunk = level.getChunk(cx, cz);
+        boolean changed = false;
+        for (var e : sections.entrySet()) changed |= LiveWriter.setBiomes(level, chunk, e.getKey(), e.getValue());
+        if (changed) LiveWriter.resendBiomes(level, List.of(chunk));
+      });
+      for (var e : writes.entities()) {
+        if (!e.dimension().equals(dimension) || !chunks.test(chunkKey(e.chunkX(), e.chunkZ())) || !level.hasChunk(e.chunkX(), e.chunkZ())) continue;
+        tracker.systemWrite(() -> {
+          try {
+            if (e.state().isEmpty()) LiveWriter.removeEntity(level, e.uuid());
+            else LiveWriter.spawnEntity(level, e.state().get());
+          } catch (IOException ex) {
+            log().log(Level.WARNING, "播放時無法寫入實體 " + e.uuid(), ex);
+          }
+        });
+      }
+      return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
+    }, this::sync);
   }
 
   /** 沒有玩家的檢視世界卸載並刪除。 */
@@ -1472,6 +1608,7 @@ public final class Workspace {
     owners.remove(world);
     sources.remove(world);
     views.remove(world);
+    played.remove(world);
     if (!platform.unloadLevel(world, false)) {
       log().warning("無法卸載世界 " + platform.levelName(world) + "，資料夾保留");
       return;

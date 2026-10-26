@@ -102,6 +102,9 @@ public final class BgCommand {
     sub("push", null, this::push, (s, b) -> b.isEmpty() && s.player() instanceof ServerPlayer p ? bg.sync().names(p) : List.of());
     sub("load", null, this::load, (s, b) -> b.isEmpty() && bg.platform().syncFolder() != null ? LocalSync.names(bg.platform().syncFolder()) : List.of());
     sub("view", "buildgit.view", this::view, (s, b) -> b.isEmpty() ? recentCommits(s) : List.of());
+    sub("play", "buildgit.view", this::play, (s, b) -> s.player() instanceof ServerPlayer p && bg.playback().of(p) != null
+        ? b.isEmpty() ? PLAY_CONTROLS : List.of()
+        : concat(List.of("--all"), b.size() < 2 ? recentCommits(s) : List.of()));
     sub("publish", "buildgit.publish", this::publish, (s, b) -> concat(List.of("--selection", "confirm", "cancel"), s.isPlayer() ? List.of() : draftNames(s)));
     sub("branch", "buildgit.branch.list|buildgit.branch.delete", this::branch, (s, b) -> b.isEmpty() ? List.of("list", "delete")
         : b.size() == 1 && b.getFirst().equals("delete") ? draftNames(s)
@@ -191,7 +194,7 @@ public final class BgCommand {
   private static final List<HelpSection> HELP = List.of(
       new HelpSection("draft", List.of(List.of("try"), List.of("publish"), List.of("back"), List.of("go"), List.of("branch"))),
       new HelpSection("history", List.of(List.of("status"), List.of("save"), List.of("log"), List.of("diff"),
-          List.of("view"), List.of("inspect"))),
+          List.of("view"), List.of("play"), List.of("inspect"))),
       new HelpSection("restore", List.of(List.of("revert"), List.of("restore"))),
       new HelpSection("single", List.of(List.of("pull"), List.of("load"), List.of("push"))),
       new HelpSection("worlds", List.of(List.of("new"), List.of("open"), List.of("worlds"), List.of("world"), List.of("fork"),
@@ -1268,6 +1271,117 @@ public final class BgCommand {
     var world = ws.openView(id, ws.logicalDimension(p.level()));
     ws.teleport(p, world);
     msg().send(s(p), "view-opened", "id", id.abbrev());
+  }
+
+  private static final List<String> PLAY_CONTROLS = List.of("pause", "resume", "next", "prev", "goto", "speed", "stop");
+
+  /**
+   * {@code play [起點] [終點] [--all]}：在自己的檢視世界裡播放所在分支的歷史，自己走動觀看。起點、終點可以是存檔編號或時間
+   * （{@link Playback#time}）；播放中 {@code play pause|resume|next|prev|goto <步>|speed <秒>|stop}。
+   */
+  private void play(Sender sender, String[] args) throws IOException {
+    var p = player(sender);
+    if (p == null) return;
+    var ws = ws(sender);
+    var w = words(args);
+    var playback = bg.playback();
+    var session = playback.of(p);
+    if (!w.isEmpty() && PLAY_CONTROLS.contains(w.getFirst())) {
+      if (session == null) {
+        msg().send(sender, "play-not-playing");
+        return;
+      }
+      int last = session.steps.size() - 1;
+      boolean ok = switch (w.getFirst()) {
+        case "pause" -> {
+          session.paused = true;
+          yield true;
+        }
+        case "resume" -> {
+          session.paused = false;
+          session.next = 0;
+          // 播完了再按繼續：從頭播
+          yield session.index < last || playback.go(session, 0);
+        }
+        case "next" -> playback.go(session, session.index + 1);
+        case "prev" -> playback.go(session, session.index - 1);
+        case "goto" -> {
+          if (w.size() != 2) {
+            msg().send(sender, "usage-play");
+            yield true;
+          }
+          yield playback.go(session, number(w.get(1)));
+        }
+        case "speed" -> {
+          if (w.size() == 2) session.seconds = Math.clamp(number(w.get(1)), 1, 60);
+          msg().send(sender, "play-speed", "seconds", session.seconds);
+          yield true;
+        }
+        default -> {
+          playback.stop(p);
+          back(sender);
+          yield true;
+        }
+      };
+      if (!ok) msg().send(sender, "play-busy");
+      bg.hud().update(p);
+      return;
+    }
+    if (w.size() > 2) {
+      msg().send(sender, "usage-play");
+      return;
+    }
+    // 起點、終點：時間寫法優先，不然是存檔編號
+    ObjectId fromCommit = null, toCommit = null;
+    Long fromTime = null, toTime = null;
+    for (int i = 0; i < w.size(); i++) {
+      var t = Playback.time(w.get(i), i == 1);
+      if (t != null) {
+        if (i == 0) fromTime = t;
+        else toTime = t;
+        continue;
+      }
+      var id = resolve(ws, w.get(i));
+      if (id == null) {
+        msg().send(sender, "unknown-commit", "id", w.get(i));
+        return;
+      }
+      if (i == 0) fromCommit = id;
+      else toCommit = id;
+    }
+    var repo = ws.repo();
+    var head = repo.head(current(sender).branch());
+    var dimension = ws.logicalDimension(p.level());
+    boolean all = flags(args).contains("--all");
+    final ObjectId from = fromCommit, to = toCommit;
+    final Long since = fromTime, until = toTime;
+    CompletableFuture.supplyAsync(() -> {
+      try {
+        return Playback.steps(repo, head, from, since, to, until, all);
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }, ws::async).whenComplete((steps, error) -> ws.sync(() -> {
+      if (error != null) {
+        failed(sender, Workspace.unwrap(error));
+        return;
+      }
+      if (steps.size() < 2) {
+        msg().send(sender, "play-none");
+        return;
+      }
+      try {
+        if (ws.view(p.level()) == null) returnTo.put(p.getUUID(), new Location(p.level(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()));
+        playback.start(p, ws, dimension, steps);
+        msg().send(sender, "play-started", "count", steps.size() - 1, "seconds", Playback.DEFAULT_SECONDS,
+            "from", TIME.format(Instant.ofEpochMilli(steps.getFirst().time())), "to", TIME.format(Instant.ofEpochMilli(steps.getLast().time())));
+        sender.send(msg().prefixed(Component.join(net.kyori.adventure.text.JoinConfiguration.separator(Component.space()),
+            button("play-button-prev", "/bg play prev"), button("play-button-pause", "/bg play pause"), button("play-button-resume", "/bg play resume"),
+            button("play-button-next", "/bg play next"), button("play-button-stop", "/bg play stop"))));
+      } catch (IOException | RuntimeException e) {
+        failed(sender, e);
+      }
+    }));
   }
 
   // ---- 併回（設計 §6.2） ----

@@ -71,6 +71,13 @@ public final class Hud {
             "left", cached == null ? "?" : left(ws.merges().untouchedNow(session)),
             "cells", wt.table().cellCount());
         color = Platform.BarColor.RED;
+      } else if (view != null && bg.playback().of(p) instanceof Playback.Session play) {
+        var step = play.step();
+        text = msg.get(play.paused ? "hud-play-paused" : "hud-play", "index", play.index, "count", play.steps.size() - 1, "id", step.commit().abbrev(),
+            "time", BgCommand.TIME.format(java.time.Instant.ofEpochMilli(step.time())), "author", step.author(),
+            "message", step.auto() ? msg.get("log-auto") : Component.text(step.message()));
+        bg.platform().bar(p, text, Platform.BarColor.BLUE, play.steps.size() <= 1 ? 1f : (float) play.index / (play.steps.size() - 1));
+        return;
       } else if (view != null) {
         text = msg.get(session != null ? "hud-merge-view" : "hud-view", "id", view.commit().abbrev(),
             "side", session == null ? "" : view.commit().equals(session.ours()) ? session.target() : String.valueOf(session.source()));

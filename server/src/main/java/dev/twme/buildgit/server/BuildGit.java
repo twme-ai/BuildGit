@@ -26,6 +26,7 @@ public final class BuildGit {
   private Outlines outlines;
   private Selections selections;
   private Hud hud;
+  private Playback playback;
   private Menu menu;
   private BgCommand command;
   private Sync sync;
@@ -47,6 +48,7 @@ public final class BuildGit {
     outlines = new Outlines(platform);
     selections = new Selections(platform);
     hud = new Hud(this);
+    playback = new Playback(this);
     menu = new Menu(this);
     sync = new Sync(this);
     worldUpload = new WorldUpload(this);
@@ -106,6 +108,10 @@ public final class BuildGit {
 
   public Hud hud() {
     return hud;
+  }
+
+  Playback playback() {
+    return playback;
   }
 
   Menu menu() {
@@ -248,6 +254,7 @@ public final class BuildGit {
   /** 每刻開始時（主執行緒）。 */
   public void tick() {
     tracker.tick();
+    playback.tick();
     ticks++;
     contexts.tick(worlds, platform.server().getPlayerList().getPlayers());
     if (ticks % settings.journalFlushTicks() == 0) {
@@ -296,7 +303,7 @@ public final class BuildGit {
 
   /** 載入一個已存在的 chunk（主執行緒）。 */
   public void chunkLoaded(ServerLevel level, int chunkX, int chunkZ) {
-    workspace().chunkLoaded(level, chunkX, chunkZ);
+    worlds.of(level).chunkLoaded(level, chunkX, chunkZ);
   }
 
   /** 剛生成一個 chunk（主執行緒）。 */

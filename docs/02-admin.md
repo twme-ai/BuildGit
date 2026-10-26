@@ -101,7 +101,7 @@ LuckPerms 範例：
 | `buildgit.sel` | `sel`：不用 WorldEdit 時的選取範圍 |
 | `buildgit.go` | `go`：到某個草稿或 main |
 | `buildgit.back` | `back`：回到來源世界 |
-| `buildgit.view` | `view`：唯讀看舊版本 |
+| `buildgit.view` | `view`：唯讀看舊版本；`play`：播放歷史 |
 | `buildgit.try` | `try`：開草稿 |
 | `buildgit.save` | `save`：存檔 |
 | `buildgit.pull` | `pull`：把選取範圍帶到單人世界 |

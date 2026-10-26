@@ -91,6 +91,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 | 所有草稿的分支歷史圖（像 `git log --graph`） | `/bg log --graph`；每頁 8 筆，點 **[下一頁]** 或 `/bg log --graph 2` 往前翻；加 `--all` 連自動存檔一起顯示 |
 | 某次存檔改了哪些 | `/bg diff <存檔編號>`：列出誰改了幾格並在世界裡標出；加 `--cells` 列出每一格 |
 | 舊版本長什麼樣子 | `/bg view <存檔編號>`（唯讀，不能動；`/bg back` 回來） |
+| 看建築一步一步蓋起來 | `/bg play [起點] [終點]`：在唯讀世界裡依序播放存檔，自己走動看；起點、終點可以是存檔編號、日期（`10-20`、`10-20/14:00`）或多久以前（`3h`、`2d`）。播放中 `/bg play pause\|resume\|next\|prev\|goto <步>\|speed <秒>\|stop` |
 | 有哪些草稿、誰在裡面 | `/bg branch list` |
 
 存檔編號就是 `/bg log` 裡的那串黃色英數字，點一下就會列出那次存檔改了什麼，並在世界裡標出；打指令時只要打前幾碼，按 Tab 也會列出最近的存檔。
@@ -159,6 +160,7 @@ Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-ap
 /bg revert <存檔>        撤銷某次存檔
 /bg restore <存檔> [--selection] 還原到舊版本
 /bg view <存檔>          唯讀地看舊版本
+/bg play [起點] [終點] [--all]  播放歷史（自己走動看）；播放中 pause|resume|next|prev|goto|speed|stop
 /bg branch list|delete <名稱> [--force]  列出草稿與裡面的玩家、刪除草稿
 /bg log --graph [頁數] [--all]  分支歷史圖（分頁）
 /bg pull [名稱]          把選取範圍（沒選時是草稿改過的地方或周圍）帶到單人世界（用戶端要裝 BuildGit）
