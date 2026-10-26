@@ -83,7 +83,8 @@ final class Backup {
   private final BuildGit bg;
   private List<Job> jobs = List.of();
   private ZoneId zone = ZoneId.systemDefault();
-  private ExecutorService worker, uploads;
+  /** {@code lists}：列快照用，不排在上傳後面（備份進行中時上傳佇列可能有上萬個檔案）。 */
+  private ExecutorService worker, uploads, lists;
   private ScheduledExecutorService ticker;
   /** 每個世界資料夾（相對伺服器根目錄）最後有玩家的時間。主執行緒寫、計時執行緒讀。 */
   private final Map<String, Long> visits = new ConcurrentHashMap<>();
@@ -257,16 +258,18 @@ final class Backup {
       }
     worker = Executors.newSingleThreadExecutor(r -> daemon(r, "BuildGit-backup"));
     uploads = Executors.newFixedThreadPool(PARALLEL, r -> daemon(r, "BuildGit-backup-upload"));
+    lists = Executors.newSingleThreadExecutor(r -> daemon(r, "BuildGit-backup-list"));
     ticker = Executors.newSingleThreadScheduledExecutor(r -> daemon(r, "BuildGit-backup-timer"));
     lastMinute = System.currentTimeMillis() / 60000;
     ticker.scheduleWithFixedDelay(this::tick, 20, 20, TimeUnit.SECONDS);
   }
 
   synchronized void stop() {
-    for (var e : new ExecutorService[] {ticker, worker, uploads}) if (e != null) e.shutdownNow();
+    for (var e : new ExecutorService[] {ticker, worker, uploads, lists}) if (e != null) e.shutdownNow();
     ticker = null;
     worker = null;
     uploads = null;
+    lists = null;
   }
 
   private static Thread daemon(Runnable r, String name) {
@@ -403,7 +406,7 @@ final class Backup {
 
   /** 遠端的快照名稱，舊的在前。 */
   CompletableFuture<List<String>> snapshots(Job job) {
-    var pool = uploads;
+    var pool = lists;
     if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("工作 " + job.name + " 的目的地還沒設定"));
     return CompletableFuture.supplyAsync(() -> {
       try {
@@ -466,7 +469,7 @@ final class Backup {
 
   /** 建築世界的快照名稱，舊的在前（{@code /bg backup list <工作> world=…}）。 */
   CompletableFuture<List<String>> snapshots(Job job, String id) {
-    var pool = uploads;
+    var pool = lists;
     if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("工作 " + job.name + " 的目的地還沒設定"));
     return CompletableFuture.supplyAsync(() -> {
       try {

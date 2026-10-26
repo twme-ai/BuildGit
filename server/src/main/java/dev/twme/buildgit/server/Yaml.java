@@ -36,6 +36,8 @@ public final class Yaml {
     dump.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
     dump.setIndent(2);
     var load = new LoaderOptions();
+    // 預設只收 3 MB：大世界的備份清單（每個 region 檔一筆）會超過，讀成空的就會整份重傳或清錯檔案
+    load.setCodePointLimit(Integer.MAX_VALUE);
     return new org.yaml.snakeyaml.Yaml(new SafeConstructor(load), new Representer(dump), dump, load);
   }
 
