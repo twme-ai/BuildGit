@@ -370,6 +370,9 @@ final class Restore {
     delete(staging);
     var files = staging.resolve("files");
     Files.createDirectories(files);
+    long needed = 0;
+    for (var e : WorldBackup.entries(manifest)) needed += e.size();
+    checkSpace(files, needed);
     String storage = manifest.getString("storage", "hashed"), snapshot = name;
     var downloads = new ArrayList<Future<?>>();
     for (var e : WorldBackup.entries(manifest)) {
@@ -593,6 +596,14 @@ final class Restore {
     } catch (IOException e) {
       throw new IllegalStateException("還原失敗：" + e.getMessage() + "；修正後重新啟動會從中斷的地方繼續", e);
     }
+  }
+
+  /** 下載前先看空間：放不下（另外留 1 GB）就拒絕，說明要多少。原本的資料夾換上時只改名，不另外佔空間。 */
+  static void checkSpace(Path dir, long needed) throws IOException {
+    long free = Files.getFileStore(dir).getUsableSpace(), margin = 1L << 30;
+    if (needed + margin > free)
+      throw new Workspace.Refused(String.format("磁碟空間不夠：這份快照要下載 %.1f GB（另外留 1 GB），%s 所在的磁碟只剩 %.1f GB",
+          needed / 1e9, dir, free / 1e9));
   }
 
   static void delete(Path dir) throws IOException {

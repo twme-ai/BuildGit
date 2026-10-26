@@ -11,6 +11,9 @@
 #                 schedule 與 idle-minutes 可以只設一個，也可以都設
 #   keep          保留幾份快照
 #   enabled       false 暫停這個工作
+# 版本紀錄的工作另有：
+#   genesis-hours 起點世界已經傳過的檔案有變時，最多每幾小時重傳一次（預設 24；0 為每次）。延遲複製的大世界在玩家探索時
+#                 region 檔一直在變，每次都整個重傳很花流量。之間的快照沿用上次傳的內容，新出現的檔案照常每次傳
 # 世界資料夾的工作另有：
 #   storage       auto：本機用 folders；S3 的 bucket 有開版本控制時用 versioned，沒有時用 hashed
 #                 folders：每份快照一個完整的資料夾，任何工具都能直接取用（本機用硬連結，不佔空間）

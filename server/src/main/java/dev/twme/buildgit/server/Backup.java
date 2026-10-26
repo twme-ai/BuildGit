@@ -38,6 +38,8 @@ final class Backup {
     final What what;
     final Cron schedule;
     final int idleMinutes, keep;
+    /** 版本紀錄：起點世界有變的檔案最多每幾小時重傳一次；0 為每次。 */
+    final int genesisHours;
     final boolean announce;
     final List<String> exclude;
     /** 目的地；沒設定好時為 null，原因在 {@link #problem}。 */
@@ -49,8 +51,9 @@ final class Backup {
     int failures;
     volatile boolean queued;
 
-    Job(String name, What what, String target, String prefix, Cron schedule, int idleMinutes, int keep, String storage, boolean announce,
-        List<String> exclude, BackupStore store, String problem, Path state) {
+    Job(String name, What what, String target, String prefix, Cron schedule, int idleMinutes, int keep, int genesisHours, String storage,
+        boolean announce, List<String> exclude, BackupStore store, String problem, Path state) {
+      this.genesisHours = genesisHours;
       this.name = name;
       this.what = what;
       this.target = target;
@@ -184,7 +187,8 @@ final class Backup {
           } else {
             throw new IllegalArgumentException("target 要是 s3:<連線名稱> 或 local:<資料夾>");
           }
-          result.add(new Job(name, what, target, path.isEmpty() ? "" : path + "/", schedule, idle, Math.max(1, y.getInt(at + "keep", 7)), storage,
+          result.add(new Job(name, what, target, path.isEmpty() ? "" : path + "/", schedule, idle, Math.max(1, y.getInt(at + "keep", 7)),
+              Math.max(0, y.getInt(at + "genesis-hours", 24)), storage,
               y.getBoolean(at + "announce", true), y.getStringList(at + "exclude"), store, problem,
               platform.repoDir().resolve("backup").resolve(name)));
         } catch (IllegalArgumentException ex) {
@@ -651,6 +655,11 @@ final class Backup {
     var dims = new ArrayList<Map<String, Object>>();
     int files = 0;
     var tmp = state.resolve("upload.tmp");
+    // 延遲複製的世界在玩家探索時一直有 region 檔變動：已經傳過的檔案最多每 genesis-hours 小時重傳一次，之間的快照沿用上次的內容。
+    // 新出現的檔案每次都傳
+    var genesisAtFile = state.resolve("genesis-at");
+    long genesisAt = Files.exists(genesisAtFile) ? Long.parseLong(Files.readString(genesisAtFile).strip()) : 0;
+    boolean refresh = job.genesisHours == 0 || System.currentTimeMillis() - genesisAt >= job.genesisHours * 3_600_000L;
     for (var dim : ws.trackedDimensions()) {
       var dir = ws.genesisDir(dim);
       if (ws.copying(dim) || GenesisCopy.unfinished(dir)) {
@@ -688,6 +697,7 @@ final class Backup {
               String stamp = attrs.size() + " " + attrs.lastModifiedTime().toMillis();
               var v = index.getProperty(dim + "/" + sub + "/" + file.getFileName());
               if (v != null && v.startsWith(stamp + " ")) out[i] = new String[] {stamp, v.substring(stamp.length() + 1)};
+              else if (v != null && !refresh) out[i] = new String[] {stamp, v.substring(v.lastIndexOf(' ') + 1)}; // 沿用；紀錄不改，下次仍算有變
               else {
                 Files.copy(file, tmp.resolveSibling(tmp.getFileName() + "." + i), StandardCopyOption.REPLACE_EXISTING);
                 out[i] = new String[] {stamp, null};
@@ -722,6 +732,7 @@ final class Backup {
     }
     Files.deleteIfExists(tmp);
     saveIndex(index, indexFile, "BuildGit backup: genesis file -> size mtime sha256");
+    if (refresh) Files.writeString(genesisAtFile, Long.toString(System.currentTimeMillis()));
 
     // 建築世界：設定、起始物品等小檔案與登記（還原時照這些重建世界，03-worlds §6.3）
     var repoFiles = new ArrayList<String>();

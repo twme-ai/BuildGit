@@ -116,9 +116,11 @@ final class WorldBackup {
       throw e;
     }
 
-    // 2. 背景：有變動的檔案複製到暫存區（這段期間不會自動存檔）
+    // 2. 背景：有變動的檔案複製到暫存區（這段期間不會自動存檔）。region 檔（.mca、.mcc）很大，只記下來，
+    //    恢復存檔之後才逐檔複製、上傳、刪掉，暫存區不必放下整個世界，暫停存檔的時間也不會隨世界變長
     var kept = new ArrayList<Entry>();
     var changed = new ArrayList<String>(); // 路徑
+    var live = new HashSet<String>(); // changed 裡之後才複製的
     var skipped = new ArrayList<String>();
     var worlds = new TreeSet<String>(prep.roots());
     for (var w : prev.getStringList("worlds")) if (!worlds.contains(w) && Files.isDirectory(server.resolve(w))) worlds.add(w);
@@ -134,7 +136,7 @@ final class WorldBackup {
           kept.addAll(before);
           continue;
         }
-        scan(server, server.resolve(root), p -> true, prep.excluded(), matchers, index, prevEntries, sameStorage, staging, kept, changed);
+        scan(server, server.resolve(root), p -> true, prep.excluded(), matchers, index, prevEntries, sameStorage, staging, kept, changed, live);
       }
       // 版本庫的狀態（分支指向、還沒存檔的標記）：還原時世界和版本紀錄對得上。
       // 背包隔離收起來的背包與切換狀態（players/）和世界裡的玩家資料一起備份，還原後兩邊是同一個時間點
@@ -145,7 +147,7 @@ final class WorldBackup {
         var players = repoDir.resolve("players");
         scan(server, repoDir, p -> p.startsWith(refs) || p.startsWith(main) || p.startsWith(players) || p.getParent().equals(repoDir)
             && List.of("branches.yml", "data-version", "players.yml").contains(p.getFileName().toString()),
-            Set.of(), List.of(), index, prevEntries, sameStorage, staging, kept, changed);
+            Set.of(), List.of(), index, prevEntries, sameStorage, staging, kept, changed, null);
       }
     } finally {
       // 不等主執行緒：這裡被中斷時也要排得進去
@@ -164,14 +166,21 @@ final class WorldBackup {
     String name = Backup.NAME.format(Instant.now());
     var remote = storage.equals("hashed") ? Collections.synchronizedSet(new HashSet<>(store.list(prefix + "files/"))) : Set.<String>of();
     var futures = new ArrayList<Future<Entry>>();
+    var log = platform.log();
     for (var path : changed)
       futures.add(pool.submit(() -> {
         var file = staging.resolve(path);
-        var e = new Entry(S3.hex(S3.sha256(file)), Files.size(file), null, path);
-        var key = key(prefix, storage, name, e);
-        String version = null;
-        if (!storage.equals("hashed") || remote.add(key)) version = store.putFile(key, file);
-        return new Entry(e.sha(), e.size(), storage.equals("versioned") ? version : null, path);
+        boolean copyNow = live.contains(path);
+        try {
+          if (copyNow && !copyStable(server.resolve(path), file, index, path, log)) return null; // 這段期間被刪掉了
+          var e = new Entry(S3.hex(S3.sha256(file)), Files.size(file), null, path);
+          var key = key(prefix, storage, name, e);
+          String version = null;
+          if (!storage.equals("hashed") || remote.add(key)) version = store.putFile(key, file);
+          return new Entry(e.sha(), e.size(), storage.equals("versioned") ? version : null, path);
+        } finally {
+          if (copyNow) Files.deleteIfExists(file);
+        }
       }));
     if (storage.equals("folders"))
       for (var e : kept) futures.add(pool.submit(() -> {
@@ -182,7 +191,7 @@ final class WorldBackup {
     for (var e : kept) files.put(e.path(), e);
     for (var f : futures) {
       var e = f.get();
-      files.put(e.path(), e);
+      if (e != null) files.put(e.path(), e);
     }
     if (storage.equals("versioned") && sameStorage)
       for (var gone : prevEntries.keySet()) if (!files.containsKey(gone)) store.delete(prefix + "current/" + gone);
@@ -214,9 +223,13 @@ final class WorldBackup {
     return new Backup.Result(job, name, 0, changed.size(), kept.size(), skipped);
   }
 
-  /** 走訪一個資料夾：和上次相同（大小、修改時間）的沿用，有變動的複製到暫存區。 */
+  /**
+   * 走訪一個資料夾：和上次相同（大小、修改時間）的沿用，有變動的複製到暫存區。
+   * {@code live} 不是 null 時，region 檔只記進 {@code changed} 與 {@code live}，不複製（上傳時才複製，{@link #copyStable}）。
+   */
   private static void scan(Path server, Path base, java.util.function.Predicate<Path> include, Set<Path> excluded, List<PathMatcher> matchers,
-      Properties index, Map<String, Entry> prevEntries, boolean sameStorage, Path staging, List<Entry> kept, List<String> changed) throws IOException {
+      Properties index, Map<String, Entry> prevEntries, boolean sameStorage, Path staging, List<Entry> kept, List<String> changed, Set<String> live)
+      throws IOException {
     if (!Files.isDirectory(base)) return;
     Files.walkFileTree(base, new SimpleFileVisitor<>() {
       @Override
@@ -240,6 +253,11 @@ final class WorldBackup {
           kept.add(before);
           return FileVisitResult.CONTINUE;
         }
+        if (live != null && (fileName.endsWith(".mca") || fileName.endsWith(".mcc"))) {
+          changed.add(rel);
+          live.add(rel);
+          return FileVisitResult.CONTINUE;
+        }
         // 暫停存檔時伺服器仍可能寫檔（例如卸載 chunk）：複製前後不同就重來
         var target = staging.resolve(rel);
         Files.createDirectories(target.getParent());
@@ -259,6 +277,31 @@ final class WorldBackup {
         return FileVisitResult.CONTINUE; // 例如複製途中被刪掉的檔案
       }
     });
+  }
+
+  /**
+   * 伺服器照常存檔時複製一個 region 檔：複製前後的大小或修改時間不同就重來，最多 5 次；一直在變時這次照樣上傳，
+   * 但不記下時間，下次再傳一次。檔案不見了回傳 false。
+   */
+  private static boolean copyStable(Path file, Path target, Properties index, String rel, java.util.logging.Logger log) throws IOException {
+    Files.createDirectories(target.getParent());
+    try {
+      String stamp = stamp(Files.readAttributes(file, BasicFileAttributes.class));
+      for (int i = 0; i < 5; i++) {
+        Files.copy(file, target, StandardCopyOption.REPLACE_EXISTING);
+        String after = stamp(Files.readAttributes(file, BasicFileAttributes.class));
+        if (after.equals(stamp)) {
+          index.setProperty(rel, stamp);
+          return true;
+        }
+        stamp = after;
+      }
+      index.remove(rel);
+      log.warning("備份世界資料夾：" + rel + " 複製時一直在寫入，這份可能不完整，下次備份再傳一次");
+      return true;
+    } catch (java.nio.file.NoSuchFileException e) {
+      return false;
+    }
   }
 
   private static String stamp(BasicFileAttributes attrs) {
