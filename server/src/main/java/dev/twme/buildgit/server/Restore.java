@@ -374,6 +374,7 @@ final class Restore {
     for (var e : WorldBackup.entries(manifest)) needed += e.size();
     checkSpace(files, needed);
     String storage = manifest.getString("storage", "hashed"), snapshot = name;
+    var excludedWorlds = WorldBackup.onMain(bg, () -> WorldBackup.excludedWorlds(bg, job)).get(1, java.util.concurrent.TimeUnit.MINUTES);
     var downloads = new ArrayList<Future<?>>();
     for (var e : WorldBackup.entries(manifest)) {
       var target = files.resolve(e.path()).normalize();
@@ -405,6 +406,9 @@ final class Restore {
         warnings.add(world + " 看起來不是世界資料夾，不換");
         continue;
       }
+      // 世界裡沒有備份的世界（exclude-worlds，例如 Fabric 放在 world/dimensions/ 裡的建築世界）：先搬進要換上的世界，原樣留著
+      for (var ex : excludedWorlds)
+        if (ex.startsWith(target) && !ex.equals(target) && Files.isDirectory(ex)) plan.add(move(source.resolve(target.relativize(ex)), ex));
       plan.add(move(target, source));
     }
     for (var skipped : manifest.getStringList("skipped")) warnings.add(skipped + " 從來沒有玩家進去過，沒有備份，不換");

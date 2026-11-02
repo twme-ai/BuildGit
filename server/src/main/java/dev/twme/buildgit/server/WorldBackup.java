@@ -90,7 +90,7 @@ final class WorldBackup {
         var r = backup.root(level);
         if (r != null) roots.add(r);
       }
-      var excluded = new HashSet<Path>();
+      var excluded = excludedWorlds(bg, job);
       for (var name : platform.levelFolders())
         if (Workspace.ownWorldName(name) || bg.worlds().isDraftFolder(name)) excluded.add(platform.levelFolder(name).toAbsolutePath().normalize());
       excluded.add(Restore.staging(platform.repoDir()).toAbsolutePath().normalize());
@@ -124,6 +124,7 @@ final class WorldBackup {
     var skipped = new ArrayList<String>();
     var worlds = new TreeSet<String>(prep.roots());
     for (var w : prev.getStringList("worlds")) if (!worlds.contains(w) && Files.isDirectory(server.resolve(w))) worlds.add(w);
+    worlds.removeIf(w -> prep.excluded().contains(server.resolve(w).normalize()));
     try {
       for (var root : worlds) {
         Long visited = backup.visits().get(root);
@@ -221,6 +222,17 @@ final class WorldBackup {
     prune(job, storage);
     if (prep.announced()) platform.sync(() -> broadcast(bg, "backup-world-finished"));
     return new Backup.Result(job, name, 0, changed.size(), kept.size(), skipped);
+  }
+
+  /** {@code exclude-worlds} 列的世界資料夾（主執行緒）：世界資料夾的路徑（相對伺服器根目錄），或建築世界的「擁有者/名稱」。 */
+  static Set<Path> excludedWorlds(BuildGit bg, Backup.Job job) {
+    var platform = bg.platform();
+    var server = platform.server().getServerDirectory().toAbsolutePath().normalize();
+    var result = new HashSet<Path>();
+    for (var w : job.excludeWorlds) result.add(server.resolve(w).normalize());
+    for (var ws : bg.worlds().buildWorlds())
+      if (ws.buildWorld() != null && job.excludes(ws.buildWorld())) result.add(platform.levelFolder(ws.buildWorld().folder()).toAbsolutePath().normalize());
+    return result;
   }
 
   /**

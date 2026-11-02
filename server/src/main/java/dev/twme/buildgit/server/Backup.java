@@ -42,6 +42,8 @@ final class Backup {
     final int genesisHours;
     final boolean announce;
     final List<String> exclude;
+    /** 不備份的世界：世界資料夾名稱，或建築世界的「擁有者/名稱」。 */
+    final List<String> excludeWorlds;
     /** 目的地；沒設定好時為 null，原因在 {@link #problem}。 */
     final BackupStore store;
     final String problem;
@@ -52,8 +54,9 @@ final class Backup {
     volatile boolean queued;
 
     Job(String name, What what, String target, String prefix, Cron schedule, int idleMinutes, int keep, int genesisHours, String storage,
-        boolean announce, List<String> exclude, BackupStore store, String problem, Path state) {
+        boolean announce, List<String> exclude, List<String> excludeWorlds, BackupStore store, String problem, Path state) {
       this.genesisHours = genesisHours;
+      this.excludeWorlds = excludeWorlds;
       this.name = name;
       this.what = what;
       this.target = target;
@@ -67,6 +70,11 @@ final class Backup {
       this.store = store;
       this.problem = problem;
       this.state = state;
+    }
+
+    /** {@code exclude-worlds} 有沒有列這個建築世界（照「擁有者/名稱」或資料夾名稱，不分大小寫）。 */
+    boolean excludes(BuildWorlds.Entry e) {
+      return excludeWorlds.stream().anyMatch(w -> w.equalsIgnoreCase(e.label()) || w.equalsIgnoreCase(e.folder()));
     }
 
     /** 上次開始執行的時間（毫秒）；沒有時為 0。 */
@@ -189,7 +197,7 @@ final class Backup {
           }
           result.add(new Job(name, what, target, path.isEmpty() ? "" : path + "/", schedule, idle, Math.max(1, y.getInt(at + "keep", 7)),
               Math.max(0, y.getInt(at + "genesis-hours", 24)), storage,
-              y.getBoolean(at + "announce", true), y.getStringList(at + "exclude"), store, problem,
+              y.getBoolean(at + "announce", true), y.getStringList(at + "exclude"), y.getStringList(at + "exclude-worlds"), store, problem,
               platform.repoDir().resolve("backup").resolve(name)));
         } catch (IllegalArgumentException ex) {
           log.warning(FILE + " 的工作 " + name + " 設定不對，不執行：" + ex.getMessage());
@@ -590,7 +598,8 @@ final class Backup {
   private Result history(Job job) throws Exception {
     var server = bg.workspace();
     if (!server.isOpen()) throw new Workspace.Refused("還沒有開始版本控制");
-    var builds = WorldBackup.onMain(bg, () -> bg.worlds().buildWorlds().stream().filter(ws -> ws.isOpen() && !bg.worlds().busy(ws)).toList())
+    var builds = WorldBackup.onMain(bg, () -> bg.worlds().buildWorlds().stream()
+            .filter(ws -> ws.isOpen() && !bg.worlds().busy(ws) && !job.excludes(ws.buildWorld())).toList())
         .get(10, TimeUnit.MINUTES);
     var missing = new ArrayList<String>();
     var total = historyOf(job, server, job.prefix, job.state, missing);
