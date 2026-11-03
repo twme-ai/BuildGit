@@ -182,7 +182,7 @@ If the server allows it, you can create your own build worlds (admins always can
 /bg log, show, diff, blame, inspect, who, sel
 ```
 
-For permissions and permission sets, see [admin manual §4](docs/02-admin.md#4-權限).
+For permissions and permission sets, see [admin manual §4](docs/02-admin.md#4-permissions).
 
 ## API for other plugins
 
