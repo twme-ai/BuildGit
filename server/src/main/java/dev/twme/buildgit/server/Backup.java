@@ -377,7 +377,7 @@ final class Backup {
   private synchronized CompletableFuture<Result> enqueue(Job job, CompletableFuture<Result> result) {
     var w = worker;
     if (w == null || job.queued) {
-      if (result != null) result.completeExceptionally(new Workspace.Refused(w == null ? "備份沒有啟用" : "工作 " + job.name + " 已經在進行"));
+      if (result != null) result.completeExceptionally(w == null ? new Workspace.Refused("error-backup-disabled") : new Workspace.Refused("error-backup-running", "name", job.name));
       return result;
     }
     job.queued = true;
@@ -396,7 +396,7 @@ final class Backup {
 
   /** 立刻執行（{@code /bg backup now}）。 */
   CompletableFuture<Result> now(Job job) {
-    if (job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("工作 " + job.name + " 的目的地還沒設定：" + job.problem));
+    if (job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("error-backup-target-problem", "name", job.name, "problem", job.problem));
     return enqueue(job, new CompletableFuture<>());
   }
 
@@ -404,8 +404,8 @@ final class Backup {
   private <T> CompletableFuture<T> submit(Job job, Callable<T> task) {
     var result = new CompletableFuture<T>();
     var w = worker;
-    if (w == null) result.completeExceptionally(new Workspace.Refused("備份沒有啟用"));
-    else if (job.store == null) result.completeExceptionally(new Workspace.Refused("工作 " + job.name + " 的目的地還沒設定：" + job.problem));
+    if (w == null) result.completeExceptionally(new Workspace.Refused("error-backup-disabled"));
+    else if (job.store == null) result.completeExceptionally(new Workspace.Refused("error-backup-target-problem", "name", job.name, "problem", job.problem));
     else w.execute(() -> {
       try {
         result.complete(task.call());
@@ -419,7 +419,7 @@ final class Backup {
   /** 遠端的快照名稱，舊的在前。 */
   CompletableFuture<List<String>> snapshots(Job job) {
     var pool = lists;
-    if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("工作 " + job.name + " 的目的地還沒設定"));
+    if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("error-backup-target-unset", "name", job.name));
     return CompletableFuture.supplyAsync(() -> {
       try {
         return Restore.snapshots(job.store, job.prefix);
@@ -438,7 +438,7 @@ final class Backup {
   /** 在目的地列出；S3 查版本控制；再寫入一個小檔案、讀回比對、刪掉。列出失敗時整個失敗，之後的步驟各自回報。 */
   CompletableFuture<TestResult> test(Job job) {
     var pool = lists;
-    if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("工作 " + job.name + " 的目的地還沒設定：" + job.problem));
+    if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("error-backup-target-problem", "name", job.name, "problem", job.problem));
     return CompletableFuture.supplyAsync(() -> {
       var store = job.store;
       long t0 = System.nanoTime();
@@ -496,7 +496,7 @@ final class Backup {
   /** 從版本紀錄的備份取回一個分支的物件（{@link Restore#fetchBranch}）。 */
   CompletableFuture<Restore.Fetched> fetch(Workspace ws, String branch) {
     var job = history();
-    if (job == null) return CompletableFuture.failedFuture(new Workspace.Refused("沒有設定好的版本紀錄備份工作"));
+    if (job == null) return CompletableFuture.failedFuture(new Workspace.Refused("error-backup-no-history-job"));
     var pool = uploads;
     return submit(job, () -> Restore.fetchBranch(bg, job, pool, ws, branch));
   }
@@ -506,10 +506,10 @@ final class Backup {
    * 找不到時照遠端的清單（{@code worlds.yml}）找「擁有者/名稱」或 id。
    */
   CompletableFuture<Restore.Prepared> restoreWorld(Job job, String spec, String name) {
-    if (job.what != What.HISTORY) return CompletableFuture.failedFuture(new Workspace.Refused("只有版本紀錄的工作能還原單一建築世界"));
+    if (job.what != What.HISTORY) return CompletableFuture.failedFuture(new Workspace.Refused("error-backup-world-needs-history"));
     var local = bg.worlds().find(spec, null);
     var entry = local == null ? null : local.buildWorld();
-    if (local != null && entry == null) return CompletableFuture.failedFuture(new Workspace.Refused("伺服器世界不用 world= 還原"));
+    if (local != null && entry == null) return CompletableFuture.failedFuture(new Workspace.Refused("error-backup-server-world-option"));
     var pool = uploads;
     return submit(job, () -> {
       String id = entry != null ? entry.id() : null;
@@ -518,8 +518,8 @@ final class Backup {
         var list = bytes == null ? new Yaml() : Yaml.load(new java.io.ByteArrayInputStream(bytes));
         for (var k : list.keys()) if (k.equals(spec) || spec.equalsIgnoreCase(list.getString(k))) id = k;
       }
-      if (id == null) throw new Workspace.Refused("這台伺服器與備份裡都找不到建築世界 " + spec);
-      if (!id.matches("[0-9a-f]{1,32}")) throw new Workspace.Refused("備份裡的世界 id 不對：" + id);
+      if (id == null) throw new Workspace.Refused("error-backup-world-not-found", "spec", spec);
+      if (!id.matches("[0-9a-f]{1,32}")) throw new Workspace.Refused("error-backup-bad-world-id", "id", id);
       return Restore.downloadBuild(bg, job, pool, id, entry, name);
     });
   }
@@ -527,7 +527,7 @@ final class Backup {
   /** 建築世界的快照名稱，舊的在前（{@code /bg backup list <工作> world=…}）。 */
   CompletableFuture<List<String>> snapshots(Job job, String id) {
     var pool = lists;
-    if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("工作 " + job.name + " 的目的地還沒設定"));
+    if (pool == null || job.store == null) return CompletableFuture.failedFuture(new Workspace.Refused("error-backup-target-unset", "name", job.name));
     return CompletableFuture.supplyAsync(() -> {
       try {
         return Restore.snapshots(job.store, worldPrefix(job, id));
@@ -597,7 +597,7 @@ final class Backup {
    */
   private Result history(Job job) throws Exception {
     var server = bg.workspace();
-    if (!server.isOpen()) throw new Workspace.Refused("還沒有開始版本控制");
+    if (!server.isOpen()) throw new Workspace.Refused("error-not-initialized");
     var builds = WorldBackup.onMain(bg, () -> bg.worlds().buildWorlds().stream()
             .filter(ws -> ws.isOpen() && !bg.worlds().busy(ws) && !job.excludes(ws.buildWorld())).toList())
         .get(10, TimeUnit.MINUTES);

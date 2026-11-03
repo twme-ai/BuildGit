@@ -56,9 +56,9 @@ final class Restore {
     var warnings = new ArrayList<String>();
 
     var names = snapshots(s3, prefix);
-    if (names.isEmpty()) throw new Workspace.Refused("遠端沒有快照");
+    if (names.isEmpty()) throw new Workspace.Refused("error-restore-no-snapshots");
     if (name == null) name = names.getLast();
-    else if (!names.contains(name)) throw new Workspace.Refused("沒有快照 " + name);
+    else if (!names.contains(name)) throw new Workspace.Refused("error-restore-no-snapshot", "name", name);
     var snapshotBytes = s3.get(prefix + "snapshots/" + name + ".yml");
     if (snapshotBytes == null) throw new IOException("讀不到快照 " + name);
     var snapshot = Yaml.load(new ByteArrayInputStream(snapshotBytes));
@@ -171,7 +171,7 @@ final class Restore {
         if (entry.get("level-dat") != null) lines.add(String.valueOf(entry.get("level-dat"))); // 第一階段的快照
         for (var line : lines) {
           var target = inside(root, line.substring(line.indexOf(' ') + 1));
-          if (!levelFile(levelDir, target)) throw new Workspace.Refused("快照裡的路徑不對：" + target);
+          if (!levelFile(levelDir, target)) throw new Workspace.Refused("error-restore-bad-path", "target", target);
           levelFiles.put(target, line.substring(0, line.indexOf(' ')));
         }
       } else if (seed != null && ws.mainSeed(dim) != null && !String.valueOf(seed).equals(String.valueOf(ws.mainSeed(dim)))) {
@@ -247,9 +247,9 @@ final class Restore {
     var prefix = Backup.worldPrefix(job, id);
     var upgrader = bg.workspace().upgrader();
     var names = snapshots(store, prefix);
-    if (names.isEmpty()) throw new Workspace.Refused("遠端沒有這個建築世界的快照");
+    if (names.isEmpty()) throw new Workspace.Refused("error-restore-no-world-snapshots");
     if (name == null) name = names.getLast();
-    else if (!names.contains(name)) throw new Workspace.Refused("沒有快照 " + name);
+    else if (!names.contains(name)) throw new Workspace.Refused("error-restore-no-snapshot", "name", name);
     var bytes = store.get(prefix + "snapshots/" + name + ".yml");
     if (bytes == null) throw new IOException("讀不到快照 " + name);
     var snapshot = Yaml.load(new ByteArrayInputStream(bytes));
@@ -259,7 +259,7 @@ final class Restore {
     var loc = bg.worlds().locations(entry);
     Path repoDir = loc[0], objectsDir = loc[1], genesisRoot = loc[2];
     if (repoDir.startsWith(bg.platform().levelFolder(entry.folder()).toAbsolutePath().normalize()))
-      throw new Workspace.Refused("版本庫放在世界資料夾裡，不能單獨還原這個世界");
+      throw new Workspace.Refused("error-restore-repo-in-world");
     var staging = staging(repoDir);
     boolean genesisInside = genesisRoot.startsWith(repoDir);
     var genesisStaging = genesisInside ? staging.resolve(repoDir.relativize(genesisRoot).toString())
@@ -339,15 +339,15 @@ final class Restore {
     var platform = bg.platform();
     var warnings = new ArrayList<String>();
     var names = snapshots(store, prefix);
-    if (names.isEmpty()) throw new Workspace.Refused("遠端沒有快照");
+    if (names.isEmpty()) throw new Workspace.Refused("error-restore-no-snapshots");
     if (name == null) name = names.getLast();
-    else if (!names.contains(name)) throw new Workspace.Refused("沒有快照 " + name);
+    else if (!names.contains(name)) throw new Workspace.Refused("error-restore-no-snapshot", "name", name);
     var bytes = store.get(prefix + "snapshots/" + name + ".yml");
     if (bytes == null) throw new IOException("讀不到快照 " + name);
     var manifest = Yaml.load(new ByteArrayInputStream(bytes));
     int version = manifest.getInt("minecraft-data-version", 0), current = ws.upgrader().current();
     if (version > current)
-      throw new Workspace.Refused("這份備份來自較新的 Minecraft（資料版本 " + version + "），目前伺服器是 " + current + "；Minecraft 不能降級");
+      throw new Workspace.Refused("error-restore-newer", "version", version, "current", current);
     if (version < current) warnings.add("備份來自較舊的 Minecraft（資料版本 " + version + "）：換上後由 Minecraft 照一般的流程升級世界");
 
     // 版本庫：分支指向的存檔要在本機
@@ -355,11 +355,11 @@ final class Restore {
     var heads = new ArrayList<ObjectId>();
     if (manifest.get("refs") instanceof Map<?, ?> refs) for (var v : refs.values()) heads.add(ObjectId.parse(String.valueOf(v)));
     if (!heads.isEmpty()) {
-      if (!ws.isOpen()) throw new Workspace.Refused("這份備份有版本紀錄，但這台伺服器還沒有版本庫：請先還原版本紀錄的備份、重新啟動，再還原世界資料夾");
+      if (!ws.isOpen()) throw new Workspace.Refused("error-restore-needs-history");
       var objects = ws.repo().overlays().objects();
       var missing = heads.stream().filter(id -> !Files.exists(objects.file(id))).toList();
       if (!missing.isEmpty()) {
-        if (history == null) throw new Workspace.Refused("本機沒有這份備份用到的存檔，也沒有設定版本紀錄的備份工作可以補");
+        if (history == null) throw new Workspace.Refused("error-restore-missing-saves");
         ObjectFetch.fetch(objects, missing, false, source(history.store, history.prefix), pool);
       }
     }
@@ -436,7 +436,7 @@ final class Restore {
     var s3 = job.store;
     // 建築世界的快照在 worlds/<id>/，物件共用
     var prefix = ws.buildWorld() == null ? job.prefix : Backup.worldPrefix(job, ws.buildWorld().id());
-    if (!ws.isOpen()) throw new Workspace.Refused("還沒有開始版本控制");
+    if (!ws.isOpen()) throw new Workspace.Refused("error-not-initialized");
     var names = snapshots(s3, prefix);
     for (int i = names.size() - 1; i >= 0; i--) {
       var bytes = s3.get(prefix + "snapshots/" + names.get(i) + ".yml");
@@ -455,7 +455,7 @@ final class Restore {
       var meta = Yaml.load(new ByteArrayInputStream(snapshot.getString("branches", "").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
       return new Fetched(names.get(i), head, objects, meta.getString(branch + ".source", Repository.MAIN), meta.getString(branch + ".dimension", null));
     }
-    throw new Workspace.Refused("遠端的快照裡都沒有分支 " + branch);
+    throw new Workspace.Refused("error-fetch-no-branch", "branch", branch);
   }
 
   static List<String> snapshots(BackupStore s3, String prefix) throws IOException {
@@ -475,7 +475,7 @@ final class Restore {
     dv.load(new StringReader(dataVersion));
     int newest = Integer.parseInt(dv.getProperty("newest", "0").strip());
     if (newest > current)
-      throw new Workspace.Refused("這份備份曾由較新的 Minecraft（資料版本 " + newest + "）寫入，目前伺服器是 " + current + "；請用相同或更新的版本");
+      throw new Workspace.Refused("error-fetch-newer", "newest", newest, "current", current);
   }
 
   private static void fetch(BackupStore s3, String prefix, String hash, Path target) throws IOException {
@@ -513,12 +513,12 @@ final class Restore {
     var base = root.toAbsolutePath().normalize();
     Path p;
     try {
-      if (rel.isEmpty() || Path.of(rel).isAbsolute()) throw new Workspace.Refused("快照裡的路徑不對：" + rel);
+      if (rel.isEmpty() || Path.of(rel).isAbsolute()) throw new Workspace.Refused("error-restore-bad-path", "target", rel);
       p = base.resolve(rel).normalize();
     } catch (java.nio.file.InvalidPathException e) {
-      throw new Workspace.Refused("快照裡的路徑不對：" + rel);
+      throw new Workspace.Refused("error-restore-bad-path", "target", rel);
     }
-    if (!p.startsWith(base) || p.equals(base)) throw new Workspace.Refused("快照裡的路徑不對：" + rel);
+    if (!p.startsWith(base) || p.equals(base)) throw new Workspace.Refused("error-restore-bad-path", "target", rel);
     return p;
   }
 
@@ -540,7 +540,7 @@ final class Restore {
 
   /** 起點世界裡一個維度的目錄（{@code <命名空間>/<路徑>}）；維度 id 照 Minecraft 的格式檢查。 */
   private static Path dimensionDir(Path root, String dim) throws Workspace.Refused {
-    if (!dim.matches("[a-z0-9_.-]+:[a-z0-9_.-]+(/[a-z0-9_.-]+)*") || dim.contains("..")) throw new Workspace.Refused("快照裡的維度不對：" + dim);
+    if (!dim.matches("[a-z0-9_.-]+:[a-z0-9_.-]+(/[a-z0-9_.-]+)*") || dim.contains("..")) throw new Workspace.Refused("error-restore-bad-dimension", "dim", dim);
     int colon = dim.indexOf(':');
     return inside(root, dim.substring(0, colon) + "/" + dim.substring(colon + 1));
   }
@@ -606,8 +606,7 @@ final class Restore {
   static void checkSpace(Path dir, long needed) throws IOException {
     long free = Files.getFileStore(dir).getUsableSpace(), margin = 1L << 30;
     if (needed + margin > free)
-      throw new Workspace.Refused(String.format("磁碟空間不夠：這份快照要下載 %.1f GB（另外留 1 GB），%s 所在的磁碟只剩 %.1f GB",
-          needed / 1e9, dir, free / 1e9));
+      throw new Workspace.Refused("error-restore-disk-space", "needed", String.format("%.1f", needed / 1e9), "dir", dir, "free", String.format("%.1f", free / 1e9));
   }
 
   static void delete(Path dir) throws IOException {

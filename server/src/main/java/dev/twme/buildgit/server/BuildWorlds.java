@@ -302,8 +302,8 @@ public final class BuildWorlds {
    */
   java.util.concurrent.CompletableFuture<Workspace> fork(Workspace source, String name, ServerPlayer owner, boolean admin, boolean template)
       throws IOException {
-    if (!source.isOpen() || source.buildWorld() == null) throw new Workspace.Refused("來源的版本庫無法開啟");
-    if (busy(source)) throw new Workspace.Refused("來源正在改名、轉讓或刪除，請稍後再試");
+    if (!source.isOpen() || source.buildWorld() == null) throw new Workspace.Refused("error-source-repo-broken");
+    if (busy(source)) throw new Workspace.Refused("error-source-busy");
     var head = source.repo().head(Repository.MAIN);
     if (name == null && !template) {
       var base = source.buildWorld().name();
@@ -350,7 +350,7 @@ public final class BuildWorlds {
 
   /** 正在被 fork 時不能改名、轉讓、刪除。 */
   void checkForking(Workspace ws) throws Workspace.Refused {
-    if (ws.buildWorld() != null && forking.containsKey(ws.buildWorld().id())) throw new Workspace.Refused("有人正在複製這個世界，請稍後再試");
+    if (ws.buildWorld() != null && forking.containsKey(ws.buildWorld().id())) throw new Workspace.Refused("error-fork-busy");
   }
 
   private boolean nameTaken(String name, UUID owner) {
@@ -361,10 +361,10 @@ public final class BuildWorlds {
   private Workspace prepare(String name, ServerPlayer owner, boolean admin) throws IOException {
     var pw = settings.get().playerWorlds();
     if (!admin) {
-      if (!pw.enabled()) throw new Workspace.Refused("這台伺服器沒有開放玩家建立建築世界");
+      if (!pw.enabled()) throw new Workspace.Refused("error-new-closed");
       long owned = worlds.values().stream().filter(ws -> ws.buildWorld().owner().equals(owner.getUUID())).count()
           + reserved.values().stream().filter(r -> r.owner().equals(owner.getUUID())).count();
-      if (owned >= pw.maxPerPlayer()) throw new Workspace.Refused("每人最多 " + pw.maxPerPlayer() + " 個建築世界");
+      if (owned >= pw.maxPerPlayer()) throw new Workspace.Refused("error-new-limit", "max", pw.maxPerPlayer());
     }
     if (name == null)
       for (int i = 1; name == null; i++) {
@@ -392,7 +392,7 @@ public final class BuildWorlds {
         System.currentTimeMillis());
     var ws = workspace(e);
     if (Repository.exists(ws.dir()) || Files.exists(ws.genesisRoot()))
-      throw new Workspace.Refused("這個建築世界的資料夾已經存在（" + ws.dir() + "）");
+      throw new Workspace.Refused("error-new-folder-exists", "dir", ws.dir());
     return ws;
   }
 
@@ -416,19 +416,19 @@ public final class BuildWorlds {
     for (var ws : worlds.values()) {
       var other = ws.buildWorld();
       if (name.equals(other.folder()) || !other.id().equals(e.id()) && ws.ownsDraftFolder(name))
-        throw new Workspace.Refused("世界資料夾 " + name + " 和建築世界 " + other.label() + " 的世界撞名");
+        throw new Workspace.Refused("error-folder-clash-world", "name", name, "label", other.label());
     }
     // 草稿不能接管不是這個世界的世界或資料夾（例如多世界插件的世界）；檢視世界由 Workspace#viewName 檢查
     var self = worlds.get(e.id());
     boolean ours = name.startsWith(e.folder() + "-") || self != null && self.ownsDraftFolder(name);
     if (!key.equals("{commit}") && !ours && (platform.findLevel(name) != null || Files.exists(platform.levelFolder(name))))
-      throw new Workspace.Refused("已經有叫 " + name + " 的世界或資料夾，不能當草稿的資料夾（請管理員調整 player-worlds." + setting + "）");
+      throw new Workspace.Refused("error-draft-folder-taken", "name", name, "setting", setting);
     return name;
   }
 
   private Workspace.Refused misconfigured(String problem) {
     platform.log().warning("config.yml 的建築世界設定有誤：" + problem);
-    return new Workspace.Refused("伺服器的建築世界設定有誤，請管理員看主控台");
+    return new Workspace.Refused("error-world-settings-broken");
   }
 
   private String folderName(String name, String ownerName, String owner, String id) {
@@ -455,11 +455,11 @@ public final class BuildWorlds {
 
   /** 名稱合法、不是伺服器世界的名稱、擁有者沒有同名的世界（含回收區裡的）。{@code self} 是改名、轉讓中的世界自己。 */
   private void checkName(String name, UUID owner, String self) throws Workspace.Refused {
-    if (!Workspace.BRANCH_NAME.matcher(name).matches()) throw new Workspace.Refused("名稱只能用小寫英文、數字、底線、連字號（1～32 字）：" + name);
-    if (name.equalsIgnoreCase(serverWorldName())) throw new Workspace.Refused("這是伺服器世界的名稱");
+    if (!Workspace.BRANCH_NAME.matcher(name).matches()) throw new Workspace.Refused("error-world-name", "name", name);
+    if (name.equalsIgnoreCase(serverWorldName())) throw new Workspace.Refused("error-world-name-server");
     for (var e : entries())
       if (!e.id().equals(self) && e.owner().equals(owner) && e.name().equals(name))
-        throw new Workspace.Refused((trash.containsKey(e.id()) ? "回收區裡已經有叫 " : "已經有叫 ") + name + " 的建築世界");
+        throw trash.containsKey(e.id()) ? new Workspace.Refused("error-world-name-in-trash", "name", name) : new Workspace.Refused("error-world-name-taken", "name", name);
   }
 
   /** 所有登記的世界，含回收區裡的。 */
@@ -473,22 +473,23 @@ public final class BuildWorlds {
 
   /** 世界資料夾名稱不能和任何現有的世界、草稿、資料夾（含回收區裡的）或 BuildGit 用的開頭撞在一起。{@code self} 是改名中的世界自己。 */
   private void checkFolder(String folder, String self) throws IOException {
-    if (!folder.matches("[a-z0-9][a-z0-9_.-]{0,79}")) throw new Workspace.Refused("世界資料夾名稱不合法：" + folder);
+    if (!folder.matches("[a-z0-9][a-z0-9_.-]{0,79}")) throw new Workspace.Refused("error-folder-invalid", "folder", folder);
     var level = platform.server().getWorldData().getLevelName();
     if (RESERVED.contains(folder) || folder.equals(level) || folder.equals(level + "_nether") || folder.equals(level + "_the_end")
         || folder.startsWith("bg_") || folder.startsWith(Workspace.VIEW_PREFIX))
-      throw new Workspace.Refused("不能用 " + folder + " 當世界資料夾的名稱");
+      throw new Workspace.Refused("error-folder-reserved", "folder", folder);
     for (var e : entries()) {
       if (e.id().equals(self)) continue;
       var other = e.folder();
       if (folder.equals(other) || folder.startsWith(other + "-") || other.startsWith(folder + "-"))
-        throw new Workspace.Refused("世界資料夾 " + folder + " 和建築世界 " + e.label() + (trash.containsKey(e.id()) ? "（在回收區）" : "") + " 的世界或草稿撞名");
+        throw trash.containsKey(e.id()) ? new Workspace.Refused("error-folder-clash-trash", "folder", folder, "label", e.label())
+            : new Workspace.Refused("error-folder-clash", "folder", folder, "label", e.label());
     }
     for (var ws : worlds.values())
       if (!ws.buildWorld().id().equals(self) && ws.ownsDraftFolder(folder))
-        throw new Workspace.Refused("世界資料夾 " + folder + " 和建築世界 " + ws.buildWorld().label() + " 的草稿撞名");
+        throw new Workspace.Refused("error-folder-clash-draft", "folder", folder, "label", ws.buildWorld().label());
     if (platform.findLevel(folder) != null || Files.exists(platform.levelFolder(folder)) || Files.exists(Path.of(folder)))
-      throw new Workspace.Refused("已經有叫 " + folder + " 的世界或資料夾");
+      throw new Workspace.Refused("error-folder-taken", "folder", folder);
   }
 
   private void save() throws IOException {
@@ -533,7 +534,7 @@ public final class BuildWorlds {
     var e = p.entry();
     var ws = worlds.get(e.id());
     if (ws != null) return afterShutdown(ws, () -> swapIn(p));
-    if (trash.containsKey(e.id())) throw new Workspace.Refused("這個世界在回收區裡：先用 /bg world undelete 找回來，再還原");
+    if (trash.containsKey(e.id())) throw new Workspace.Refused("error-restore-in-trash");
     checkName(e.name(), e.owner(), e.id());
     checkFolder(e.folder(), e.id());
     return java.util.concurrent.CompletableFuture.completedFuture(swapIn(p));
@@ -630,7 +631,7 @@ public final class BuildWorlds {
     if (keeping) return;
     int max = settings.get().playerWorlds().maxLoaded();
     int loaded = worlds.values().stream().mapToInt(ws -> ws.levelNames(kept(ws)).size()).sum();
-    if (loaded >= max) throw new Workspace.Refused("伺服器上同時開著的建築世界已經滿了（" + max + " 個），請稍後再試");
+    if (loaded >= max) throw new Workspace.Refused("error-worlds-full", "max", max);
   }
 
   /** 正在改名、轉讓或刪除。 */
@@ -808,7 +809,7 @@ public final class BuildWorlds {
   Workspace undelete(Deleted d) throws IOException {
     var e = d.entry();
     for (var m : d.moved())
-      if (Files.exists(m.from())) throw new Workspace.Refused("原本的位置已經有東西了：" + m.from());
+      if (Files.exists(m.from())) throw new Workspace.Refused("error-undelete-occupied", "from", m.from());
     for (var m : d.moved()) Files.move(m.to(), m.from());
     trash.remove(e.id());
     var ws = workspace(e);

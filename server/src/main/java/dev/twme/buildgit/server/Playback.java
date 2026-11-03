@@ -182,7 +182,7 @@ final class Playback {
       if (toTime == null || c.time() <= toTime) picked.add(id);
       id = c.parents().getFirst();
     }
-    if (fromCommit != null && !fromCommit.equals(base)) throw new Workspace.Refused("起點不在這個分支的歷史裡（只看每次存檔的第一個上一版）");
+    if (fromCommit != null && !fromCommit.equals(base)) throw new Workspace.Refused("error-play-start-not-in-history");
     Collections.reverse(picked);
     var steps = new ArrayList<Step>();
     steps.add(step(repo, base));

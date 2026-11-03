@@ -152,7 +152,7 @@ final class Realms {
 
   /** 傳送到建築世界的出生點（第一次有人進來時才決定，擁有者可以改）。從伺服器世界進來時記下位置給 {@link #home}。 */
   void enter(ServerPlayer p, Workspace ws) throws IOException {
-    if (bg.worlds().busy(ws)) throw new Workspace.Refused("這個世界正在改名、轉讓或刪除，請稍後再試");
+    if (bg.worlds().busy(ws)) throw new Workspace.Refused("error-world-busy");
     if (bg.workspace(p.level()).buildWorld() == null) {
       var state = load(p.getUUID());
       state.set("home.world", p.level().dimension().identifier().toString());
@@ -171,7 +171,7 @@ final class Realms {
     ws.spawn(bg.tracker().author(p), bg.messages().raw("world-first-commit")).whenComplete((spawn, e) -> ws.sync(() -> {
       if (e != null) {
         bg.platform().log().log(Level.WARNING, "無法決定建築世界 " + ws.label() + " 的出生點", e);
-        bg.messages().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+        bg.messages().send(sender, "branch-failed", "error", Workspace.unwrap(e));
         return;
       }
       bg.platform().teleport(p, level, spawn.x(), spawn.y(), spawn.z(), spawn.yaw(), spawn.pitch());

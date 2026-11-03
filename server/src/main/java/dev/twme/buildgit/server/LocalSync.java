@@ -82,7 +82,7 @@ final class LocalSync {
         load(player, name, folder);
       } catch (IOException | RuntimeException e) {
         bg.platform().log().log(Level.WARNING, "無法載入範圍 " + name, e);
-        msg().send(bg.platform().sender(player), "sync-failed", "error", String.valueOf(e.getMessage()));
+        msg().send(bg.platform().sender(player), "sync-failed", "error", e);
       }
     }));
   }
@@ -106,7 +106,7 @@ final class LocalSync {
     var bundle = Bundle.decode(Files.readAllBytes(file), bg.workspace().upgrader());
     var level = p.level();
     var box = bundle.box();
-    if (box.minY() < level.getMinY() || box.maxY() > level.getMaxY()) throw new Workspace.Refused("範圍超出這個世界的高度");
+    if (box.minY() < level.getMinY() || box.maxY() > level.getMaxY()) throw new Workspace.Refused("error-sync-height");
     msg().send(sender, "sync-loading", "name", name);
     var platform = bg.platform();
     var futures = new ArrayList<CompletableFuture<?>>();
@@ -128,7 +128,7 @@ final class LocalSync {
         if (player != null) msg().send(platform.sender(player), "sync-loaded", "name", name, "failed", failed);
       } catch (IOException | RuntimeException e) {
         platform.log().log(Level.WARNING, "無法載入範圍 " + name, e);
-        if (player != null) msg().send(platform.sender(player), "sync-failed", "error", String.valueOf(e.getMessage()));
+        if (player != null) msg().send(platform.sender(player), "sync-failed", "error", e);
       }
     }));
   }

@@ -72,14 +72,14 @@ final class WorldUpload {
   /** {@code /bg new <名稱> from <存檔>}（主執行緒）：先檢查能不能建立，再請用戶端打包。 */
   void start(ServerPlayer p, String name, WorldConfig config, boolean admin, String save) throws IOException {
     var pw = bg.settings().playerWorlds();
-    if (pw.uploadConnection().isEmpty()) throw new Workspace.Refused("這台伺服器沒有開放上傳單人世界");
+    if (pw.uploadConnection().isEmpty()) throw new Workspace.Refused("error-upload-closed");
     var c = Backup.connection(bg.platform().configDir(), pw.uploadConnection());
     if (c == null) {
       bg.platform().log().warning("player-worlds.upload.connection 指定的 S3 連線 " + pw.uploadConnection() + " 不在 s3.yml 或沒有填完");
-      throw new Workspace.Refused("伺服器的上傳設定有誤，請管理員看主控台");
+      throw new Workspace.Refused("error-upload-settings-broken");
     }
-    if (pending.containsKey(p.getUUID())) throw new Workspace.Refused("你已經有一個上傳在進行，等它完成再試");
-    if (save.isEmpty() || save.length() > 128 || save.contains("\n")) throw new Workspace.Refused("存檔名稱不對：寫 saves 裡的資料夾名稱");
+    if (pending.containsKey(p.getUUID())) throw new Workspace.Refused("error-upload-running");
+    if (save.isEmpty() || save.length() > 128 || save.contains("\n")) throw new Workspace.Refused("error-upload-bad-name");
     bg.worlds().checkCreate(name, p, admin);
     var endpoint = pw.uploadEndpoint().isEmpty() ? c.endpoint() : pw.uploadEndpoint();
     pending.put(p.getUUID(), new Pending(save, name, config, admin, p.canUseGameMasterBlocks(), new S3(c), endpoint, pw.uploadMaxBytes(),
@@ -152,8 +152,8 @@ final class WorldUpload {
       } finally {
         purge(up);
       }
-      if (!found) throw new Workspace.Refused("S3 上找不到上傳的檔案");
-      if (Files.size(zip) != up.size || !S3.hex(S3.sha256(zip)).equals(up.sha)) throw new Workspace.Refused("上傳的檔案和用戶端回報的不同");
+      if (!found) throw new Workspace.Refused("error-upload-missing");
+      if (Files.size(zip) != up.size || !S3.hex(S3.sha256(zip)).equals(up.sha)) throw new Workspace.Refused("error-upload-mismatch");
       var staged = tmp.resolve("staged");
       var result = unpack(zip, tmp.resolve("raw"), staged, up.max, up.gameMaster);
       Files.delete(zip);
@@ -195,10 +195,10 @@ final class WorldUpload {
   void importFolder(Sender sender, ServerPlayer owner, String name, WorldConfig config, String folder) throws IOException {
     var base = bg.platform().server().getServerDirectory().toAbsolutePath().normalize();
     var dir = base.resolve(folder).normalize();
-    if (!dir.startsWith(base) || !Files.isDirectory(dir)) throw new Workspace.Refused("伺服器目錄裡沒有資料夾 " + folder);
+    if (!dir.startsWith(base) || !Files.isDirectory(dir)) throw new Workspace.Refused("error-import-no-folder", "folder", folder);
     if (!Files.isDirectory(dir.resolve("region")) && Files.isDirectory(dir.resolve("dimensions/minecraft/overworld/region")))
       dir = dir.resolve("dimensions/minecraft/overworld");
-    if (!Files.isDirectory(dir.resolve("region"))) throw new Workspace.Refused(folder + " 裡沒有 region 資料夾，不是世界資料夾");
+    if (!Files.isDirectory(dir.resolve("region"))) throw new Workspace.Refused("error-import-not-world", "folder", folder);
     bg.worlds().checkCreate(name, owner, true);
     // 世界還載入著時先存檔，複製完之前不再自動存檔（不然 region 與 entities 可能是不同時間的）
     Runnable saved = () -> {};
@@ -258,13 +258,13 @@ final class WorldUpload {
 
   private void importFailed(Sender sender, String folder, Throwable e) {
     if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "匯入世界 " + folder + " 失敗", e);
-    msg().send(sender, "world-import-failed", "folder", folder, "error", String.valueOf(e.getMessage()));
+    msg().send(sender, "world-import-failed", "folder", folder, "error", e);
   }
 
   private void failed(UUID uuid, Pending up, Throwable e) {
     if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "上傳單人世界失敗", e);
     var online = bg.platform().server().getPlayerList().getPlayer(uuid);
-    if (online != null) msg().send(bg.platform().sender(online), "world-upload-failed", "save", up.save, "error", String.valueOf(e.getMessage()));
+    if (online != null) msg().send(bg.platform().sender(online), "world-upload-failed", "save", up.save, "error", e);
   }
 
   record Result(int chunks, int dropped) {}
@@ -286,14 +286,14 @@ final class WorldUpload {
         if (!SyncClient.PACKED.matcher(e.getName()).matches()) {
           // 不要的檔案也會被解壓縮讀過去：一樣算進上限
           for (int n; (n = in.read(buf)) > 0; )
-            if ((total += n) > max) throw new Workspace.Refused("解開後超過上限");
+            if ((total += n) > max) throw new Workspace.Refused("error-upload-too-large");
           continue;
         }
         var to = raw.resolve(e.getName());
         Files.createDirectories(to.getParent());
         try (var out = Files.newOutputStream(to)) {
           for (int n; (n = in.read(buf)) > 0; ) {
-            if ((total += n) > max) throw new Workspace.Refused("解開後超過上限");
+            if ((total += n) > max) throw new Workspace.Refused("error-upload-too-large");
             out.write(buf, 0, n);
           }
         }
@@ -336,7 +336,7 @@ final class WorldUpload {
               dropped++;
               continue;
             }
-            if (v > current) throw new Workspace.Refused("存檔是比伺服器新的 Minecraft 版本存的，請用伺服器的版本（或更舊的）開過再上傳");
+            if (v > current) throw new Workspace.Refused("error-upload-newer");
             try {
               if (blocks) {
                 c = upgrader.chunk(Workspace.OVERWORLD, c);
@@ -365,7 +365,7 @@ final class WorldUpload {
         }
       }
     }
-    if (chunks == 0) throw new Workspace.Refused("世界裡沒有可以用的 chunk");
+    if (chunks == 0) throw new Workspace.Refused("error-upload-no-chunks");
     return new Result(chunks, dropped);
   }
 

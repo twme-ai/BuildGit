@@ -216,7 +216,7 @@ final class Sync {
     } catch (IOException e) {
       // 用戶端送來的資料有問題：只告訴玩家，不寫堆疊（避免被拿來洗記錄）
       uploads.remove(p.getUUID());
-      failed(p.getUUID(), new Workspace.Refused(e.getMessage()));
+      failed(p.getUUID(), new Workspace.Refused("error-sync-client-data", "error", e.getMessage()));
       return;
     }
     if (data == null) return;
@@ -235,8 +235,8 @@ final class Sync {
       return bg.workspace();
     }
     var ws = bg.worlds().byId(id);
-    if (ws == null || !ws.isOpen()) throw new Workspace.Refused("取出這個範圍的建築世界已經不在了（被刪除，或正在改名、還原）");
-    if (bg.worlds().busy(ws)) throw new Workspace.Refused("建築世界 " + ws.label() + " 正在處理其他事，請稍後再試");
+    if (ws == null || !ws.isOpen()) throw new Workspace.Refused("error-sync-world-gone");
+    if (bg.worlds().busy(ws)) throw new Workspace.Refused("error-sync-world-busy", "label", ws.label());
     authorize(p, ws);
     return ws;
   }
@@ -248,13 +248,13 @@ final class Sync {
   private void authorize(ServerPlayer p, Workspace ws) throws Workspace.Refused {
     if (ws.buildWorld() == null) {
       // 在建築世界裡權限是那個世界的角色：要在伺服器世界裡才看伺服器的 buildgit.push
-      if (!bg.realms().inServerWorld(p.level())) throw new Workspace.Refused("這個範圍是從伺服器世界取出的：請先回伺服器世界再送回");
-      if (!bg.platform().hasPermission(p, "buildgit.push")) throw new Workspace.Refused("你沒有送回伺服器世界的權限");
+      if (!bg.realms().inServerWorld(p.level())) throw new Workspace.Refused("error-sync-from-server");
+      if (!bg.platform().hasPermission(p, "buildgit.push")) throw new Workspace.Refused("error-sync-server-permission");
       return;
     }
     var role = ws.role(p.getUUID());
     if (!bg.realms().admin(p) && (role == null || role == WorldConfig.Role.VISITOR))
-      throw new Workspace.Refused("你在建築世界 " + ws.label() + " 不是建造者以上，不能送回（可以用 /bg fork 複製一份自己的）");
+      throw new Workspace.Refused("error-sync-not-builder", "label", ws.label());
   }
 
   /** 用戶端連上時列出的改過範圍：這台伺服器取出過、現在能送回的，附上送回的按鈕。 */
@@ -316,11 +316,11 @@ final class Sync {
         try {
           edited = Bundle.decode(data, ws.upgrader(), Bundle.maxRaw(box));
         } catch (IOException | RuntimeException e) {
-          throw new Workspace.Refused("送回的資料無效：" + e.getMessage());
+          throw new Workspace.Refused("error-sync-bad-data", "error", e.getMessage());
         }
         if (!edited.dimension().equals(dimension) || !edited.box().equals(box))
-          throw new Workspace.Refused("送回的範圍與取出時不同，請重新 /bg pull");
-        if (edited.entities().size() > MAX_ENTITIES) throw new Workspace.Refused("實體太多（最多 " + MAX_ENTITIES + " 個）");
+          throw new Workspace.Refused("error-sync-area-changed");
+        if (edited.entities().size() > MAX_ENTITIES) throw new Workspace.Refused("error-sync-entities", "entities", MAX_ENTITIES);
         ws.awaitGenesis();
         var original = capture(ws, up.name(), dimension, box, base);
 
@@ -374,7 +374,7 @@ final class Sync {
     var ws = up.ws();
     try {
       var p = online(uuid);
-      if (p == null) throw new Workspace.Refused("送回途中離線了，沒有寫入");
+      if (p == null) throw new Workspace.Refused("error-sync-offline");
       authorize(p, ws);
       ws.createBranch(up.draft(), from, base, false, edited.dimension());
     } catch (IOException e) {
@@ -428,6 +428,6 @@ final class Sync {
     if (e instanceof java.util.concurrent.CompletionException c && c.getCause() != null) e = c.getCause();
     if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "同步失敗", e);
     var p = online(uuid);
-    if (p != null) msg().send(s(p), "sync-failed", "error", String.valueOf(e.getMessage()));
+    if (p != null) msg().send(s(p), "sync-failed", "error", e);
   }
 }

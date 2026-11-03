@@ -30,6 +30,8 @@ public final class Messages {
   private final Map<String, Map<String, String>> languages = new HashMap<>();
   private final String language;
   private final boolean perPlayer;
+  /** 最新載入的訊息：{@link Workspace.Refused#getMessage} 用。 */
+  private static volatile Messages current;
 
   public Messages(Path configDir, String language, boolean perPlayer, Logger log) {
     for (var name : BUNDLED) export(configDir, name, log);
@@ -50,6 +52,20 @@ public final class Messages {
       log.warning("config.yml language: " + language + " has no lang/" + language + ".yml; missing messages are shown in English");
     this.language = language;
     this.perPlayer = perPlayer;
+    current = this;
+  }
+
+  /** 用 {@code language} 的純文字（主控台記錄、例外訊息）；還沒載入訊息時是 key。 */
+  static String plain(String key, Object... placeholders) {
+    var m = current;
+    return m == null ? key : plain(m.get(key, placeholders));
+  }
+
+  static String plain(Component c) {
+    var b = new StringBuilder();
+    if (c instanceof net.kyori.adventure.text.TextComponent t) b.append(t.content());
+    for (var child : c.children()) b.append(plain(child));
+    return b.toString();
   }
 
   /** 給這位玩家看的語言；{@code null}（主控台）時是 {@code language}。 */
@@ -125,15 +141,20 @@ public final class Messages {
     return get(to == null ? null : to.player(), key, placeholders);
   }
 
-  /** @param placeholders 名稱與值交替；值以純文字插入，不解析標籤 */
+  /**
+   * @param placeholders 名稱與值交替；值以純文字插入，不解析標籤。值是 {@link Workspace.Refused} 時照 {@code to} 的語言，
+   *     其他例外用它的訊息
+   */
   public Component get(ServerPlayer to, String key, Object... placeholders) {
     var resolvers = new TagResolver[placeholders.length / 2];
     for (int i = 0; i + 1 < placeholders.length; i += 2) {
-      var value = placeholders[i + 1];
-      resolvers[i / 2] =
-          value instanceof Component c
-              ? Placeholder.component((String) placeholders[i], c)
-              : Placeholder.unparsed((String) placeholders[i], String.valueOf(value));
+      var name = (String) placeholders[i];
+      resolvers[i / 2] = switch (placeholders[i + 1]) {
+        case Component c -> Placeholder.component(name, c);
+        case Workspace.Refused r -> Placeholder.component(name, get(to, r.key, r.args));
+        case Throwable t -> Placeholder.unparsed(name, String.valueOf(t.getMessage()));
+        case null, default -> Placeholder.unparsed(name, String.valueOf(placeholders[i + 1]));
+      };
     }
     var template = of(to).getOrDefault(key, key);
     return MINI.deserialize(template, resolvers);

@@ -49,18 +49,18 @@ final class Submissions {
    */
   CompletableFuture<String> submit(ServerPlayer p, Workspace fork, String branch, String message) throws IOException {
     var c = fork.config();
-    if (c == null || c.forkId == null || c.forkTemplate) throw new Workspace.Refused("這個世界不是 fork 來的，沒有可以提出的對象");
+    if (c == null || c.forkId == null || c.forkTemplate) throw new Workspace.Refused("error-submit-no-source");
     var source = bg.worlds().byId(c.forkId);
-    if (source == null || !source.isOpen()) throw new Workspace.Refused("來源世界已經不在了");
-    if (!bg.realms().canFork(p, source)) throw new Workspace.Refused("來源世界沒有允許複製，不能提出");
-    if (!source.config().acceptSubmissions) throw new Workspace.Refused("來源世界的擁有者關掉了接受提出");
-    if (bg.worlds().busy(source)) throw new Workspace.Refused("來源世界正在改名、轉讓或刪除，請稍後再試");
+    if (source == null || !source.isOpen()) throw new Workspace.Refused("error-submit-source-gone");
+    if (!bg.realms().canFork(p, source)) throw new Workspace.Refused("error-submit-source-no-fork");
+    if (!source.config().acceptSubmissions) throw new Workspace.Refused("error-submit-source-closed");
+    if (bg.worlds().busy(source)) throw new Workspace.Refused("error-submit-source-busy");
     var forkId = fork.buildWorld().id();
     Submission existing = null;
     for (var s : list(source)) {
       if (!s.player().equals(p.getUUID())) continue;
       if (!forkId.equals(s.from()))
-        throw new Workspace.Refused("你對 " + source.label() + " 已經有一個還沒處理的提出（" + s.branch() + "），等它處理完再提出");
+        throw new Workspace.Refused("error-submit-pending", "label", source.label(), "branch", s.branch());
       existing = s;
     }
     var name = existing != null ? existing.branch() : nextName(source, p.getScoreboardName());
@@ -80,10 +80,10 @@ final class Submissions {
       // 補起點世界的寫入完成後才建立分支
       source.afterGenesisWrites(() -> source.sync(() -> {
         try {
-          if (!source.isOpen()) throw new Workspace.Refused("來源世界已經關閉");
+          if (!source.isOpen()) throw new Workspace.Refused("error-submit-source-unloaded");
           var repo = source.repo();
-          if (repo.isAncestor(head, repo.head(Repository.MAIN))) throw new Workspace.Refused("來源已經有這些存檔了，沒有新的改動可以提出");
-          if (update && repo.head(name).equals(head)) throw new Workspace.Refused("沒有新的存檔，和上次提出的一樣");
+          if (repo.isAncestor(head, repo.head(Repository.MAIN))) throw new Workspace.Refused("error-submit-nothing-new");
+          if (update && repo.head(name).equals(head)) throw new Workspace.Refused("error-submit-same");
           source.submitBranch(name, head);
           var y = source.branchInfo();
           y.set(name + ".submit.from", forkId);

@@ -54,7 +54,7 @@ final class WorldBackup {
   static String storage(Backup.Job job) throws IOException {
     if (job.storage.equals("auto")) return job.store instanceof S3 s3 ? (s3.versioning() ? "versioned" : "hashed") : "folders";
     if (job.storage.equals("versioned") && !(job.store instanceof S3 s3 && s3.versioning()))
-      throw new Workspace.Refused("storage 是 versioned，但 bucket 沒有開啟版本控制");
+      throw new Workspace.Refused("error-backup-versioning-off");
     return job.storage;
   }
 

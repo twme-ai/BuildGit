@@ -667,10 +667,10 @@ public final class Workspace {
    */
   void shutdown() throws Refused {
     for (var wt : worktrees())
-      if (wt.isCommitting()) throw new Refused("這個世界正在存檔或併回，請稍後再試");
+      if (wt.isCommitting()) throw new Refused("error-saving");
     for (var w : List.copyOf(views.keySet())) if (loaded(w)) discardWorld(w, null);
     for (var wt : List.copyOf(worktrees()))
-      if (!wt.worlds().isEmpty() && !unload(wt)) throw new Refused("無法卸載 " + label() + " 的世界，請稍後再試");
+      if (!wt.worlds().isEmpty() && !unload(wt)) throw new Refused("error-unload-failed", "label", label());
     closeRepo();
   }
 
@@ -790,8 +790,8 @@ public final class Workspace {
    * 在寫入起點世界的執行緒上逐個 region 檔進行，和補進起點世界的寫入依序進行，不必暫停伺服器。
    */
   GenesisUpgrade upgradeGenesis() throws IOException {
-    if (!copies.isEmpty()) throw new Refused("起點世界還在複製，複製完再升級");
-    if (upgrade != null) throw new Refused("起點世界已經在升級了");
+    if (!copies.isEmpty()) throw new Refused("error-upgrade-copying");
+    if (upgrade != null) throw new Refused("error-upgrade-running");
     var files = new ArrayList<Map.Entry<String, Path>>();
     for (var dim : trackedDimensions())
       for (var sub : List.of("region", "entities")) {
@@ -839,10 +839,10 @@ public final class Workspace {
    * @return 背景複製；完成時的值是起點世界大小（位元組）。延遲複製時為 null：不必等待
    */
   public GenesisCopy init(Author author, ServerLevel world) throws IOException {
-    if (this.world != null) throw new Refused("建築世界建立時就受版本控制了");
-    if (ownWorld(world)) throw new Refused("這是 BuildGit 建立的世界；請在要版本控制的世界裡執行");
-    if (tracked(world)) throw new Refused("這個世界已經受版本控制");
-    if (repo == null && Repository.exists(dir)) throw new Refused("版本庫存在但無法開啟");
+    if (this.world != null) throw new Refused("error-init-build-world");
+    if (ownWorld(world)) throw new Refused("error-init-own-world");
+    if (tracked(world)) throw new Refused("error-init-already");
+    if (repo == null && Repository.exists(dir)) throw new Refused("error-init-broken");
     // 只存這個世界；之後磁碟上的 chunk 在被伺服器再寫一次之前都是 init 當下的樣子，可以在背景複製。
     // 主執行緒只把 chunk 交給 IO 執行緒，等它寫完在複製執行緒上進行。
     var flush = platform.save(world);
@@ -1041,8 +1041,8 @@ public final class Workspace {
       return;
     }
     if (worktrees.containsKey(name) || hasJournal(dir.resolve("worktree").resolve(name)) || merges.find(Repository.MAIN, name) != null)
-      throw new Refused("來源世界有人正在看這個提出，請稍後再送");
-    if (!repo.refs().compareAndSet(name, current.get(), at)) throw new Refused("提出的分支剛好被更新，請再試一次");
+      throw new Refused("error-submit-being-viewed");
+    if (!repo.refs().compareAndSet(name, current.get(), at)) throw new Refused("error-submit-branch-moved");
   }
 
   /** 在起點世界的寫入執行緒上，排在先前的寫入之後執行。 */
@@ -1105,14 +1105,14 @@ public final class Workspace {
 
   /** 建立分支，指向來源分支的最新存檔。{@code dimension} 是草稿所屬的世界，null 表示所有世界。 */
   public void createBranch(String name, String from, String dimension) throws IOException {
-    if (name.startsWith(SUBMIT_PREFIX)) throw new Refused("草稿名稱不能以 " + SUBMIT_PREFIX + " 開頭（那是提出併回用的）");
+    if (name.startsWith(SUBMIT_PREFIX)) throw new Refused("error-draft-name-prefix", "prefix", SUBMIT_PREFIX);
     createBranch(name, from, repo.head(from), false, dimension);
   }
 
   void createBranch(String name, String from, ObjectId at, boolean scratch, String dimension) throws IOException {
     if (!BRANCH_NAME.matcher(name).matches() || !RefStore.validName(name)) throw new IOException("名稱只能用小寫英數、底線、連字號：" + name);
     if (isScratch(name) != scratch) throw new IOException("草稿名稱不能以 " + MERGE_PREFIX + " 開頭");
-    if (dimension != null && !covers(from, dimension)) throw new Refused("來源 " + from + " 不包含這個世界");
+    if (dimension != null && !covers(from, dimension)) throw new Refused("error-draft-source-missing-world", "from", from);
     var folder = world == null ? null : registry.levelFolder(world, scratch ? "merge-world-name" : "draft-world-name", "{draft}", name);
     repo.createBranch(name, at);
     var yaml = branchesFile();
@@ -1133,9 +1133,24 @@ public final class Workspace {
    * @param force 有未存的變更也刪
    */
   /** 預期中的拒絕（例如還有未存的變更）：只告訴玩家原因，不寫錯誤記錄。 */
+  /**
+   * 拒絕玩家的要求：訊息是語言檔的 {@code key}，顯示時照收到的人的語言（把例外本身當訊息的參數傳，{@link Messages#get}）。
+   * {@link #getMessage} 是 {@code language} 的純文字，給主控台記錄用。
+   */
   public static final class Refused extends IOException {
-    public Refused(String message) {
-      super(message);
+    final String key;
+    final Object[] args;
+
+    /** @param args 名稱與值交替，同 {@link Messages#get} */
+    public Refused(String key, Object... args) {
+      super(key);
+      this.key = key;
+      this.args = args;
+    }
+
+    @Override
+    public String getMessage() {
+      return Messages.plain(key, args);
     }
   }
 
@@ -1153,21 +1168,21 @@ public final class Workspace {
   }
 
   public void deleteBranch(String name, boolean force) throws IOException {
-    if (name.equals(Repository.MAIN)) throw new Refused("不能刪除主世界");
+    if (name.equals(Repository.MAIN)) throw new Refused("error-delete-main");
     repo.head(name);
     var yaml = branchesFile();
     for (var other : yaml.keys())
       if (!other.equals(name) && name.equals(yaml.getString(other + ".source")) && repo.refs().get(other).isPresent())
-        throw new Refused("草稿 " + other + " 以它為來源，請先刪除或併回 " + other);
+        throw new Refused("error-delete-has-children", "other", other);
     var wt = worktrees.get(name);
     // 已卸載的分支沒有標記表，未存的變更只在標記日誌裡（存檔成功後舊日誌會刪掉，所以有內容就是還沒存）
     boolean unsaved = wt != null ? !wt.table().isEmpty() : hasJournal(dir.resolve("worktree").resolve(name));
-    if (!force && unsaved) throw new Refused("有未存的變更（加上 --force 仍要刪除）");
+    if (!force && unsaved) throw new Refused("error-delete-unsaved");
     // 存過、但還沒整份併回的存檔，刪掉草稿後就找不到了
     var sourceHead = repo.refs().get(source(name));
     if (!force && sourceHead.isPresent() && !repo.isAncestor(repo.head(name), sourceHead.get()))
-      throw new Refused("有還沒併回的存檔（加上 --force 仍要刪除）");
-    if (wt != null && wt.isCommitting()) throw new Refused("正在存檔或併回，請稍後再試");
+      throw new Refused("error-delete-unmerged");
+    if (wt != null && wt.isCommitting()) throw new Refused("error-busy");
     var fallback = worktrees.get(source(name));
     if (fallback == null) fallback = main();
     if (wt != null) {
@@ -1432,7 +1447,7 @@ public final class Workspace {
     var name = registry.levelFolder(world, "view-world-name", "{commit}", commit.hex().substring(0, 10)) + tag;
     // 不能接管別的世界：同名的世界或資料夾不是這裡開過的檢視世界就拒絕
     if (!isViewFolder(name) && (platform.findLevel(name) != null || Files.exists(platform.levelFolder(name))))
-      throw new Refused("已經有叫 " + name + " 的世界或資料夾，不能當檢視世界（請管理員調整 player-worlds.view-world-name）");
+      throw new Refused("error-view-folder-taken", "name", name);
     if (!name.startsWith(viewPrefix()) && viewFolders.add(name)) {
       var y = new Yaml();
       y.set("folders", List.copyOf(viewFolders));
@@ -1446,7 +1461,7 @@ public final class Workspace {
     if (world != null) openMain();
     var template = mainWorld(dimension);
     if (template == null) throw new IOException("主世界沒有維度 " + dimension);
-    if (copying(dimension)) throw new Refused("這個世界的起點世界還在背景複製，請稍後再試");
+    if (copying(dimension)) throw new Refused("error-genesis-copying");
     var tree = repo.commit(commit).tree();
     var world = createWorld(viewName(commit, dimension), template, new Pending(dimension, () -> tree));
     views.put(world, new View(commit, dimension));
@@ -1463,7 +1478,7 @@ public final class Workspace {
     if (world != null) openMain();
     var template = mainWorld(dimension);
     if (template == null) throw new IOException("主世界沒有維度 " + dimension);
-    if (copying(dimension)) throw new Refused("這個世界的起點世界還在背景複製，請稍後再試");
+    if (copying(dimension)) throw new Refused("error-genesis-copying");
     var level = createWorld(viewName(start, dimension, "_" + tag), template, new Pending(dimension, tree));
     views.put(level, new View(start, dimension));
     played.put(level, new Played(repo.commit(start).tree(), new HashMap<>()));
@@ -1769,7 +1784,7 @@ public final class Workspace {
     try {
       var missing = trackedDimensions().stream().filter(d -> wt.world(d) == null && covers(wt.branch(), d)).toList();
       if (!missing.isEmpty()) {
-        failed.accept(new Refused("這些世界沒有載入，載入後才能寫入 " + wt.branch() + "：" + String.join("、", missing)));
+        failed.accept(new Refused("error-worlds-not-loaded", "branch", wt.branch(), "missing", String.join("、", missing)));
         return;
       }
     } catch (IOException e) {
@@ -2006,7 +2021,7 @@ public final class Workspace {
     var a = dimension(target);
     var b = dimension(source);
     if (a == null || b == null || a.equals(b)) return null;
-    return new Refused(source + " 和 " + target + " 屬於不同的世界，不能合併");
+    return new Refused("error-merge-different-worlds", "source", source, "target", target);
   }
 
   /** 只屬於一個世界的草稿：撤銷、還原只動那個世界。 */

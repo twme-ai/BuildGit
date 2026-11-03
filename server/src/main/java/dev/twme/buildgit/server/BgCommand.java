@@ -364,7 +364,7 @@ public final class BgCommand {
 
   private void failed(Sender sender, Throwable e) {
     done(sender);
-    msg().send(sender, "branch-failed", "error", String.valueOf(e.getMessage()));
+    msg().send(sender, "branch-failed", "error", e);
   }
 
   /** 花時間的動作：在執行的玩家的 bossbar 上顯示進度（{@code progress} 為 null 時只顯示秒數），直到 {@link #done}。 */
@@ -474,7 +474,7 @@ public final class BgCommand {
     boolean started = wt.save(author(sender), "autosave", Commit.AUTO, r -> next.run(), e -> {
       bg.platform().log().log(Level.WARNING, "自動存檔失敗", e);
       done(sender);
-      msg().send(sender, "save-failed", "error", String.valueOf(e.getMessage()));
+      msg().send(sender, "save-failed", "error", e);
     });
     if (!started) {
       done(sender);
@@ -590,13 +590,13 @@ public final class BgCommand {
         msg().send(sender, "init-done", "world", name, "size", size / (1024 * 1024));
       }), error -> ws.sync(() -> {
         done(sender);
-        msg().send(sender, "init-failed", "error", String.valueOf(error.getMessage()));
+        msg().send(sender, "init-failed", "error", error);
       }));
     } catch (Workspace.Refused e) {
-      msg().send(sender, "init-failed", "error", e.getMessage());
+      msg().send(sender, "init-failed", "error", e);
     } catch (IOException e) {
       bg.platform().log().log(Level.SEVERE, "init 失敗", e);
-      msg().send(sender, "init-failed", "error", e.getMessage());
+      msg().send(sender, "init-failed", "error", e);
     }
   }
 
@@ -632,7 +632,7 @@ public final class BgCommand {
         e -> {
           done(sender);
           bg.platform().log().log(Level.WARNING, "存檔失敗", e);
-          msg().send(sender, "save-failed", "error", String.valueOf(e.getMessage()));
+          msg().send(sender, "save-failed", "error", e);
         });
     if (!started) {
       done(sender);
@@ -1205,7 +1205,7 @@ public final class BgCommand {
       return;
     }
     String dimension = ws.logicalDimension(level);
-    if (ws.copying(dimension)) throw new Workspace.Refused("這個世界的起點世界還在背景複製，請稍後再試");
+    if (ws.copying(dimension)) throw new Workspace.Refused("error-genesis-copying");
     String base = given != null ? given : wt != ws.main() ? wt.branch() : p.getScoreboardName().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", "_");
     String name = given != null ? given : bg.sync().freeName(p, base);
     int px = p.getBlockX(), pz = p.getBlockZ(), minY = level.getMinY(), maxY = level.getMaxY();
@@ -1688,12 +1688,12 @@ public final class BgCommand {
           var live = bg.worlds().byId(p.entry().id());
           if (live != null) bg.realms().evictAll(live, "world-restoring", "world", live.label());
           bg.worlds().restore(p).whenComplete((w, e2) -> ws.sync(() -> {
-            if (e2 != null) msg().send(sender, "backup-restore-failed", "error", String.valueOf(Workspace.unwrap(e2).getMessage()));
+            if (e2 != null) msg().send(sender, "backup-restore-failed", "error", Workspace.unwrap(e2));
             else msg().send(sender, "backup-restore-world-done", "world", w.label(), "snapshot", p.result().snapshot(), "objects",
                 p.result().objects(), "files", p.result().files());
           }));
         } catch (Throwable t) {
-          msg().send(sender, "backup-restore-failed", "error", String.valueOf(t.getMessage()));
+          msg().send(sender, "backup-restore-failed", "error", t);
         }
       }));
       return;
@@ -1721,7 +1721,7 @@ public final class BgCommand {
           if (job.store == null) continue;
           msg().send(sender, "backup-started", "job", job.name);
           backup.now(job).whenComplete((r, e) -> ws.sync(() -> {
-            if (e != null) msg().send(sender, "backup-failed", "job", job.name, "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+            if (e != null) msg().send(sender, "backup-failed", "job", job.name, "error", Workspace.unwrap(e));
             else if (r.snapshot() == null) msg().send(sender, "backup-unchanged", "job", job.name);
             else if (job.what == Backup.What.HISTORY)
               msg().send(sender, "backup-done", "job", job.name, "snapshot", r.snapshot(), "objects", r.objects(), "files", r.files());
@@ -1736,7 +1736,7 @@ public final class BgCommand {
           msg().send(sender, "backup-test-start", "job", job.name, "target", job.target + "/" + job.prefix);
           backup.test(job).whenComplete((r, e) -> ws.sync(() -> {
             if (e != null) {
-              msg().send(sender, "backup-test-failed", "job", job.name, "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+              msg().send(sender, "backup-test-failed", "job", job.name, "error", Workspace.unwrap(e));
               return;
             }
             if (r.error() == null) msg().send(sender, "backup-test-ok", "job", job.name, "list", r.listMs(), "write", r.writeMs(), "read", r.readMs());
@@ -1755,10 +1755,10 @@ public final class BgCommand {
         var into = target != null ? target : ws;
         String branch = args[1], name = args.length > 2 ? args[2] : args[1];
         try {
-          if (!Workspace.BRANCH_NAME.matcher(name).matches() || Workspace.isScratch(name)) throw new Workspace.Refused("名稱只能用小寫英數、底線、連字號：" + name);
-          if (into.branches().containsKey(name)) throw new Workspace.Refused("已經有分支 " + name + "：請給一個新名稱，例如 /bg backup fetch " + branch + " " + branch + "-backup");
+          if (!Workspace.BRANCH_NAME.matcher(name).matches() || Workspace.isScratch(name)) throw new Workspace.Refused("error-branch-name", "name", name);
+          if (into.branches().containsKey(name)) throw new Workspace.Refused("error-fetch-branch-exists", "name", name, "branch", branch);
         } catch (IOException e) {
-          msg().send(sender, "backup-fetch-failed", "error", String.valueOf(e.getMessage()));
+          msg().send(sender, "backup-fetch-failed", "error", e);
           return;
         }
         msg().send(sender, "backup-fetch-started", "branch", branch);
@@ -1769,7 +1769,7 @@ public final class BgCommand {
             into.createBranch(name, from, r.head(), false, r.dimension());
             msg().send(sender, "backup-fetch-done", "branch", name, "snapshot", r.snapshot(), "objects", r.objects());
           } catch (Throwable t) {
-            msg().send(sender, "backup-fetch-failed", "error", String.valueOf(t.getMessage()));
+            msg().send(sender, "backup-fetch-failed", "error", t);
           }
         }));
       }
@@ -1782,7 +1782,7 @@ public final class BgCommand {
         msg().send(sender, "backup-restore-started");
         backup.restore(job, args.length > 2 ? args[2] : null).whenComplete((r, e) -> ws.sync(() -> {
           if (e != null) {
-            msg().send(sender, "backup-restore-failed", "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+            msg().send(sender, "backup-restore-failed", "error", Workspace.unwrap(e));
             return;
           }
           for (var w : r.warnings()) msg().send(sender, "backup-restore-warning", "warning", w);
@@ -1798,7 +1798,7 @@ public final class BgCommand {
           if (list == null) continue;
           list.whenComplete((names, e) -> ws.sync(() -> {
             if (e != null) {
-              msg().send(sender, "backup-failed", "job", job.name, "error", String.valueOf(Workspace.unwrap(e).getMessage()));
+              msg().send(sender, "backup-failed", "job", job.name, "error", Workspace.unwrap(e));
               return;
             }
             msg().send(sender, "backup-list-header", "job", job.name, "count", names.size());
@@ -1854,8 +1854,8 @@ public final class BgCommand {
   /** {@code /bg disk clean}：回收刪掉的世界、草稿留下、沒人用的物件（背景執行）。 */
   private void clean(Sender sender) throws IOException {
     if (bg.worlds().skipped())
-      throw new Workspace.Refused("建築世界或回收區的登記有格式不對、略過的項目（見啟動紀錄）：不知道它們用了哪些物件，修正後重新啟動才能回收");
-    if (!cleaning.compareAndSet(false, true)) throw new Workspace.Refused("已經在回收了，請稍候");
+      throw new Workspace.Refused("error-gc-bad-registry");
+    if (!cleaning.compareAndSet(false, true)) throw new Workspace.Refused("error-gc-running");
     ObjectCleanup.Plan plan;
     try {
       plan = ObjectCleanup.plan(bg.worlds());
@@ -2281,17 +2281,17 @@ public final class BgCommand {
         else ownerName = args[++i];
       } else kept.add(args[i]);
     }
-    if (ownerName != null && folder == null) throw new Workspace.Refused("owner 只能和 import 一起用");
-    if (folder != null && !sender.hasPermission("buildgit.world.admin")) throw new Workspace.Refused("只有管理員能匯入伺服器上的世界");
+    if (ownerName != null && folder == null) throw new Workspace.Refused("error-new-owner-needs-import");
+    if (folder != null && !sender.hasPermission("buildgit.world.admin")) throw new Workspace.Refused("error-new-import-admin");
     args = kept.toArray(String[]::new);
     var p = folder != null && ownerName != null ? sender.player() : player(sender);
     if (p == null && (folder == null || ownerName == null)) return;
     if (folder != null) {
       var o = parseNew(sender, args);
       if (o == null) return;
-      if (o.template() != null) throw new Workspace.Refused("import 不能和 template 一起用");
+      if (o.template() != null) throw new Workspace.Refused("error-new-import-template");
       var owner = ownerName == null ? p : bg.platform().server().getPlayerList().getPlayerByName(ownerName);
-      if (owner == null) throw new Workspace.Refused("找不到線上玩家 " + ownerName + "（擁有者要在線上）");
+      if (owner == null) throw new Workspace.Refused("error-new-owner-offline", "owner-name", ownerName);
       // 世界以外的地方：沒指定地形時是虛空
       if (Arrays.stream(args).noneMatch(a -> a.equalsIgnoreCase("terrain"))) o = o.withTerrain(WorldConfig.Terrain.VOID);
       bg.worldUpload().importFolder(sender, owner, o.name(), newConfig(o), folder);
@@ -2315,11 +2315,11 @@ public final class BgCommand {
     var pw = bg.settings().playerWorlds();
     boolean admin = sender.hasPermission("buildgit.world.admin");
     if (from != null) {
-      if (o.template() != null) throw new Workspace.Refused("from 不能和 template 一起用");
-      if (o.type() != WorldConfig.Type.OVERWORLD) throw new Workspace.Refused("上傳的單人世界只帶主世界，類型只能是 overworld");
+      if (o.template() != null) throw new Workspace.Refused("error-new-from-template");
+      if (o.type() != WorldConfig.Type.OVERWORLD) throw new Workspace.Refused("error-new-upload-type");
       // 存檔以外的地方：沒指定地形時是虛空
       if (Arrays.stream(args).noneMatch(a -> a.equalsIgnoreCase("terrain"))) o = o.withTerrain(WorldConfig.Terrain.VOID);
-      if (!admin && !pw.allowed(o.terrain())) throw new Workspace.Refused("這台伺服器沒有開放 " + WorldConfig.key(o.terrain()) + " 地形，請用 terrain 指定其他的");
+      if (!admin && !pw.allowed(o.terrain())) throw new Workspace.Refused("error-new-terrain-closed-hint", "terrain", WorldConfig.key(o.terrain()));
       if (!bg.platform().canSync(p)) {
         msg().send(sender, "sync-no-client");
         return;
@@ -2342,12 +2342,12 @@ public final class BgCommand {
     if (o.template() != null) {
       var spec = o.template();
       var template = bg.menu().templates().stream().filter(t -> t.label().equals(spec)).findFirst()
-          .orElseThrow(() -> new Workspace.Refused("沒有叫 " + spec + " 的範本"));
+          .orElseThrow(() -> new Workspace.Refused("error-new-no-template", "spec", spec));
       forked(sender, p, bg.worlds().fork(template, o.name(), p, admin, true));
       return;
     }
-    if (!admin && !pw.allowed(o.type())) throw new Workspace.Refused("這台伺服器沒有開放 " + WorldConfig.key(o.type()) + " 類型");
-    if (!admin && !pw.allowed(o.terrain())) throw new Workspace.Refused("這台伺服器沒有開放 " + WorldConfig.key(o.terrain()) + " 地形");
+    if (!admin && !pw.allowed(o.type())) throw new Workspace.Refused("error-new-type-closed", "type", WorldConfig.key(o.type()));
+    if (!admin && !pw.allowed(o.terrain())) throw new Workspace.Refused("error-new-terrain-closed", "terrain", WorldConfig.key(o.terrain()));
     var ws = bg.worlds().create(o.name(), p, newConfig(o), sender.hasPermission("buildgit.world.admin"));
     msg().send(sender, "world-created", "world", ws.label(), "folder", ws.buildWorld().folder());
     bg.realms().enter(p, ws);
@@ -2369,7 +2369,7 @@ public final class BgCommand {
       msg().send(sender, "world-unknown", "world", w.getFirst());
       return;
     }
-    if (!bg.realms().canFork(p, source)) throw new Workspace.Refused("這個世界的擁有者沒有允許複製");
+    if (!bg.realms().canFork(p, source)) throw new Workspace.Refused("error-fork-not-allowed");
     var name = w.size() == 2 ? w.get(1).toLowerCase(Locale.ROOT) : null;
     msg().send(sender, "world-forking", "world", source.label());
     forked(sender, p, bg.worlds().fork(source, name, p, bg.realms().admin(p), false));
@@ -2386,18 +2386,18 @@ public final class BgCommand {
     var p = player(sender);
     if (p == null) return;
     var ws = bg.workspace(p.level());
-    if (ws.buildWorld() == null || ws.config() == null) throw new Workspace.Refused("要在 fork 來的建築世界裡才能提出");
+    if (ws.buildWorld() == null || ws.config() == null) throw new Workspace.Refused("error-submit-not-fork");
     var role = ws.role(p.getUUID());
     if (role != WorldConfig.Role.OWNER && role != WorldConfig.Role.MANAGER && !bg.realms().admin(p))
-      throw new Workspace.Refused("只有這個世界的擁有者與管理者能提出");
+      throw new Workspace.Refused("error-submit-not-manager");
     var wt = ws.worktree(p.level());
-    if (wt == null || Workspace.isScratch(wt.branch())) throw new Workspace.Refused("要在主世界或草稿裡提出");
+    if (wt == null || Workspace.isScratch(wt.branch())) throw new Workspace.Refused("error-submit-wrong-branch");
     // --save：先存檔再提出；--last：不管沒存檔的，送最後一次存檔。都沒給又有沒存檔的改動時先問
     var words = new ArrayList<>(List.of(args));
     boolean saveFirst = words.remove("--save"), lastSave = words.remove("--last");
     var message = String.join(" ", words).strip();
-    if (message.codePointCount(0, message.length()) > SUBMIT_MESSAGE_MAX) throw new Workspace.Refused("說明最多 " + SUBMIT_MESSAGE_MAX + " 個字");
-    if (message.chars().anyMatch(ch -> ch == '§' || Character.isISOControl(ch))) throw new Workspace.Refused("不能有格式碼或控制字元");
+    if (message.codePointCount(0, message.length()) > SUBMIT_MESSAGE_MAX) throw new Workspace.Refused("error-submit-message-long", "max", SUBMIT_MESSAGE_MAX);
+    if (message.chars().anyMatch(ch -> ch == '§' || Character.isISOControl(ch))) throw new Workspace.Refused("error-text-codes");
     if (!wt.table().isEmpty() && !saveFirst && !lastSave) {
       var rest = message.isEmpty() ? "" : " " + message;
       msg().send(sender, "submit-unsaved");
@@ -2408,7 +2408,7 @@ public final class BgCommand {
       msg().send(sender, "submit-sending");
       try {
         bg.submissions().submit(p, ws, wt.branch(), message).whenComplete((branch, ex) -> {
-          if (ex != null) msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+          if (ex != null) msg().send(sender, "branch-failed", "error", Workspace.unwrap(ex));
           else msg().send(sender, "submit-sent", "branch", branch, "world", bg.worlds().byId(ws.config().forkId).label());
         });
       } catch (IOException | RuntimeException e) {
@@ -2428,7 +2428,7 @@ public final class BgCommand {
     }, e -> {
       done(sender);
       bg.platform().log().log(Level.WARNING, "存檔失敗", e);
-      msg().send(sender, "save-failed", "error", String.valueOf(e.getMessage()));
+      msg().send(sender, "save-failed", "error", e);
     });
     if (!started) {
       done(sender);
@@ -2452,7 +2452,7 @@ public final class BgCommand {
       }
       case "reject" -> {
         var s = w.size() >= 3 ? list.stream().filter(x -> x.branch().equals(w.get(2))).findFirst().orElse(null) : null;
-        if (s == null) throw new Workspace.Refused("沒有這個提出：" + (w.size() >= 3 ? w.get(2) : ""));
+        if (s == null) throw new Workspace.Refused("error-submission-not-found", "value", (w.size() >= 3 ? w.get(2) : ""));
         // 理由是分支名稱後面所有的字（保留大小寫）
         var raw = String.join(" ", args);
         var reason = raw.substring(raw.indexOf(s.branch()) + s.branch().length()).strip();
@@ -2467,7 +2467,7 @@ public final class BgCommand {
   private void forked(Sender sender, ServerPlayer p, java.util.concurrent.CompletableFuture<Workspace> future) {
     future.whenComplete((ws, ex) -> {
       if (ex != null) {
-        msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+        msg().send(sender, "branch-failed", "error", Workspace.unwrap(ex));
         return;
       }
       msg().send(sender, "world-created", "world", ws.label(), "folder", ws.buildWorld().folder());
@@ -2614,7 +2614,7 @@ public final class BgCommand {
   /** 把選項變成建築世界的設定，檢查方塊與生態域存在、層數放得下。 */
   private WorldConfig newConfig(NewWorld o) throws Workspace.Refused {
     if (o.type() != WorldConfig.Type.OVERWORLD && (o.terrain() == WorldConfig.Terrain.LARGE_BIOMES || o.terrain() == WorldConfig.Terrain.AMPLIFIED))
-      throw new Workspace.Refused("大型生態域與巨型化只有主世界類型有");
+      throw new Workspace.Refused("error-new-large-biomes");
     var c = new WorldConfig();
     bg.settings().playerWorlds().defaults().apply(c);
     c.type = o.type();
@@ -2636,29 +2636,29 @@ public final class BgCommand {
         try {
           c.layers = WorldConfig.parseLayers(o.layers(), biome);
         } catch (IllegalArgumentException e) {
-          throw new Workspace.Refused("層的寫法不對：" + o.layers() + "（例如 minecraft:bedrock,2*minecraft:dirt,minecraft:grass_block;minecraft:plains）");
+          throw new Workspace.Refused("error-new-layers-format", "layers", o.layers());
         }
         if (!biome.isEmpty()) c.biome = biome.toString();
       }
       int height = c.type == WorldConfig.Type.OVERWORLD ? 384 : 256;
-      if (c.layers.stream().mapToInt(WorldConfig.Layer::count).sum() > height) throw new Workspace.Refused("層加起來超過世界的高度 " + height);
+      if (c.layers.stream().mapToInt(WorldConfig.Layer::count).sum() > height) throw new Workspace.Refused("error-new-layers-height", "height", height);
       for (var l : c.layers) requireBlock(l.block());
     }
     if (c.terrain == WorldConfig.Terrain.VOID) {
       c.block = WorldConfig.id(o.block() == null ? "stone" : o.block());
       requireBlock(c.block);
-      if (c.block.equals("minecraft:air")) throw new Workspace.Refused("腳下那一格不能是空氣");
+      if (c.block.equals("minecraft:air")) throw new Workspace.Refused("error-new-layers-air");
     }
     var biome = net.minecraft.resources.Identifier.tryParse(c.biome);
     if (biome == null || bg.platform().server().registryAccess().lookupOrThrow(net.minecraft.core.registries.Registries.BIOME)
         .get(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.BIOME, biome)).isEmpty())
-      throw new Workspace.Refused("沒有這個生態域：" + c.biome);
+      throw new Workspace.Refused("error-unknown-biome", "biome", c.biome);
     return c;
   }
 
   private static void requireBlock(String id) throws Workspace.Refused {
     var key = net.minecraft.resources.Identifier.tryParse(id);
-    if (key == null || !net.minecraft.core.registries.BuiltInRegistries.BLOCK.containsKey(key)) throw new Workspace.Refused("沒有這個方塊：" + id);
+    if (key == null || !net.minecraft.core.registries.BuiltInRegistries.BLOCK.containsKey(key)) throw new Workspace.Refused("error-unknown-block", "id", id);
   }
 
   /** {@code open <世界>}：自己的寫名稱，別人的寫「擁有者/名稱」，伺服器世界寫它的名稱。 */
@@ -2680,7 +2680,7 @@ public final class BgCommand {
       msg().send(sender, "world-server-open");
       return;
     }
-    if (!ws.isOpen()) throw new Workspace.Refused("這個建築世界的版本庫無法開啟，請管理員看主控台");
+    if (!ws.isOpen()) throw new Workspace.Refused("error-world-repo-broken");
     // 私人世界對不是成員的人當作不存在
     if (!bg.realms().canEnter(p, ws)) {
       msg().send(sender, "world-unknown", "world", w.getFirst());
@@ -2718,22 +2718,22 @@ public final class BgCommand {
     var ws = bg.workspace(p.level());
     // 伺服器世界（03-worlds §4.2）只有成員與可見性；管理員當擁有者
     boolean server = ws.buildWorld() == null;
-    if (server && !bg.realms().inServerWorld(p.level())) throw new Workspace.Refused("要在建築世界或伺服器世界裡才能管理它");
-    if (!server && ws.config() == null) throw new Workspace.Refused("這個建築世界的版本庫無法開啟，請管理員看主控台");
+    if (server && !bg.realms().inServerWorld(p.level())) throw new Workspace.Refused("error-world-manage-where");
+    if (!server && ws.config() == null) throw new Workspace.Refused("error-world-repo-broken");
     var role = server ? ws.serverRole(p.getUUID()) : ws.role(p.getUUID());
     boolean owner = role == WorldConfig.Role.OWNER || bg.realms().admin(p);
     boolean manager = owner || role == WorldConfig.Role.MANAGER;
     var config = ws.access();
     var what = w.isEmpty() ? (server ? "members" : "") : w.getFirst();
     if (server && !what.equals("members") && !what.equals("visibility"))
-      throw new Workspace.Refused("伺服器世界只能設定成員與可見性（/bg world members、/bg world visibility）");
+      throw new Workspace.Refused("error-world-server-settings");
     if (what.equals("settings")) {
-      if (!manager) throw new Workspace.Refused("只有擁有者與管理者能改設定");
+      if (!manager) throw new Workspace.Refused("error-world-settings-not-manager");
       settings(sender, p, ws, w);
       return;
     }
     if (what.equals("submissions")) {
-      if (!manager) throw new Workspace.Refused("只有擁有者與管理者能處理提出");
+      if (!manager) throw new Workspace.Refused("error-world-submissions-not-manager");
       submissions(sender, p, ws, args);
       return;
     }
@@ -2743,12 +2743,12 @@ public final class BgCommand {
         msg().send(sender, "usage-world");
         return;
       }
-      if (!owner) throw new Workspace.Refused(server ? "只有管理員能改伺服器世界的可見性" : "只有擁有者能改可見性");
+      if (!owner) throw server ? new Workspace.Refused("error-visibility-server-admin") : new Workspace.Refused("error-visibility-owner");
       if (config.unlisted && v == Visibility.PUBLIC && !bg.realms().admin(p))
-        throw new Workspace.Refused("這個世界被管理員下架了，不能改成公開；請找管理員");
+        throw new Workspace.Refused("error-visibility-unlisted");
       if (v == Visibility.PRIVATE && server && bg.realms().lobbyProblem() != null)
-        throw new Workspace.Refused("伺服器世界要有大廳才能設成私人：" + bg.realms().lobbyProblem());
-      if (v == Visibility.PRIVATE && ws == bg.realms().lobbyWorld()) throw new Workspace.Refused("這個世界是大廳，必須是公開的");
+        throw new Workspace.Refused("error-visibility-needs-lobby", "problem", bg.realms().lobbyProblem());
+      if (v == Visibility.PRIVATE && ws == bg.realms().lobbyWorld()) throw new Workspace.Refused("error-visibility-lobby");
       config.open = v == Visibility.PUBLIC;
       ws.saveConfig();
       msg().send(sender, (server ? "server-" : "") + (config.open ? "world-public" : "world-private"), "world", ws.label());
@@ -2762,13 +2762,13 @@ public final class BgCommand {
           msg().send(sender, "usage-world");
           return;
         }
-        if (!owner) throw new Workspace.Refused("只有擁有者能改名");
+        if (!owner) throw new Workspace.Refused("error-rename-owner");
         var old = ws.label();
         var e = ws.buildWorld();
         bg.worlds().checkRelocate(ws, w.get(1), e.owner(), e.ownerName());
         bg.realms().evictAll(ws, "world-moving", "world", old);
         bg.worlds().rename(ws, w.get(1)).whenComplete((renamed, ex) -> {
-          if (ex != null) msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+          if (ex != null) msg().send(sender, "branch-failed", "error", Workspace.unwrap(ex));
           else msg().send(sender, "world-renamed", "old", old, "world", renamed.label());
         });
         return;
@@ -2782,15 +2782,15 @@ public final class BgCommand {
           msg().send(sender, "world-transfer-confirm", "world", ws.label(), "name", w.get(1));
           return;
         }
-        if (!owner) throw new Workspace.Refused("只有擁有者能轉讓");
+        if (!owner) throw new Workspace.Refused("error-transfer-owner");
         var target = bg.platform().server().getPlayerList().getPlayerByName(w.get(1));
-        if (target == null) throw new Workspace.Refused("找不到線上玩家 " + w.get(1) + "（轉讓時對方要在線上）");
+        if (target == null) throw new Workspace.Refused("error-transfer-offline", "value", w.get(1));
         var e = ws.buildWorld();
-        if (e.owner().equals(target.getUUID())) throw new Workspace.Refused(target.getScoreboardName() + " 已經是擁有者");
+        if (e.owner().equals(target.getUUID())) throw new Workspace.Refused("error-transfer-already-owner", "player", target.getScoreboardName());
         var pw = bg.settings().playerWorlds();
         long owned = bg.worlds().buildWorlds().stream().filter(o -> o.buildWorld().owner().equals(target.getUUID())).count();
         if (owned >= pw.maxPerPlayer() && !bg.realms().admin(target))
-          throw new Workspace.Refused(target.getScoreboardName() + " 已經有 " + owned + " 個建築世界（每人最多 " + pw.maxPerPlayer() + " 個）");
+          throw new Workspace.Refused("error-transfer-limit", "player", target.getScoreboardName(), "owned", owned, "max", pw.maxPerPlayer());
         bg.worlds().checkRelocate(ws, e.name(), target.getUUID(), target.getScoreboardName());
         // 原本的擁有者留下來當管理者
         config.members.remove(target.getUUID());
@@ -2800,7 +2800,7 @@ public final class BgCommand {
         bg.realms().evictAll(ws, "world-moving", "world", old);
         bg.worlds().transfer(ws, target.getUUID(), target.getScoreboardName()).whenComplete((moved, ex) -> {
           if (ex != null) {
-            msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+            msg().send(sender, "branch-failed", "error", Workspace.unwrap(ex));
             return;
           }
           msg().send(sender, "world-transferred", "old", old, "world", moved.label(), "name", target.getScoreboardName());
@@ -2809,7 +2809,7 @@ public final class BgCommand {
         return;
       }
       case "delete" -> {
-        if (!owner) throw new Workspace.Refused("只有擁有者能刪除");
+        if (!owner) throw new Workspace.Refused("error-delete-owner");
         if (!flags(args).contains("confirm")) {
           msg().send(sender, "world-delete-confirm", "world", ws.label(), "days", bg.settings().playerWorlds().trashDays());
           return;
@@ -2818,7 +2818,7 @@ public final class BgCommand {
         var name = ws.buildWorld().name();
         bg.realms().evictAll(ws, "world-deleted-evict", "world", label);
         bg.worlds().delete(ws).whenComplete((v, ex) -> {
-          if (ex != null) msg().send(sender, "branch-failed", "error", String.valueOf(Workspace.unwrap(ex).getMessage()));
+          if (ex != null) msg().send(sender, "branch-failed", "error", Workspace.unwrap(ex));
           else msg().send(sender, "world-deleted", "world", label, "days", bg.settings().playerWorlds().trashDays(), "name", name);
         });
         return;
@@ -2832,9 +2832,9 @@ public final class BgCommand {
     switch (w.size() < 2 ? "menu" : w.get(1)) {
       case "menu" -> bg.menu().openMembers(p, ws);
       case "edit" -> {
-        if (!manager) throw new Workspace.Refused("只有擁有者與管理者能調整成員");
+        if (!manager) throw new Workspace.Refused("error-members-not-manager");
         var entry = w.size() == 3 ? member(config, w.get(2)) : null;
-        if (entry == null) throw new Workspace.Refused((w.size() == 3 ? w.get(2) : "") + " 不是這個世界的成員");
+        if (entry == null) throw new Workspace.Refused("error-members-not-member", "value", (w.size() == 3 ? w.get(2) : ""));
         bg.menu().openMember(p, ws, entry.getKey());
       }
       case "list" -> {
@@ -2848,17 +2848,17 @@ public final class BgCommand {
           msg().send(sender, "usage-world");
           return;
         }
-        if (!manager) throw new Workspace.Refused("只有擁有者與管理者能邀人");
+        if (!manager) throw new Workspace.Refused("error-invite-not-manager");
         var target = bg.platform().server().getPlayerList().getPlayerByName(w.get(2));
         // 已經是成員的人不在線上也能改角色
         var existing = target == null ? member(config, w.get(2)) : null;
-        if (target == null && existing == null) throw new Workspace.Refused("找不到線上玩家 " + w.get(2) + "（邀請時對方要在線上）");
+        if (target == null && existing == null) throw new Workspace.Refused("error-invite-offline", "value", w.get(2));
         var uuid = target != null ? target.getUUID() : existing.getKey();
         var name = target != null ? target.getScoreboardName() : existing.getValue().name();
-        if (!server && ws.buildWorld().owner().equals(uuid)) throw new Workspace.Refused(name + " 是擁有者");
+        if (!server && ws.buildWorld().owner().equals(uuid)) throw new Workspace.Refused("error-members-is-owner", "name", name);
         var old = config.members.get(uuid);
         if (!owner && (newRole == WorldConfig.Role.MANAGER || old != null && old.role() == WorldConfig.Role.MANAGER))
-          throw new Workspace.Refused("管理者只能邀請或移除建造者");
+          throw new Workspace.Refused("error-members-manager-limit");
         config.members.put(uuid, new WorldConfig.Member(name, newRole));
         ws.saveConfig();
         msg().send(sender, "members-added", "name", name, "role", roleName(sender, newRole));
@@ -2871,10 +2871,10 @@ public final class BgCommand {
           msg().send(sender, "usage-world");
           return;
         }
-        if (!manager) throw new Workspace.Refused("只有擁有者與管理者能移除成員");
+        if (!manager) throw new Workspace.Refused("error-remove-not-manager");
         var entry = member(config, w.get(2));
-        if (entry == null) throw new Workspace.Refused(w.get(2) + " 不是這個世界的成員");
-        if (!owner && entry.getValue().role() == WorldConfig.Role.MANAGER) throw new Workspace.Refused("管理者只能邀請或移除建造者");
+        if (entry == null) throw new Workspace.Refused("error-members-not-member", "value", w.get(2));
+        if (!owner && entry.getValue().role() == WorldConfig.Role.MANAGER) throw new Workspace.Refused("error-members-manager-limit");
         config.members.remove(entry.getKey());
         ws.saveConfig();
         msg().send(sender, "members-removed", "name", entry.getValue().name());
@@ -2906,7 +2906,7 @@ public final class BgCommand {
     var c = ws.config();
     var key = a.getFirst();
     var value = a.size() == 2 ? a.get(1).toLowerCase(Locale.ROOT) : "";
-    if (!bg.settings().playerWorlds().manages(key)) throw new Workspace.Refused("這台伺服器的這項設定交給其他插件管理（player-worlds.unmanaged-settings），不能在這裡改");
+    if (!bg.settings().playerWorlds().manages(key)) throw new Workspace.Refused("error-setting-unmanaged");
     if (Menu.TEXT_SETTINGS.contains(key) || key.equals("icon")) {
       text(sender, p, ws, key, String.join(" ", a.subList(1, a.size())).strip(), menu);
       return;
@@ -2923,7 +2923,7 @@ public final class BgCommand {
         else if (Menu.TIMES.containsKey(value)) c.time = Menu.TIMES.get(value);
         else {
           int t = number(value);
-          if (t < 0 || t > 23999) throw new Workspace.Refused("時間可以是 " + String.join("、", Menu.SETTINGS.get("time")) + " 或 0～23999 的刻數");
+          if (t < 0 || t > 23999) throw new Workspace.Refused("error-setting-time", "value", String.join("、", Menu.SETTINGS.get("time")));
           c.time = t;
         }
       }
@@ -2948,8 +2948,8 @@ public final class BgCommand {
       case "accept-submissions" -> c.acceptSubmissions = onOff(value, key);
       case "inventory-member", "inventory-visitor" -> {
         var pw = bg.settings().playerWorlds();
-        if (pw.separateInventories()) throw new Workspace.Refused("伺服器設定所有建築世界都隔離背包，不能關掉");
-        if (!pw.allowInventoryIsolation()) throw new Workspace.Refused("伺服器不允許擁有者打開背包隔離");
+        if (pw.separateInventories()) throw new Workspace.Refused("error-isolation-forced");
+        if (!pw.allowInventoryIsolation()) throw new Workspace.Refused("error-isolation-not-allowed");
         if (key.equals("inventory-member")) c.inventoryMember = onOff(value, key);
         else c.inventoryVisitor = onOff(value, key);
         modes = true;
@@ -2961,8 +2961,8 @@ public final class BgCommand {
       case "kit-member", "kit-visitor" -> {
         boolean visitor = key.equals("kit-visitor");
         if (!ws.isolated(visitor))
-          throw new Workspace.Refused("要先打開" + (visitor ? "訪客" : "成員") + "的背包隔離（/bg world settings " + (visitor ? "inventory-visitor" : "inventory-member")
-              + " on），才能設定起始物品");
+          throw visitor ? new Workspace.Refused("error-kit-needs-visitor-isolation")
+              : new Workspace.Refused("error-kit-needs-member-isolation");
         if (!value.equals("clear")) {
           KitEditor.open(bg, p, ws, visitor, menu);
           return;
@@ -2974,7 +2974,7 @@ public final class BgCommand {
         if (value.equals("default")) c.border = 0;
         else {
           int size = number(value);
-          if (size < 16 || size > max) throw new Workspace.Refused("邊界的邊長可以是 16～" + max + "，或 default（伺服器的預設）");
+          if (size < 16 || size > max) throw new Workspace.Refused("error-setting-border", "max", max);
           if (c.border == 0) c.borderX = c.borderZ = 0;
           c.border = size;
         }
@@ -3004,13 +3004,13 @@ public final class BgCommand {
       String id;
       if (value.isEmpty()) {
         var hand = p.getMainHandItem();
-        if (hand.isEmpty()) throw new Workspace.Refused("手上沒有東西；拿著要當圖示的物品再點一次，或打 /bg world settings icon <物品>");
+        if (hand.isEmpty()) throw new Workspace.Refused("error-setting-icon-empty");
         id = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(hand.getItem()).toString();
       } else {
         id = WorldConfig.id(value.toLowerCase(Locale.ROOT));
         var key2 = net.minecraft.resources.Identifier.tryParse(id);
         if (key2 == null || !net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(key2) || id.equals("minecraft:air"))
-          throw new Workspace.Refused("沒有這個物品：" + value);
+          throw new Workspace.Refused("error-unknown-item", "value", value);
       }
       c.icon = id.equals(Menu.DEFAULT_ICON) ? null : id;
     } else if (value.isEmpty() && menu) {
@@ -3023,8 +3023,8 @@ public final class BgCommand {
       return;
     } else {
       int max = key.equals("display-name") ? DISPLAY_NAME_MAX : DESCRIPTION_MAX;
-      if (value.codePointCount(0, value.length()) > max) throw new Workspace.Refused((key.equals("display-name") ? "顯示名稱" : "簡介") + "最多 " + max + " 個字");
-      if (value.chars().anyMatch(ch -> ch == '§' || Character.isISOControl(ch))) throw new Workspace.Refused("不能有格式碼或控制字元");
+      if (value.codePointCount(0, value.length()) > max) throw key.equals("display-name") ? new Workspace.Refused("error-setting-display-name-long", "max", max) : new Workspace.Refused("error-setting-description-long", "max", max);
+      if (value.chars().anyMatch(ch -> ch == '§' || Character.isISOControl(ch))) throw new Workspace.Refused("error-text-codes");
       var v = value.isEmpty() ? null : value;
       if (key.equals("display-name")) c.displayName = v;
       else c.description = v;
@@ -3056,7 +3056,7 @@ public final class BgCommand {
   }
 
   private static Workspace.Refused badValue(String key) {
-    return new Workspace.Refused(key + " 可以是 " + String.join("、", Menu.SETTINGS.get(key)));
+    return new Workspace.Refused("error-setting-choices", "value", key, "value2", String.join("、", Menu.SETTINGS.get(key)));
   }
 
   private net.kyori.adventure.text.Component roleName(Sender sender, WorldConfig.Role role) {
@@ -3093,21 +3093,21 @@ public final class BgCommand {
       return;
     }
     var d = bg.worlds().findDeleted(w.get(1), p.getUUID());
-    if (d == null || !admin && !d.entry().owner().equals(p.getUUID())) throw new Workspace.Refused("回收區裡沒有 " + w.get(1));
+    if (d == null || !admin && !d.entry().owner().equals(p.getUUID())) throw new Workspace.Refused("error-trash-not-found", "value", w.get(1));
     var ws = bg.worlds().undelete(d);
     msg().send(sender, "world-undeleted", "world", ws.label());
   }
 
   /** {@code world unlist|relist [世界]}：管理員下架（強制私人並鎖住）或解除；沒給世界時是所在的世界。 */
   private void unlist(Sender sender, ServerPlayer p, List<String> w) throws IOException {
-    if (!bg.realms().admin(p)) throw new Workspace.Refused("只有管理員能下架");
+    if (!bg.realms().admin(p)) throw new Workspace.Refused("error-unlist-admin");
     var ws = w.size() == 2 ? bg.worlds().find(w.get(1), p.getUUID()) : bg.workspace(p.level());
     if (w.size() > 2 || ws == null || ws.buildWorld() == null || ws.config() == null) {
       msg().send(sender, "usage-world");
       return;
     }
     boolean unlist = w.getFirst().equals("unlist");
-    if (unlist && ws == bg.realms().lobbyWorld()) throw new Workspace.Refused("這個世界是大廳，必須是公開的；先改 config.yml 的 worlds.lobby");
+    if (unlist && ws == bg.realms().lobbyWorld()) throw new Workspace.Refused("error-unlist-lobby");
     ws.config().unlisted = unlist;
     if (unlist) ws.config().open = false;
     ws.saveConfig();
@@ -3117,7 +3117,7 @@ public final class BgCommand {
 
   /** {@code world template on|off [世界]}：管理員把建築世界設成範本或取消；沒給世界時是所在的世界。 */
   private void template(Sender sender, ServerPlayer p, List<String> w) throws IOException {
-    if (!bg.realms().admin(p)) throw new Workspace.Refused("只有管理員能設定範本");
+    if (!bg.realms().admin(p)) throw new Workspace.Refused("error-template-admin");
     var ws = w.size() == 3 ? bg.worlds().find(w.get(2), p.getUUID()) : bg.workspace(p.level());
     if (w.size() < 2 || w.size() > 3 || !w.get(1).equals("on") && !w.get(1).equals("off") || ws == null || ws.buildWorld() == null || ws.config() == null) {
       msg().send(sender, "usage-world");
