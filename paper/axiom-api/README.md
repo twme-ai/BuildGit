@@ -1,5 +1,5 @@
-# AxiomPaper 編譯期 API
+# AxiomPaper compile-time API
 
-AxiomPaper 的事件類別、`Integration.CustomIntegration` 與操作佇列（`operations.OperationQueue`／`PendingOperation`，記錄有略過權限的玩家用）的簽章，來源 [Moulberry/AxiomPaperPlugin](https://github.com/Moulberry/AxiomPaperPlugin)（MIT，見 LICENSE）。
+Signatures of AxiomPaper's event classes, `Integration.CustomIntegration` and the operation queue (`operations.OperationQueue`/`PendingOperation`, used to record players with the bypass permission), taken from [Moulberry/AxiomPaperPlugin](https://github.com/Moulberry/AxiomPaperPlugin) (MIT, see LICENSE).
 
-只供 `paper:plugin` 以 compileOnly 引用；執行時使用伺服器上 AxiomPaper 自己的類別。發佈的 jar 不得包含 `com/moulberry/axiom/`，由 `paper:plugin` 的 `verifyNoAxiom` 檢查。
+Only referenced by `paper:plugin` as compileOnly; at runtime the server's own AxiomPaper classes are used. The published jar must not contain `com/moulberry/axiom/`, which `paper:plugin`'s `verifyNoAxiom` checks.

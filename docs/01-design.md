@@ -1,271 +1,271 @@
-# BuildGit 設計（2026-10-14 草案）
+# BuildGit design (draft of 2026-10-14)
 
-需求見 [00-requirements.md](00-requirements.md)。本文件說明怎麼做，最後列出要先用原型驗證的風險。玩家自己建立的建築世界（一個世界一個 repo）另見 [03-worlds.md](03-worlds.md)。
+Requirements are in [00-requirements.md](00-requirements.md). This document explains how it works, and ends with the risks to verify with prototypes first. Build worlds created by players (one repo per world) are in [03-worlds.md](03-worlds.md).
 
-## 1. 核心概念：起點世界＋覆寫表
+## 1. Core idea: genesis world + overlay
 
-BuildGit 只記錄玩家動過的格子，所以一個版本不是「整個世界的快照」，而是：
+BuildGit only records blocks touched by players, so a version is not "a snapshot of the whole world" but:
 
 ```
-版本的世界狀態 = 起點世界（genesis）＋ 該版本的覆寫表（overlay）
+a version's world state = genesis world + that version's overlay
 ```
 
-| 名詞 | 意思 |
+| Term | Meaning |
 |---|---|
-| **起點世界（genesis）** | `init` 時把主世界的 region 檔案複製一份並凍結，之後不再改變。所有分支共用這一份 |
-| **覆寫表（overlay）** | 「哪些格子跟起點世界不同、現在是什麼」。只包含玩家動過的格子 |
-| **工作世界（working world）** | 每個分支對應的實際 Minecraft 世界，玩家在裡面建造 |
-| **標記（dirty mark）** | 工作世界裡「自上次提交後被玩家動過」的格子或實體，以及作者 |
+| **Genesis world** | At `init`, a copy of the overworld's region files is made and frozen, never changing afterwards. All branches share this one copy |
+| **Overlay** | "Which blocks differ from the genesis world, and what they are now". Only contains blocks touched by players |
+| **Working world** | The actual Minecraft world of each branch, where players build |
+| **Dirty mark** | A block or entity in a working world "touched by a player since the last commit", with its author |
 
-這樣設計的結果：
-- 提交時只看被標記的格子，與世界大小無關。
-- 自然生長、生物行為等沒有被標記的變化，永遠不會進入版本。
-- 分支世界可以延遲建立：沒去過的 chunk 只要從「起點世界＋覆寫表」算出來（§4）。
+What this design gives:
+- A commit only looks at marked blocks, regardless of world size.
+- Unmarked changes such as natural growth and mob behavior never get into versions.
+- Branch worlds can be created lazily: chunks nobody has visited just need to be worked out from "genesis world + overlay" (§4).
 
-### 1.1 一個格子的內容
+### 1.1 What a block holds
 
-一格的內容是一個不可分割的單位：
-- 方塊狀態（`minecraft:oak_stairs[facing=north,half=bottom,...]`，屬性依鍵名排序）；
-- 方塊實體 NBT（容器內容、告示牌文字等），經正規化後雜湊。
+A block's content is one indivisible unit:
+- the block state (`minecraft:oak_stairs[facing=north,half=bottom,...]`, properties sorted by key);
+- block entity NBT (container contents, sign text and so on), hashed after normalization.
 
-兩格「相同」就是這兩項都相同。合併、差異、作者歸屬都以格子為單位。
+Two blocks are "the same" when both of these are the same. Merges, diffs and attribution all work per block.
 
-實體以 UUID 為鍵，內容是正規化後的 NBT。被玩家移除的起點世界實體，以墓碑（tombstone）記錄。
+Entities are keyed by UUID, with normalized NBT as content. Genesis entities removed by players are recorded as tombstones.
 
-生態域與原版的儲存單位相同，是 4×4×4 的「生態域格」（每個 section 64 格），內容是生態域 ID。合併、差異以生態域格為單位，沒有作者查詢（`inspect`）。
+Biomes use the same storage unit as vanilla, a 4×4×4 "biome cell" (64 per section), holding a biome ID. Merges and diffs work per biome cell, with no author lookup (`inspect`).
 
-### 1.2 正規化
+### 1.2 Normalization
 
-沿用 WorldGit 已驗證的規則（WorldGit `docs/02-data-model.md` §3）：
-- NBT 鍵排序；
-- 丟棄 Paper／Bukkit 專用欄位；
-- 實體丟棄暫態欄位：動量、墜落距離、起火、年齡等；
-- 方塊實體丟棄暫態欄位：熔爐燃燒時間、生怪磚倒數等。
+Reuses WorldGit's proven rules (WorldGit `docs/02-data-model.md` §3):
+- sort NBT keys;
+- drop Paper/Bukkit-only fields;
+- drop transient entity fields: motion, fall distance, fire, age and so on;
+- drop transient block entity fields: furnace burn time, spawner countdown and so on.
 
-這部分程式碼可從 WorldGit 複製後精簡，但不共用程式庫。
+This code can be copied from WorldGit and trimmed, but no library is shared.
 
-## 2. 儲存格式
+## 2. Storage format
 
-### 2.1 目錄
+### 2.1 Directory
 
 ```
-<伺服器根目錄>/buildgit/            # Fabric 單人：<存檔>/buildgit/
+<server root>/buildgit/             # Fabric single-player: <save>/buildgit/
 ├─ config.yml
-├─ data-version                     # 寫過這個 repo 的 Minecraft 資料版本（§4.5）
-├─ objects/                         # 內容定址物件（SHA-256，zstd 壓縮）
-├─ refs/branches/<name>             # 分支 → 提交雜湊
-├─ branches.yml                     # 分支 → 工作世界名稱、建立來源
-├─ genesis/<dimension>/{region,entities}/   # 凍結的起點世界（可用 init.genesis-dir 放到別處，位置記在 genesis-dir）
-├─ worktree/<world>/marks.journal   # 每個工作世界的標記（§3.6）
-└─ merge/<id>/                      # 進行中的合併（§5.3）
+├─ data-version                     # Minecraft data versions that have written this repo (§4.5)
+├─ objects/                         # content-addressed objects (SHA-256, zstd-compressed)
+├─ refs/branches/<name>             # branch → commit hash
+├─ branches.yml                     # branch → working world name, where it was created from
+├─ genesis/<dimension>/{region,entities}/   # the frozen genesis world (can be put elsewhere with init.genesis-dir; the location is recorded in genesis-dir)
+├─ worktree/<world>/marks.journal   # each working world's marks (§3.6)
+└─ merge/<id>/                      # merges in progress (§5.3)
 ```
 
-一台伺服器（或一個單人存檔）一個 repo。受版本控制的世界在同一個 repo 裡，以 tree 的第一層（維度 id）區分。
+One repo per server (or per single-player save). Versioned worlds share one repo, told apart by the first level of the tree (the dimension id).
 
-### 2.2 物件
+### 2.2 Objects
 
 ```
 commit
- ├─ parents: [..]                   # 合併提交有兩個
+ ├─ parents: [..]                   # merge commits have two
  ├─ author, committer, time, message
- ├─ tree   → 覆寫表的根
- └─ changes → changeset             # 這次提交改了什麼、各是誰改的
+ ├─ tree   → root of the overlay
+ └─ changes → changeset             # what this commit changed, and who changed each
 
-tree（覆寫表）
+tree (overlay)
  └─ dimension minecraft:overworld
      └─ region r.0.0
          └─ chunk c.3.7
              ├─ section s.4 → overlay-section blob
              └─ entities    → overlay-entities blob
 
-overlay-section blob：這個 section 裡跟起點世界不同的格子與生態域格
- ├─ 調色盤：格子內容（方塊狀態＋方塊實體雜湊）的字串表
- ├─ 排序過的 (格子索引 0–4095, 調色盤索引) 列表
- └─ 排序過的 (生態域格索引 0–63, 生態域 ID) 列表（第 3 版；沒有生態域時仍寫第 2 版，雜湊不變）
+overlay-section blob: the blocks and biome cells in this section that differ from the genesis world
+ ├─ palette: string table of block contents (block state + block entity hash)
+ ├─ sorted list of (block index 0–4095, palette index)
+ └─ sorted list of (biome cell index 0–63, biome ID) (version 3; without biomes, still written as version 2, so the hash is unchanged)
 
-overlay-entities blob：這個 chunk 裡被追蹤的實體（UUID → NBT 或墓碑）
+overlay-entities blob: the tracked entities in this chunk (UUID → NBT or tombstone)
 
-changeset：本次提交相對於父提交的變更清單
- ├─ 每格：位置、舊內容雜湊、新內容雜湊、作者索引
- └─ 每個生態域格：最小角的位置、作者索引（第 2 版）
+changeset: the list of changes in this commit relative to its parent
+ ├─ per block: position, old content hash, new content hash, author index
+ └─ per biome cell: position of the minimum corner, author index (version 2)
 ```
 
-- **tree 只存有覆寫的路徑**：沒有任何覆寫的 region、chunk、section 不出現在 tree 裡。
-- **內容定址**：未改變的子樹沿用父提交的雜湊，一次提交只新增被改到的 section、上層 tree、changeset 和 commit。
-- **changeset 用於作者查詢**：`log`、`inspect`、`diff <提交>` 直接讀 changeset，不必比對兩個 tree。合併時則比對 tree。
-- **預留遠端**：物件格式與 git 一樣自我描述、不可變，之後加 push／pull 只需傳輸物件與 ref。
+- **The tree only stores paths with overrides**: regions, chunks and sections with no overrides do not appear in the tree.
+- **Content-addressed**: unchanged subtrees reuse the parent commit's hashes, so a commit only adds the changed sections, the trees above them, the changeset and the commit.
+- **Changesets serve author lookups**: `log`, `inspect` and `diff <commit>` read the changeset directly, without comparing two trees. Merges compare trees.
+- **Room for remotes**: like git, objects are self-describing and immutable, so adding push/pull later only needs transferring objects and refs.
 
-### 2.3 新生成的 chunk
+### 2.3 Newly generated chunks
 
-`init` 之後主世界新生成的 chunk 不在起點世界裡。這類 chunk 的「起點內容」定義為「同一種子、同一版本的世界產生器輸出」。分支世界載入時，同樣用產生器產生，再套用覆寫表（§4.2）。
+Chunks the overworld generates after `init` are not in the genesis world. Their "genesis content" is defined as "the output of the world generator with the same seed and version". When a branch world loads, they are generated the same way, then the overlay is applied (§4.2).
 
-這假設世界生成是確定的（同種子、同版本、同資料包時輸出相同）。原型要驗證（§10 風險 4）。
+This assumes world generation is deterministic (same output for the same seed, version and datapacks). To be verified by a prototype (§10 risk 4).
 
-**Paper 實作（採用備案）**：不依賴生成的確定性。主世界生成新 chunk 時（`ChunkLoadEvent#isNewChunk`，玩家還沒碰過），在主執行緒取快照，由專用執行緒寫進 `genesis/` 的 region 檔；起點世界已有的 chunk 永不覆寫。存檔讀取起點世界前，先等這些寫入完成。
+**Paper implementation (the fallback was adopted)**: does not rely on generation being deterministic. When the overworld generates a new chunk (`ChunkLoadEvent#isNewChunk`, before any player touched it), a snapshot is taken on the main thread and written into `genesis/`'s region files by a dedicated thread; chunks already in the genesis world are never overwritten. Before a save reads the genesis world, it waits for these writes to finish.
 
-草稿世界先生成的 chunk 也一樣補進起點世界：存檔以起點世界為比較基準，起點沒有的 chunk 會被當成空氣。所以草稿的產生器必須和主世界相同（Paper 的超平坦世界要另外帶上層設定，§4.1），否則錯的地形會進到所有分支共用的起點。
+Chunks generated first in a draft world are added to the genesis world the same way: saves compare against the genesis world, and chunks missing from the genesis count as air. So drafts must use the same generator as the overworld (Paper superflat worlds also carry the layer settings, §4.1), or wrong terrain would get into the genesis shared by all branches.
 
-### 2.4 哪些世界受版本控制
+### 2.4 Which worlds are versioned
 
-只有在裡面執行過 `/bg init` 的世界（`genesis/<維度>/` 存在）。每個世界各自 init：在主世界 init 不會連帶追蹤地獄、終界，Multiverse 等多世界插件建立的世界也一樣，在那個世界裡 init 即可。沒有 init 的世界完全不受影響（不記錄、不存檔、不建草稿世界）。
+Only worlds where `/bg init` has been run (`genesis/<dimension>/` exists). Each world is initialized separately: init in the overworld does not also track the Nether and the End; worlds created by multiworld plugins such as Multiverse are the same, just init in that world. Worlds without init are not affected at all (nothing recorded, saved, or made into draft worlds).
 
-- 多世界插件常在 BuildGit 之後才載入世界，或在遊戲中載入：世界載入時才納入主分支，已開啟的草稿也補上這個世界。
-- 多世界插件要卸載受版本控制的世界時，只有這個維度的主世界與各分支世界都沒有玩家、沒有在存檔或併回、起點世界也不在複製時才放行，否則 Paper 擋下 `WorldUnloadEvent`（Fabric 無法擋下）。卸載後先不追蹤，未存的標記留著，等再次載入。版本是先提交才寫世界，所以分支有任何已初始化的維度世界沒載入時，併回、撤銷、還原、整合都直接拒絕，免得那部分只進版本、不進世界（決策 #43）。
-- 草稿的世界名稱：主世界 `bg_<分支>`，地獄、終界 `bg_<分支>_nether`、`bg_<分支>_the_end`，其他世界 `bg_<分支>__<世界的維度路徑>`（例如 `bg_d1__creative`）。
+- Multiworld plugins often load worlds after BuildGit, or during the game: a world joins the main branch when it loads, and open drafts get that world added too.
+- When a multiworld plugin wants to unload a versioned world, it is only allowed when that dimension's main world and every branch world have no players, nothing is saving or publishing, and the genesis world is not being copied; otherwise Paper blocks `WorldUnloadEvent` (Fabric cannot block it). After unloading it is not tracked, and unsaved marks stay until it loads again. Versions are committed first and then written to worlds, so when any initialized dimension world of a branch is not loaded, publishing, reverting, restoring and resolution are refused outright, so that part does not end up only in versions and not in the world (decision #43).
+- Draft world names: overworld `bg_<branch>`, Nether and End `bg_<branch>_nether` and `bg_<branch>_the_end`, other worlds `bg_<branch>__<the world's dimension path>` (e.g. `bg_d1__creative`).
 
-### 2.5 異地備份（S3）
+### 2.5 Offsite backups (S3)
 
-把版本庫增量上傳到 S3 相容的物件儲存（AWS S3、MinIO、Backblaze B2 等），伺服器主機整台壞掉時，可以在新主機上還原所有分支與歷史，主世界也由版本重建。不是伺服器之間的同步：一個備份位置只屬於一台伺服器。
+The repository is uploaded incrementally to S3-compatible object storage (AWS S3, MinIO, Backblaze B2 and so on), so when the whole server host fails, all branches and history can be restored on a new host, with the overworld rebuilt from versions. This is not sync between servers: one backup location belongs to one server.
 
-**範圍**：備份「已存檔的建築」，不是整台伺服器的備份。
+**Scope**: backs up "saved builds", not the whole server.
 
-| 備份 | 不備份 |
+| Backed up | Not backed up |
 |---|---|
-| 所有存檔物件（含草稿上的自動存檔） | 還沒存檔的標記（最多損失一次自動存檔的間隔） |
-| 所有分支 ref、`branches.yml`、`data-version` | 草稿世界的資料夾（由存檔重建，§4.2） |
-| 起點世界的 region 與 entities 檔 | 進行中的合併（`merge/`）、取出紀錄（`sync/`） |
-| 受版本控制的世界的 `level.dat` 與 26.x 的 `world_gen_settings.dat`（種子、產生器） | 玩家資料、沒有追蹤的自然變化、其他插件的資料 |
+| All save objects (including autosaves on drafts) | Marks not saved yet (losing at most one autosave interval) |
+| All branch refs, `branches.yml`, `data-version` | Draft world folders (rebuilt from saves, §4.2) |
+| The genesis world's region and entities files | Merges in progress (`merge/`), pull records (`sync/`) |
+| Versioned worlds' `level.dat` and, on 26.x, `world_gen_settings.dat` (seed, generator) | Player data, untracked natural changes, other plugins' data |
 
-**遠端的結構**（`<prefix>` 由設定決定，同一個 bucket 可以放多台伺服器）：
+**Remote layout** (`<prefix>` comes from settings, so one bucket can hold several servers):
 
 ```
-<prefix>/objects/ab/cdef…          # 和本機相同的檔案，原樣上傳；不可變
-<prefix>/files/<SHA-256>           # 起點世界的檔案、level.dat 等，以內容雜湊命名；不可變
-<prefix>/snapshots/<UTC 時間>.yml   # 一次備份：refs、branches.yml、data-version、檔案清單
+<prefix>/objects/ab/cdef…          # the same files as locally, uploaded as is; immutable
+<prefix>/files/<SHA-256>           # genesis world files, level.dat and so on, named by content hash; immutable
+<prefix>/snapshots/<UTC time>.yml  # one backup: refs, branches.yml, data-version, file list
 ```
 
-快照記錄：每個分支指向的提交、`branches.yml` 與 `data-version` 的內容、BuildGit 與 Minecraft 版本，以及每個受版本控制的維度的世界資料夾（相對路徑）、種子、`起點世界的相對路徑 → 檔案雜湊`、`level.dat 等 → 檔案雜湊`。
+A snapshot records: the commit each branch points at, the contents of `branches.yml` and `data-version`, the BuildGit and Minecraft versions, and for each versioned dimension its world folder (relative path), seed, `genesis world relative path → file hash` and `level.dat etc. → file hash`.
 
-level.dat 從維度的存檔目錄往上找；26.x 起種子另外存在 `data/minecraft/world_gen_settings.dat`（原版在世界資料夾，Paper 在每個維度的目錄），找到也一起備份。
+level.dat is found by walking up from the dimension's save directory; from 26.x the seed is also stored in `data/minecraft/world_gen_settings.dat` (in the world folder on vanilla, in each dimension's directory on Paper), which is backed up too when found.
 
-**設定**：這一節的版本紀錄備份是一種「備份工作」（`what: history`），目的地、排程、保留份數由工作設定（§2.7）；S3 的連線在獨立的 `s3.yml`（有金鑰，而 `config.yml` 會跟著外掛更新改寫並留一份 `.old`，所以分開）。BuildGit 只在檔案不存在時寫入範本，之後不改動。
+**Settings**: the history backup in this section is one kind of "backup job" (`what: history`), whose destination, schedule and retention are set by the job (§2.7); the S3 connection is in a separate `s3.yml` (it has keys, while `config.yml` is rewritten on plugin updates with an `.old` copy left, so they are kept apart). BuildGit only writes the template when the file does not exist, and never changes it afterwards.
 
-**一次備份的流程**（備份的背景執行緒，照工作的排程，或 `/bg backup now`）：
-1. **記下 refs**：讀出所有分支的 ref。ref 一定在物件寫完之後才更新，所以這些提交的物件都已在磁碟上。
-2. **起點世界的檔案**：在寫入起點世界的執行緒上（和補新 chunk、`genesis upgrade` 依序，§4.5）逐檔檢查大小與修改時間；有變的檔案先複製到暫存檔再算雜湊，遠端沒有這個雜湊才上傳。已經傳過、之後有變的檔案最多每 `genesis-hours`（工作的設定，預設 24，0 為每次）重傳一次，之間沿用上次的雜湊（本機紀錄不改，到時間時照樣算有變）；新出現的檔案每次都傳。延遲複製的大世界探索時 region 檔一直在變，每次整個重傳太花流量（決策 #66）。代價是快照的起點世界可能缺最近才補進的 chunk：延遲複製的維度還原時本來就從世界資料夾的備份讀沒有的 chunk，完整複製的維度缺的只有新生成的 chunk，由產生器重新產生。region 檔會被原地寫入（新 chunk、改寫格式），在寫入執行緒上複製才不會拿到寫了一半的內容。步驟 1 在前，所以這份起點世界只會比 refs 新，refs 需要的 chunk 都在裡面。
-3. **物件**：從還沒上傳過的提交走訪（parents、tree、changeset）。tree 只往下走和父提交不同的子樹，所以成本和這段期間的變更成正比，不必掃整個 `objects/`。已上傳的提交記在本機 `buildgit/backup/commits`。
-4. **有變化才寫快照**：有新的提交、ref 移動或刪除、`branches.yml`／`data-version` 改了、起點世界的檔案變了，才上傳物件與 `level.dat`、寫快照；都沒有就什麼都不做。`level.dat` 一直在變（時間、天氣），不算變化，只在寫快照時帶上。
-5. **最後寫快照**。中途失敗不寫快照，下次重來；物件和檔案都不可變，已上傳的不會白費。
+**One backup run** (on the backup background thread, on the job's schedule, or `/bg backup now`):
+1. **Record refs**: read all branches' refs. A ref is always updated after its objects are written, so these commits' objects are all on disk.
+2. **Genesis world files**: on the thread that writes the genesis world (in order with adding new chunks and `genesis upgrade`, §4.5), check each file's size and modification time; changed files are first copied to a temporary file and hashed, and only uploaded when the remote lacks that hash. Files already sent that changed later are resent at most every `genesis-hours` (a job setting, 24 by default, 0 for every time), reusing the last hash in between (the local record is not changed, so it still counts as changed when the time comes); new files are sent every time. With lazily copied large worlds, region files keep changing during exploration, and resending them all every time costs too much traffic (decision #66). The price is that a snapshot's genesis world may lack recently added chunks: lazily copied dimensions read missing chunks from the world folder backup on restore anyway, and fully copied dimensions only lack newly generated chunks, which the generator produces again. Region files are written in place (new chunks, format rewrites), so copying on the writer thread avoids getting half-written content. Step 1 comes first, so this genesis world can only be newer than the refs, and every chunk the refs need is in it.
+3. **Objects**: walk from commits not uploaded yet (parents, tree, changeset). The tree walk only goes into subtrees that differ from the parent commit, so the cost is proportional to the changes in that period, without scanning all of `objects/`. Uploaded commits are recorded locally in `buildgit/backup/commits`.
+4. **Write a snapshot only when something changed**: only when there are new commits, refs moved or were deleted, `branches.yml`/`data-version` changed, or genesis world files changed, are objects and `level.dat` uploaded and a snapshot written; otherwise nothing happens. `level.dat` changes all the time (time, weather), so it does not count as a change and is only included when writing a snapshot.
+5. **Write the snapshot last**. On failure midway no snapshot is written and the next run starts again; objects and files are immutable, so nothing uploaded is wasted.
 
-- 本機的上傳紀錄（`buildgit/backup/`：已上傳的提交、起點世界檔案的「大小 時間 雜湊」、上一份快照）遺失時，從頭走訪，先列出遠端已有的物件，只傳缺的。
-- 已上傳的提交要等快照寫好才記下，所以上傳物件前先留下記號 `backup/uploading`：上傳到一半中斷（第一次完整上傳最常見）時，下一次同樣先列出遠端已有的物件，不重傳。
-- 每個請求遇到連線失敗、5xx 或 429 時隔 2 秒、8 秒重試，最多三次；仍失敗才算這次備份失敗。連續失敗 3 次起，每次都提醒線上有 `buildgit.backup` 的玩家。
-- 小物件很多（一個 section 一個物件），同時上傳 8 個。
-- 不刪遠端的物件（本機也不回收物件）。快照保留最近 `keep` 份，之後刪掉沒有任何快照用到的 `files/`。
+- When the local upload record (`buildgit/backup/`: uploaded commits, genesis files' "size time hash", the previous snapshot) is lost, it walks from the start, first listing the objects already on the remote, and only sends the missing ones.
+- Uploaded commits are only recorded once the snapshot is written, so before uploading objects it leaves a marker `backup/uploading`: when an upload is interrupted halfway (most common on the first full upload), the next run also first lists the objects already on the remote and does not resend them.
+- Each request retries after 2 and 8 seconds on connection failures, 5xx or 429, up to three times; only then does the backup count as failed. From the third failure in a row, online players with `buildgit.backup` are warned every time.
+- There are many small objects (one per section), so 8 are uploaded at once.
+- Remote objects are never deleted (nor are local objects reclaimed). Snapshots keep the newest `keep`, after which `files/` no snapshot uses are deleted.
 
-**還原**（`/bg backup restore [快照]`，只能在主控台執行；沒給快照就用最新的一份）：
-1. **下載**：伺服器照常執行，在備份的背景執行緒（不會和備份同時進行）把快照下載到 `buildgit-restore/`。
-   - 物件：從快照的 refs 往下走（parents、tree、changeset），只下載用得到的，同一層同時下載，每個都解壓驗證雜湊。
-   - 起點世界的檔案驗證 SHA-256。`init.genesis-dir` 設在別處時，起點世界下載到它旁邊的 `<資料夾>-restore`（同一個磁碟，換上時只要改名）。
-   - 本機的上傳紀錄一起寫好（已上傳的提交、起點世界檔案的雜湊、上一份快照），還原後的第一次備份不重傳。
-2. **主世界先合成好**：每個維度用「起點世界＋main 最新存檔」把 region 與 entities 檔合成到 `buildgit-restore/worlds/`，和草稿世界走同一套程式（§4.2）。在下載時就做完，伺服器還在執行、升級資料用的 DataFixer 與世界資訊都在，不必在主世界掛上合成讀取。
-3. **寫下 `restore.yml`**：要換掉的資料夾與檔案（目標 → 來源），最後一項是版本庫本身。寫完才算下載好，提示管理員重新啟動；不想還原就刪掉 `buildgit-restore/`。
-4. **換上**：下次啟動、世界載入前（Paper 的 `onLoad`、Fabric 的 `SERVER_STARTING`）照 `restore.yml` 依序處理：目標存在就改名為 `<名稱>.before-restore-<時間>`，再把來源搬過去。
-   - 主世界每個維度的 `region/`、`entities/` 換成合成好的，`poi/` 改名（載入 chunk 時從方塊重建）。
-   - `bg_`、`bgview_` 開頭的草稿與檢視世界資料夾改名，之後由還原的版本重建。
-   - `buildgit/` 換成 `buildgit-restore/`。
-   - 一律改名，不刪除；確認沒問題後由管理員自己刪。
-   - 中途失敗（例如磁碟滿）時停止啟動，不帶著一半的狀態開服；修正後重新啟動，已經換上的（來源不在了）略過，從中斷的地方繼續。
-- 起點世界也沒有的 chunk 照常由產生器生成，所以種子要相同：同一個 Minecraft 版本時換上快照的 `level.dat` 與 `world_gen_settings.dat`。資料包與模組要由管理員自己裝回一樣的。
+**Restoring** (`/bg backup restore [snapshot]`, console only; the newest when none is given):
+1. **Download**: while the server keeps running, the backup background thread (never at the same time as a backup) downloads the snapshot to `buildgit-restore/`.
+   - Objects: walk down from the snapshot's refs (parents, tree, changeset), downloading only what is used, one level at a time in parallel, each decompressed and its hash verified.
+   - Genesis world files have their SHA-256 verified. When `init.genesis-dir` points elsewhere, the genesis world is downloaded to `<folder>-restore` next to it (on the same disk, so swapping in is just a rename).
+   - The local upload record is written too (uploaded commits, genesis file hashes, the previous snapshot), so the first backup after restoring resends nothing.
+2. **Synthesize main's worlds first**: for each dimension, the region and entities files are synthesized from "genesis world + main's latest save" into `buildgit-restore/worlds/`, with the same code as draft worlds (§4.2). This is done during the download, while the server is still running and the DataFixer for upgrading data and the world information are available, so no synthesizing reads need hooking into main's worlds.
+3. **Write `restore.yml`**: the folders and files to swap (target → source), the last entry being the repository itself. Only once written does the download count as finished, and the admin is told to restart; to cancel, delete `buildgit-restore/`.
+4. **Swap in**: at the next startup, before worlds load (Paper's `onLoad`, Fabric's `SERVER_STARTING`), `restore.yml` is processed in order: an existing target is renamed to `<name>.before-restore-<time>`, then the source is moved there.
+   - Each dimension's `region/` and `entities/` in main's worlds are replaced with the synthesized ones, and `poi/` is renamed (rebuilt from blocks as chunks load).
+   - Draft and view world folders starting with `bg_` and `bgview_` are renamed, and rebuilt later from the restored versions.
+   - `buildgit/` is replaced with `buildgit-restore/`.
+   - Always renamed, never deleted; the admin deletes them after checking everything is fine.
+   - On failure midway (e.g. a full disk), startup stops rather than running the server in a half state; after fixing it and restarting, entries already swapped (source gone) are skipped and it continues where it stopped.
+- Chunks not even in the genesis world are generated by the generator as usual, so the seed must be the same: with the same Minecraft version, the snapshot's `level.dat` and `world_gen_settings.dat` are swapped in. Datapacks and mods must be reinstalled the same by the admin.
 
-**取回一個分支**（`/bg backup fetch <分支> [新名稱]`）：例如誤刪了草稿。不重新啟動、不動其他分支。
-- 從最新一份有這個分支的快照，照上面的方式往下走，只下載本機沒有的物件（本機已有的物件底下也一定齊全，因為物件總在它引用的物件之後寫入）。
-- 補到一半中斷時，先下載的物件底下可能還缺，所以補之前留下記號 `backup/fetching`；下次看到記號就連本機已有的也往下檢查。
-- 在主執行緒建立分支：來源與所屬世界照快照裡的 `branches.yml`，來源已不存在時用 main。名稱已有分支時拒絕，要給新名稱。
+**Fetching one branch** (`/bg backup fetch <branch> [new name]`): e.g. a draft deleted by mistake. No restart, no other branches touched.
+- From the newest snapshot that has this branch, walk down as above, downloading only objects not present locally (everything under an object already present locally is complete too, since objects are always written after the objects they reference).
+- When fetching is interrupted halfway, objects downloaded first may still be missing things beneath them, so a marker `backup/fetching` is left before fetching; when the marker is seen next time, even objects already present locally are checked downward.
+- The branch is created on the main thread: its source and world follow `branches.yml` in the snapshot, using main when the source no longer exists. When a branch with the name exists, it is refused and a new name must be given.
 
-**跨版本**：
-- 物件與起點世界的 chunk 都帶資料版本，原樣上傳，還原到較新的伺服器時讀取時照樣升級（§4.5）。
-- 快照另外記下寫入時伺服器的資料版本（`minecraft-data-version`）。還原到不同版本的伺服器時，主世界的位置用目前伺服器的（1.21.11 的 `world/region` 到 26.x 是 `world/dimensions/minecraft/overworld/region`），level.dat 不換（不同版本的世界資料夾結構不同，換了可能觸發舊世界的升級流程）；種子和備份不同時提醒管理員，請在新世界產生前設定 `level-seed`。
-- 快照帶 `data-version`：伺服器比 `newest` 舊時拒絕還原（和開啟 repo 的規則相同），在下載之前就檢查。
-- `genesis upgrade` 改寫的起點世界檔案雜湊會變，下一次備份重新上傳（一次大量上傳，指令會提醒）。舊快照仍指向舊的檔案，還原到改寫之前的時間點時拿到的是舊格式。
+**Across versions**:
+- Objects and genesis chunks carry data versions and are uploaded as is; restored onto a newer server, they are upgraded on read as usual (§4.5).
+- The snapshot also records the server's data version at write time (`minecraft-data-version`). When restoring onto a server of a different version, main's world location follows the current server (1.21.11's `world/region` is `world/dimensions/minecraft/overworld/region` on 26.x), and level.dat is not swapped (world folder structures differ between versions, and swapping it could trigger an old world's upgrade flow); when the seed differs from the backup, the admin is told to set `level-seed` before the new world is generated.
+- The snapshot carries `data-version`: when the server is older than `newest`, restoring is refused (the same rule as opening the repo), checked before downloading.
+- Genesis files rewritten by `genesis upgrade` get new hashes and are re-uploaded on the next backup (one large upload, which the command warns about). Old snapshots still point at the old files, so restoring to a time before the rewrite gets the old format.
 
-**延遲複製的維度**（§4.3）：起點世界缺少從沒載入過的 chunk，它們只在主世界存檔裡，所以這樣的維度無法單靠備份重建。備份時在狀態裡標示「不完整」並在主控台警告；還原時這個維度不換掉世界資料夾，管理員要用同一時間的世界備份；起點世界照樣還原，並重新指向主世界的存檔。
+**Lazily copied dimensions** (§4.3): the genesis world lacks chunks that were never loaded, which exist only in main's world save, so such a dimension cannot be rebuilt from the backup alone. Backups mark it "incomplete" in the status and warn on the console; on restore the world folder of this dimension is not swapped, and the admin must use a world backup from the same time; the genesis world is restored as usual and pointed back at main's world save.
 
-**連線**：
-- 自己實作 SigV4 簽名，用 Java 內建的 HttpClient，不帶 AWS SDK（jar 會大好幾十 MB）。只需要 PUT、GET、HEAD、DELETE、ListObjectsV2。
-- 支援 path-style（MinIO 等需要）。
-- 金鑰寫在 `s3.yml`。
+**Connection**:
+- SigV4 signing is implemented ourselves with Java's built-in HttpClient, without the AWS SDK (which would add tens of MB to the jar). Only PUT, GET, HEAD, DELETE and ListObjectsV2 are needed.
+- Path-style is supported (needed by MinIO and others).
+- Keys go in `s3.yml`.
 
-**指令**（權限 `buildgit.backup`）：
-- `/bg backup status`：上次成功的時間、還沒上傳的提交數、遠端快照數、不完整的維度。
-- `/bg backup now`：立刻備份。
-- `/bg backup list`：列出遠端快照。
-- `/bg backup fetch <分支> [新名稱]`：從備份取回一個分支。
-- `/bg backup restore [快照]`：下載並準備還原，重新啟動時換上（只能在主控台）。
+**Commands** (permission `buildgit.backup`):
+- `/bg backup status`: last success time, commits not uploaded yet, number of remote snapshots, incomplete dimensions.
+- `/bg backup now`: back up now.
+- `/bg backup list`: list remote snapshots.
+- `/bg backup fetch <branch> [new name]`: get one branch back from the backup.
+- `/bg backup restore [snapshot]`: download and prepare a restore, swapped in on restart (console only).
 
-驗收（第一階段）：簽名對得上 AWS 文件的範例，並對會驗證簽名的 S3 相容服務實際上傳、下載、列出、刪除；錯的金鑰被拒絕。Fabric 1.21.11 的測試伺服器第一次完整備份，沒有變化時不備份，改一格存檔後只上傳 7 個物件；從 refs 完整走過每個提交的整棵 tree，遠端都有、內容相同。快照只留設定的份數，沒用到的檔案一起刪除。Paper 26.3 的世界資料夾與 `level.dat` 位置正確。
+Acceptance (phase 1): the signature matches the examples in AWS's docs, and actual uploads, downloads, lists and deletes work against an S3-compatible service that verifies signatures; wrong keys are refused. On a Fabric 1.21.11 test server the first full backup runs, nothing is backed up without changes, and after changing and saving one block only 7 objects are uploaded; walking every commit's whole tree from the refs, the remote has all of them with the same content. Snapshots keep only the configured number, and unused files are deleted along with them. On Paper 26.3 the world folder and `level.dat` locations are correct.
 
-驗收（第二階段）：Fabric 1.21.11 與 Paper 26.3 各自存檔並備份一個方塊，之後再存檔一個、再放一個不存檔的，還原並重新啟動後只剩備份的那個，歷史與快照相同，接著的備份判斷為沒有變化；Paper 在 `onLoad` 換上，26.x 的 `world_gen_settings.dat` 也換回。1.21.11 的快照還原到 Fabric 26.3：方塊在新版的世界位置裡、歷史完整，提醒種子不同與沒有載入的維度。
+Acceptance (phase 2): on both Fabric 1.21.11 and Paper 26.3, save and back up one block, then save another and place one more without saving; after restoring and restarting only the backed-up one remains, history and snapshots are the same, and the following backup finds no changes; Paper swaps in at `onLoad`, and 26.x's `world_gen_settings.dat` is swapped back too. A 1.21.11 snapshot restored onto Fabric 26.3: the block is in the new version's world location, history is complete, and it warns about the different seed and the unloaded dimension.
 
-### 2.6 世界資料夾的備份
+### 2.6 World folder backups
 
-§2.5 只備份版本紀錄，主世界由「起點世界＋最新存檔」重建，所以沒有玩家資料、`data/`（地圖畫、計分板、襲擊、世界邊界；26.x 的遊戲規則）、沒存檔的變更、沒記錄到的自然變化，延遲複製的世界也不完整。這一節另外備份世界資料夾本身，策略和版本紀錄不同：
+§2.5 only backs up history; main's worlds are rebuilt from "genesis world + latest save", so player data, `data/` (map art, scoreboards, raids, world border; game rules on 26.x), unsaved changes and unrecorded natural changes are missing, and lazily copied worlds are incomplete. This section backs up the world folders themselves as well, with a different strategy from history:
 
-| | 版本紀錄（§2.5） | 世界資料夾 |
+| | History (§2.5) | World folders |
 |---|---|---|
-| 時機（典型設定） | 每小時檢查，有新存檔才備份 | 每天一次（例如 04:00），或手動 |
-| 一次的量 | 小 | 大（有變動的 region 檔、玩家資料…） |
-| 存放結構 | 物件與檔案以雜湊命名 | **照世界資料夾的結構** |
+| When (typical setup) | checked every hour, backed up only when there are new saves | once a day (e.g. 04:00), or by hand |
+| Size per run | small | large (changed region files, player data…) |
+| Layout | objects and files named by hash | **follows the world folder's layout** |
 
-排程、保留份數、放在哪裡由每個備份工作自己設定（§2.7）；這一節只說世界資料夾怎麼備份。工作的設定另外有：
+Schedule, retention and destination are set by each backup job (§2.7); this section only covers how world folders are backed up. Jobs also have:
 
 ```yaml
-    announce: true         # 開始與結束時在聊天室提示
-    exclude: []            # 額外排除的路徑（相對伺服器根目錄，可用 * 萬用字元）
-    exclude-worlds: []     # 不備份的世界：世界資料夾，或建築世界的「擁有者/名稱」（版本紀錄的工作也有，只能排除建築世界）
-    storage: auto          # auto、folders、versioned（只有 S3）、hashed，見下面
+    announce: true         # tell the chat when it starts and ends
+    exclude: []            # extra paths to exclude (relative to the server root, * wildcards allowed)
+    exclude-worlds: []     # worlds not to back up: world folders, or build worlds as "owner/name" (history jobs have it too, but can only exclude build worlds)
+    storage: auto          # auto, folders, versioned (S3 only), hashed; see below
 ```
 
-**存放方式**（`storage`）：預設 `auto`，依目的地選最省空間的方式：本機用 `folders`（硬連結）；S3 的 bucket 有開版本控制時用 `versioned`，沒開時用 `hashed`。也可以直接指定。
+**Storage** (`storage`): `auto` by default, picking the most space-saving way for the destination: `folders` (hard links) for local; `versioned` for S3 when the bucket has versioning on, `hashed` when not. It can also be set directly.
 
-- **`folders`**：每份快照一個資料夾，裡面和伺服器上的相對路徑相同。
+- **`folders`**: one folder per snapshot, with the same relative paths as on the server.
 
   ```
-  <位置>/<UTC 時間>/world/level.dat
-  <位置>/<UTC 時間>/world/region/r.0.0.mca
-  <位置>/<UTC 時間>/world_nether/DIM-1/region/…   # Paper 1.21.11 的地獄
-  <位置>/<UTC 時間>/buildgit/worktree/main/…      # 主世界還沒存檔的標記
-  <位置>/snapshots/<UTC 時間>.yml                 # 清單，最後寫；有清單的快照才算完整
+  <location>/<UTC time>/world/level.dat
+  <location>/<UTC time>/world/region/r.0.0.mca
+  <location>/<UTC time>/world_nether/DIM-1/region/…   # the Nether on Paper 1.21.11
+  <location>/<UTC time>/buildgit/worktree/main/…      # main's unsaved marks
+  <location>/snapshots/<UTC time>.yml                 # the manifest, written last; only snapshots with a manifest are complete
   ```
 
-  每份快照都是普通的資料夾，用檔案總管、S3 的網頁介面或任何同步工具就能直接取用，不需要 BuildGit。沒變的檔案不重新上傳：本機用硬連結（不佔空間），S3 用伺服器端複製（CopyObject，不必重傳，但空間約為「世界大小 × 份數」；物件儲存便宜，所以接受）。
-- **`versioned`**（只有 S3，bucket 要先開啟版本控制，BuildGit 會檢查並提示）：遠端只放一份 `<位置>/current/…`，每次只上傳有變動的檔案，舊內容由 S3 留成舊版本。上傳時記下回傳的版本 id，清單記「這份快照的每個檔案是哪個版本」；還原照清單取回那些版本。刪舊快照時，BuildGit 自己刪掉只有被刪的快照用到的版本（指定版本 id），不設 bucket 的生命週期規則（那會整份覆蓋，同一個 bucket 有別的用途時很危險）。
-  - 好處：只多存變動過的檔案、沒變的檔案不必任何請求。
-  - 壞處：舊的時間點要照清單一檔一版本取回，實際上要靠 BuildGit；要服務支援版本控制（AWS、MinIO、Wasabi 可以，Backblaze B2 要實測，Cloudflare R2 目前不支援）。
-- **`hashed`**：和版本紀錄的 `files/` 一樣，每個檔案以內容的 SHA-256 命名（`<位置>/files/<雜湊>`），清單記「路徑 → 雜湊」。一樣的內容只存一份，沒變的檔案連請求都不用送；刪舊快照後，刪掉沒有任何快照用到的檔案。
-  - 壞處：舊快照不能直接當資料夾瀏覽，要靠 BuildGit 照清單組回來（還原時就是這樣做）。
+  Every snapshot is a plain folder, usable directly with a file manager, S3's web console or any sync tool, without BuildGit. Unchanged files are not re-uploaded: local copies use hard links (no space), S3 uses server-side copies (CopyObject, no re-sending, but the space is about "world size × count"; object storage is cheap, so this is accepted).
+- **`versioned`** (S3 only; the bucket must have versioning on, which BuildGit checks and reports): the remote holds just one `<location>/current/…`, each run uploads only changed files, and S3 keeps old contents as old versions. The version id returned by each upload is recorded, and the manifest records "which version of each file this snapshot uses"; restoring fetches those versions per the manifest. When deleting old snapshots, BuildGit itself deletes the versions used only by the deleted snapshots (by version id), without setting bucket lifecycle rules (which cover the whole bucket and are dangerous when the bucket has other uses).
+  - Pros: only changed files are stored again, and unchanged files need no requests at all.
+  - Cons: an old point in time has to be fetched file by file and version by version per the manifest, so in practice it needs BuildGit; the service must support versioning (AWS, MinIO and Wasabi do; Backblaze B2 needs testing; Cloudflare R2 does not for now).
+- **`hashed`**: like history's `files/`, each file is named by the SHA-256 of its content (`<location>/files/<hash>`), and the manifest records "path → hash". The same content is stored once, and unchanged files need no requests at all; after old snapshots are deleted, files no snapshot uses are deleted.
+  - Cons: old snapshots cannot be browsed as folders directly; BuildGit reassembles them per the manifest (which is what a restore does).
 
-**備份哪些世界**：伺服器上所有世界的資料夾，包含玩家的建築世界（[03-worlds.md](03-worlds.md)），除了可以從版本重建的草稿、檢視、整合世界。建築世界的資料夾在改名後名稱會變，清單另外記每個資料夾屬於哪個建築世界的 id，還原時照索引放回它現在的名稱。
-- **只處理有玩家進入過的世界**：這個工作上次執行之後有玩家進去過的世界，才檢查並上傳變動的檔案；沒人進去過的，整個沿用上一份快照（硬連結、伺服器端複製，或 `versioned` 時什麼都不用做）。從來沒有玩家進去過的世界不備份，清單記下它被略過。每個世界最後有玩家的時間記在 `buildgit/backup/visits.yml`，各工作和自己的上次執行時間比。
-- 一律排除 `session.lock`；加上 `exclude` 的路徑。
-- `exclude-worlds` 列的世界整個不備份，不列在清單的 `worlds` 裡。還原時：不在清單裡的獨立世界資料夾本來就不動；放在要換上的世界裡面的（例如 Fabric 的建築世界在 `world/dimensions/` 裡），換上前先把現有的搬進要換上的世界，原樣留著（決策 #67）。
-- 一併帶上主世界的標記日誌（`buildgit/worktree/<main>/`），還原後「還沒存檔的變更」仍然標記著。
+**Which worlds are backed up**: the folders of all worlds on the server, including players' build worlds ([03-worlds.md](03-worlds.md)), except draft, view and resolution worlds, which can be rebuilt from versions. A build world's folder name changes after a rename, so the manifest also records which build world id each folder belongs to, and a restore puts it back under its current name per the index.
+- **Only worlds players have been in are processed**: only worlds someone has entered since this job last ran are checked and have their changed files uploaded; for the others, the previous snapshot is reused as a whole (hard links, server-side copies, or nothing at all with `versioned`). Worlds no player has ever entered are not backed up, and the manifest records that they were skipped. Each world's last time with players is recorded in `buildgit/backup/visits.yml`, and each job compares it with its own last run.
+- `session.lock` is always excluded; plus the `exclude` paths.
+- Worlds listed in `exclude-worlds` are not backed up at all and are not in the manifest's `worlds`. On restore: separate world folders not in the manifest are untouched anyway; ones inside a world being swapped in (e.g. Fabric build worlds inside `world/dimensions/`) are first moved into the world being swapped in, so they stay as they are (decision #67).
+- main's mark journal (`buildgit/worktree/<main>/`) is included too, so after a restore "unsaved changes" are still marked.
 
-**一次備份的流程**（備份的背景執行緒；所有工作依序執行，不會同時）：
-1. 在聊天室提示「伺服器備份中」（`announce`）。
-2. 主執行緒：暫停所有世界的自動存檔，把所有世界寫回磁碟（等於 `save-off`、`save-all flush`）。
-3. 背景：在要處理的世界裡，大小或修改時間和上一份不同的檔案，先複製到本機暫存區（本機複製快，暫停時間短）。複製前後各看一次大小與修改時間，變了就重新複製（暫停存檔時伺服器仍可能寫檔，例如卸載 chunk）。還原時改名留著的 `….before-restore-…` 不備份。region 檔（`.mca`、`.mcc`）只記下來不複製：大世界第一次備份時整個世界都算有變，全部先複製要多一份世界的空間，暫停存檔也會長達數小時（決策 #66）。
-4. 主執行緒：恢復自動存檔。
-5. 背景：變動的檔案從暫存區寫到目的地（S3 同時上傳 8 個）；沒變的檔案照存放方式沿用。region 檔在這時才逐檔複製到暫存區（複製前後大小或修改時間不同就重來，最多 5 次；一直在變時照樣上傳並記警告，不記下時間，下次再傳）、上傳、刪掉，暫存區最多同時放 8 個。所以快照裡的 region 檔可能比玩家資料晚；中途被刪掉的檔案不列入。
-6. 寫清單 `snapshots/<時間>.yml`：時間、Minecraft 資料版本、當時 main 指向的存檔、每個檔案的「路徑 大小 SHA-256」（`versioned` 另有版本 id）、略過的世界。本機留一份（每個工作各自一份），下次用來判斷哪些檔案沒變。
-7. 刪掉超過 `keep` 份的舊快照（資料夾與清單）；沒有清單的快照資料夾（中途失敗）也清掉。
-8. 提示「備份完成」。
+**One backup run** (on the backup background thread; all jobs run one after another, never at once):
+1. Tell the chat "The server is backing up" (`announce`).
+2. Main thread: pause autosave of all worlds and flush all worlds to disk (the same as `save-off`, `save-all flush`).
+3. Background: in the worlds to process, files whose size or modification time differs from the previous snapshot are first copied to a local staging area (local copies are fast, so the pause is short). Size and modification time are checked before and after copying, and the file is copied again if they changed (the server can still write files while saving is paused, e.g. when unloading chunks). `….before-restore-…` left renamed by restores is not backed up. Region files (`.mca`, `.mcc`) are only noted, not copied: on a large world's first backup the whole world counts as changed, and copying it all first would need another world's worth of space and pause saving for hours (decision #66).
+4. Main thread: resume autosave.
+5. Background: changed files are written from the staging area to the destination (8 at once for S3); unchanged files are reused per the storage mode. Only now are region files copied to staging one by one (retried when size or modification time differ before and after, up to 5 times; when one keeps changing it is uploaded anyway with a warning and its time not recorded, so it is sent again next time), uploaded and deleted, with at most 8 in staging at once. So region files in a snapshot may be later than player data; files deleted midway are not listed.
+6. Write the manifest `snapshots/<time>.yml`: time, Minecraft data version, the save main pointed at then, each file's "path size SHA-256" (plus version id for `versioned`), and skipped worlds. A local copy is kept (one per job), used next time to tell which files are unchanged.
+7. Delete old snapshots beyond `keep` (folders and manifests); snapshot folders without a manifest (failed midway) are cleaned up too.
+8. Announce "Backup finished".
 
-**還原**（`/bg backup restore <工作> [時間]`，只能在主控台）：照 §2.5 的方式先下載（或從本機複製）到旁邊，下次啟動、世界載入前換上；原本的世界資料夾一律改名留著。下載前照清單的檔案大小加總，磁碟放不下（另外留 1 GB）就拒絕並說明要多少。
-- 世界資料夾整個換成快照裡的；版本庫的分支指向（`refs/`、`branches.yml`、`data-version`）、主世界還沒存檔的標記（`worktree/`）、`players.yml` 也換成同一個時間點的，草稿與檢視世界由版本重建。版本庫的物件沿用本機的（只增不減）；快照指向的存檔本機沒有時，從第一個版本紀錄工作補，沒有就拒絕。
-- 這台伺服器還沒有版本庫時（例如新主機），先還原版本紀錄、重新啟動，再還原世界資料夾。
-- 從來沒有玩家進去過、所以沒有備份的世界不換，下載完會提醒。
-- 之後再做：版本紀錄可以比世界新。清單記著世界當時對應的 main 存檔，啟動後把之後的存檔寫進世界（併回、還原用的寫入方式），結果是「玩家資料回到那一天，建築回到最近的存檔」。
+**Restoring** (`/bg backup restore <job> [time]`, console only): downloaded (or copied locally) to a place next to the current one first, as in §2.5, and swapped in at the next startup before worlds load; the original world folders are always kept renamed. Before downloading, the file sizes in the manifest are added up, and if the disk cannot hold it (with another 1 GB to spare), it is refused with how much is needed.
+- The world folders are replaced entirely with the snapshot's; the repository's branch pointers (`refs/`, `branches.yml`, `data-version`), main's unsaved marks (`worktree/`) and `players.yml` are also replaced with the same point in time, and draft and view worlds are rebuilt from versions. The repository's objects stay local (only adding); when the save a snapshot points at is not present locally, it is fetched from the first history job, and refused when there is none.
+- When this server has no repository yet (e.g. a new host), restore history first, restart, then restore the world folders.
+- Worlds no player ever entered, which therefore have no backup, are not swapped; a reminder is given after downloading.
+- For later: history could be newer than the world. The manifest records the main save the world matched at the time, so after startup the later saves could be written into the world (the same writes as publish and restore), giving "player data back to that day, builds back to the latest save".
 
-**跨版本**：清單記下 Minecraft 資料版本，比伺服器新時拒絕還原。比較舊時原樣放回舊格式的資料夾，讓 Minecraft 照一般的升級流程處理（例如 1.21.11 的 `world/DIM-1` 在 26.x 會被搬到 `world/dimensions/`），下載完會提醒；BuildGit 在世界載入後照常找主世界的位置。跨版本的世界資料夾還原還沒實測。
+**Across versions**: the manifest records the Minecraft data version, and restoring is refused when it is newer than the server. When older, the old-format folders are put back as they are and Minecraft's usual upgrade flow handles them (e.g. 1.21.11's `world/DIM-1` is moved to `world/dimensions/` on 26.x), with a reminder after downloading; BuildGit finds main's world locations as usual after worlds load. Cross-version world folder restores have not been tested yet.
 
-驗收：Fabric 1.21.11 與 Paper 26.3 各自從第一階段的 `s3.yml` 轉成工作，S3（hashed）、S3 版本控制（versioned，留 2 份時刪掉只有舊快照用到的版本）、本機（folders，沒變的檔案是硬連結、只留 2 份）各備份數次，只上傳變動的檔案；玩家離開 1 分鐘後閒置觸發一次；放一個方塊、備份、再放一個，還原後只剩備份的那個。
+Acceptance: on both Fabric 1.21.11 and Paper 26.3, convert phase 1's `s3.yml` into jobs, back up several times to S3 (hashed), S3 with versioning (versioned; keeping 2 deletes the versions used only by old snapshots) and local (folders; unchanged files are hard links, only 2 kept), uploading only changed files; one idle backup triggers 1 minute after players leave; place a block, back up, place another, and after restoring only the backed-up one remains.
 
-### 2.7 備份工作：每個目的地各自的策略
+### 2.7 Backup jobs: a strategy per destination
 
-備份可以同時送到好幾個地方，每個地方各自決定備份什麼、多久一次、留幾份。例如版本紀錄每小時送 S3、世界資料夾每天送 S3 留 7 份、每 6 小時在本機另一顆硬碟留 4 份。
+Backups can go to several places at once, each deciding what to back up, how often and how many to keep. For example history to S3 every hour, world folders to S3 daily keeping 7, and every 6 hours to another local disk keeping 4.
 
-**`s3.yml`**：只放連線，可以有好幾組，以名稱區分。
+**`s3.yml`**: only connections, possibly several, by name.
 
 ```yaml
 connections:
@@ -276,714 +276,715 @@ connections:
     path-style: false
     access-key: ...
     secret-key: ...
-  cold:                  # 另一個 bucket 或另一家服務
+  cold:                  # another bucket or another provider
     ...
 ```
 
-**`backup.yml`**：備份工作，不含金鑰，可以放心給別人看。
+**`backup.yml`**: backup jobs, with no keys, so it is safe to show others.
 
 ```yaml
 jobs:
   history-s3:
-    what: history              # history（版本紀錄，§2.5）或 world（世界資料夾，§2.6）
-    target: s3:default         # s3:<連線名稱>，或 local:<資料夾>（相對伺服器根目錄或絕對路徑）
-    path: buildgit             # 在目的地裡的位置（S3 的 prefix）
-    schedule: "0 * * * *"      # cron：分 時 日 月 星期；支援 *、數字、範圍 a-b、清單 a,b、間隔 */n
+    what: history              # history (§2.5) or world (world folders, §2.6)
+    target: s3:default         # s3:<connection name>, or local:<folder> (relative to the server root, or absolute)
+    path: buildgit             # the place inside the destination (the S3 prefix)
+    schedule: "0 * * * *"      # cron: minute hour day month weekday; supports *, numbers, ranges a-b, lists a,b, steps */n
     keep: 48
   world-s3:
     what: world
     target: s3:default
     path: buildgit-world
     schedule: "0 4 * * *"
-    idle-minutes: 10           # 伺服器沒有玩家滿 10 分鐘後也備份一次
+    idle-minutes: 10           # also back up once after the server has had no players for 10 minutes
     keep: 14
     storage: auto
-  # world-local:               # 範例：本機另一顆硬碟
+  # world-local:               # example: another local disk
   #   what: world
   #   target: local:/mnt/backup/minecraft
   #   schedule: "0 */6 * * *"
   #   keep: 4
-timezone: ""                   # cron 用的時區；空白用伺服器的
+timezone: ""                   # the time zone for cron; empty uses the server's
 ```
 
-- **觸發**：`schedule`（cron）與 `idle-minutes`（閒置）可以只設一個，也可以都設，至少要有一個。
-  - **閒置時備份**：最後一位玩家離開後開始計時，期間有人加入就取消，滿 `idle-minutes` 分鐘才執行。只有這個工作上次執行之後有玩家上線過才觸發，所以伺服器整天沒人時不會一直備份，玩家進進出出時每個「有人玩過、然後空了」的時段也只備份一次。這時沒有玩家，不發聊天提示。
-  - 閒置備份也算進 `keep`；玩家一天上線好幾次時，舊的快照會比較快被擠掉，需要的話另外開一個只用閒置觸發的工作，各自決定留幾份。
-  - 不做關服時備份（使用者決定）：會拖慢關服，第一次全量時可能很久。
-- 每個工作可以 `enabled: false` 暫停。目的地沒設定好（例如 `s3.yml` 還是範本）的工作不執行，`/bg backup status` 顯示「未設定」，不在主控台洗版。範本裡的兩個工作預設開，所以填好 S3 就會開始備份：版本紀錄每小時；世界資料夾每天 04:00，加上伺服器閒置 10 分鐘後，留 14 份。
-- 所有工作排在同一個背景執行緒依序執行。兩個世界資料夾工作同時到期時各自暫停存檔一次（簡單優先；需要時再合併成一次）。
-- 每個工作有自己的本機紀錄 `buildgit/backup/<工作>/`（已上傳的提交、檔案雜湊、上一份清單），不同目的地的內容互不影響。
-- **本機目的地**：版本紀錄照 §2.5 的結構（`objects/`、`files/`、`snapshots/`）寫成檔案；世界資料夾的 `folders` 以硬連結沿用沒變的檔案，所以每份快照看起來都完整，卻只佔變動部分的空間。放在同一顆硬碟只防得了誤刪與損毀，防不了硬碟壞掉，手冊要說清楚。
-- **相容**：`backup.yml` 不存在、而 `s3.yml` 是第一階段的格式（沒有 `connections:`）時，把連線當成 `default`，用它的 `prefix`、`interval-minutes`、`keep` 建立一個版本紀錄工作 `history-s3`（`path` 照舊，所以遠端的備份接得上；間隔換成對應的 cron），再加上預設的世界資料夾工作；本機紀錄 `buildgit/backup/` 搬到 `buildgit/backup/history-s3/`。主控台提示 `s3.yml` 裡的舊鍵可以刪掉。
+- **Triggers**: `schedule` (cron) and `idle-minutes` (idle) can be set alone or together; at least one is needed.
+  - **Idle backups**: the timer starts when the last player leaves, is cancelled if someone joins meanwhile, and runs after `idle-minutes` minutes. It only triggers if a player has been online since this job last ran, so an empty server does not keep backing up all day, and with players coming and going, each "someone played, then it emptied" period is backed up only once. No players are around then, so no chat notice is sent.
+  - Idle backups count towards `keep` too; when players log in several times a day, old snapshots are pushed out sooner, so if needed, make a separate job triggered only by idle, each with its own retention.
+  - No backup on shutdown (the user's decision): it would slow down shutdown, possibly for a long time on the first full backup.
+- Each job can be paused with `enabled: false`. Jobs whose destination is not set up (e.g. `s3.yml` is still the template) do not run; `/bg backup status` shows "Not set up", without spamming the console. The two jobs in the template are on by default, so backups start once S3 is filled in: history every hour; world folders daily at 04:00 plus after the server has been idle for 10 minutes, keeping 14.
+- All jobs run one after another on one background thread. When two world folder jobs are due at once, each pauses saving once (simple first; merge them into one pause later if needed).
+- Each job has its own local record `buildgit/backup/<job>/` (uploaded commits, file hashes, the previous manifest), so different destinations do not affect each other.
+- **Local destinations**: history is written as files with §2.5's layout (`objects/`, `files/`, `snapshots/`); world folder `folders` reuse unchanged files with hard links, so each snapshot looks complete but only takes the space of the changes. On the same disk this only protects against mistakes and corruption, not disk failure; the manual must say so clearly.
+- **Compatibility**: when `backup.yml` does not exist and `s3.yml` is in phase 1's format (no `connections:`), the connection is taken as `default`, and its `prefix`, `interval-minutes` and `keep` make a history job `history-s3` (`path` unchanged, so the remote backups carry on; the interval becomes the matching cron), plus the default world folder job; the local record `buildgit/backup/` moves to `buildgit/backup/history-s3/`. The console says the old keys in `s3.yml` can be removed.
 
-**指令**（權限 `buildgit.backup`）：
-- `/bg backup status`：每個工作的目的地、排程、上次成功的時間、上次的錯誤。
-- `/bg backup now [工作]`、`/bg backup list [工作]`、`/bg backup test [工作]`：沒給名稱就是所有工作。`test` 依序列出、查版本控制（S3）、寫入小檔案、讀回比對、刪除；`list`、`test` 用自己的執行緒，不排在上傳後面。
-- `/bg backup restore <工作> [快照]`（只能在主控台）、`/bg backup fetch <分支> [新名稱]`（從第一個版本紀錄工作取回）。
+**Commands** (permission `buildgit.backup`):
+- `/bg backup status`: each job's destination, schedule, last success time, last error.
+- `/bg backup now [job]`, `/bg backup list [job]`, `/bg backup test [job]`: without a name, all jobs. `test` lists, checks versioning (S3), writes a small file, reads it back and compares, then deletes it; `list` and `test` use their own thread, not queued behind uploads.
+- `/bg backup restore <job> [snapshot]` (console only), `/bg backup fetch <branch> [new name]` (fetched from the first history job).
 
-## 3. 變更追蹤
+## 3. Change tracking
 
-### 3.1 原因（cause）
+### 3.1 Cause
 
-追蹤的核心是「目前正在執行的程式是因為誰」：
+The core of tracking is "whom the code currently running is on behalf of":
 
 ```
-Cause { author: 玩家 UUID, origin: 起始座標, kind: 直接 | 連帶 }
+Cause { author: player UUID, origin: starting position, kind: direct | knock-on }
 ```
 
-追蹤器在執行緒區域變數保存「目前的原因」。原因存在時：
-- 被寫入的格子：加入標記，作者是原因的玩家；
-- 新排的 tick、方塊事件：帶上原因；
-- 新生成的實體：成為被追蹤的實體。
+The tracker keeps "the current cause" in a thread-local variable. While a cause exists:
+- written blocks are marked, with the cause's player as author;
+- newly scheduled ticks and block events carry the cause;
+- newly spawned entities become tracked entities.
 
-沒有原因時發生的變化，一律不標記。
+Changes that happen without a cause are never marked.
 
-### 3.2 直接操作：設定原因
+### 3.2 Direct actions: setting the cause
 
-| 來源 | 設定原因的時機 |
+| Source | When the cause is set |
 |---|---|
-| 原版互動 | 處理玩家封包期間：放置、破壞、使用物品、與方塊或實體互動、編輯告示牌、容器點擊等 |
-| 指令 | 玩家執行的指令執行期間（`/fill`、`/clone`、`/setblock`、`/summon` 等） |
-| WorldEdit／FAWE | 見 §3.8。FAWE 會非同步、繞過原版寫入，所以不能只靠寫入層掛點 |
-| Axiom | 見 §3.9 |
-| DebugStickPro | 見 §3.9.1 |
-| 其他插件 | 公開 API（§3.10） |
+| Vanilla interaction | While handling a player's packets: placing, breaking, using items, interacting with blocks or entities, editing signs, clicking in containers and so on |
+| Commands | While a command run by a player executes (`/fill`, `/clone`, `/setblock`, `/summon` and so on) |
+| WorldEdit/FAWE | See §3.8. FAWE runs asynchronously and bypasses vanilla writes, so hooks at the write layer alone are not enough |
+| Axiom | See §3.9 |
+| DebugStickPro | See §3.9.1 |
+| Other plugins | The public API (§3.10) |
 
-### 3.3 連帶變化：沿因果鏈傳遞
+### 3.3 Knock-on changes: passed along the causal chain
 
-| 連帶來源 | 傳遞方式 |
+| Knock-on source | How it is passed along |
 |---|---|
-| 鄰居形狀更新（樓梯、柵欄、牆、玻璃片、紅石線） | 同步發生在原因存在期間，自然被標記 |
-| 鄰居變化通知（`neighborChanged`） | 同上；1.19 起的佇列式 neighbor updater 也在同一呼叫內處理完 |
-| 排程 tick（水流、岩漿、沙子、紅石元件、觀察者） | 排入時記下原因，以 `(座標, 類型)` 為鍵存在旁表；tick 執行時取出，恢復為目前原因 |
-| 方塊事件（活塞、音符盒、箱子開合） | 同排程 tick |
-| 實體 | 原因存在時生成的實體成為被追蹤實體，並記住原因。這些實體 tick 時，依類型決定是否恢復原因（§3.4） |
-| 爆炸 | 爆炸來源實體被追蹤時，以它的原因執行爆炸 |
+| Neighbor shape updates (stairs, fences, walls, glass panes, redstone wire) | Happen synchronously while the cause exists, so they are marked naturally |
+| Neighbor change notifications (`neighborChanged`) | Same; the queued neighbor updater since 1.19 also finishes within the same call |
+| Scheduled ticks (water flow, lava, sand, redstone components, observers) | The cause is recorded when scheduled, in a side table keyed by `(position, type)`; when the tick runs it is taken out and restored as the current cause |
+| Block events (pistons, note blocks, chests opening and closing) | Same as scheduled ticks |
+| Entities | Entities spawned while a cause exists become tracked and remember the cause. When they tick, their type decides whether the cause is restored (§3.4) |
+| Explosions | When the exploding entity is tracked, the explosion runs with its cause |
 
-### 3.4 實體的連帶範圍
+### 3.4 How far entities pass changes on
 
-被追蹤實體的**本身狀態**一定會在提交時保存，例如盔甲座、展示框、display entity、礦車、玩家生出的生物。
+A tracked entity's **own state** is always saved on commit, e.g. armor stands, item frames, display entities, minecarts, mobs spawned by players.
 
-它對方塊造成的副作用，依類型決定是否傳遞原因（`config.yml` 可調）：
+Whether its side effects on blocks pass the cause on depends on its type (adjustable in `config.yml`):
 
-| 預設傳遞 | 預設不傳遞 |
+| Passed on by default | Not passed on by default |
 |---|---|
-| 掉落方塊（沙子、鐵砧）、點燃的 TNT、玩家射出的投射物、礦車、船 | 一般生物（羊吃草、終界使者搬方塊、村民耕種）——否則生物長時間的行為會不斷混進版本 |
+| Falling blocks (sand, anvils), lit TNT, projectiles shot by players, minecarts, boats | Regular mobs (sheep eating grass, endermen moving blocks, villagers farming) — otherwise long-running mob behavior would keep leaking into versions |
 
-### 3.5 終點與上限
+### 3.5 Where it ends and limits
 
-- **自然停止**：連帶變化停止後就不再有帶原因的 tick，追蹤自然結束。
-- **重複狀態**：紅石時鐘會一直改同一批格子；它們已被標記，只會重複標記，提交時存當下狀態。
-- **距離上限**：原因帶有起始座標；連帶傳遞超過起點 `tracking.max-distance`（預設 256 格）就不再傳遞。
-- **數量上限**：單一原因標記的格子超過 `tracking.max-blocks-per-cause`（預設 100 萬）時停止傳遞，並通知該玩家。這是防止無限蔓延的安全網。（Paper 版尚未實作；目前由傳染的時間窗與距離上限限制範圍。）
+- **Stopping naturally**: once knock-on changes stop, there are no more ticks carrying the cause, and tracking ends by itself.
+- **Repeating states**: a redstone clock keeps changing the same blocks; they are already marked, so they are only marked again, and a commit stores the current state.
+- **Distance limit**: the cause carries its starting position; knock-on changes farther than `tracking.max-distance` (256 blocks by default) from it are not passed on.
+- **Count limit**: when one cause marks more than `tracking.max-blocks-per-cause` (1 million by default) blocks, passing on stops and the player is told. This is a safety net against endless spreading. (Not implemented on Paper yet; for now the spreading time window and distance limit bound it.)
 
-### 3.6 標記的保存
+### 3.6 Keeping the marks
 
-- 每個工作世界有一份標記表：chunk → section → 4096 位元的位元集，加上每格的作者索引（整個 section 同一作者時不配置），以及被追蹤實體的 UUID 與作者。
-- **持久化**：有變化的 section 以快照寫進標記日誌，每秒 flush（非同步執行緒）。重啟後依序重播；寫到一半的尾端忽略。提交時先換新日誌檔，提交成功才刪舊檔，失敗則把標記放回。
-- **當機時的已知風險**：最後一秒的標記可能遺失，那幾格會缺席下一次提交。會在 `status` 提示「上次未正常關閉」，並提供 `/bg mark <選取範圍>` 手動補標記。
+- Each working world has a mark table: chunk → section → a 4096-bit bitset, plus each block's author index (not allocated when the whole section has one author), and the UUIDs and authors of tracked entities.
+- **Persistence**: changed sections are written as snapshots into the mark journal, flushed every second (on an async thread). After a restart they are replayed in order; a half-written tail is ignored. A commit first switches to a new journal file and only deletes the old one once the commit succeeds; on failure the marks are put back.
+- **Known risk on crashes**: the last second of marks may be lost, and those blocks miss the next commit. `status` says "last shutdown was not clean", and `/bg mark <selection>` lets you mark by hand.
 
-### 3.7 平台掛點
+### 3.7 Platform hooks
 
-**共用層**：兩個平台的邏輯（記錄、存檔、分支世界、指令、介面）都在 `server/`，以原版類別（Mojang 名稱）操作世界；平台只實作 `Platform` 介面（排程、世界的建立與卸載、權限、訊息、bossbar、箱子選單）與下面的掛點。指令包裝（`CommandHook`）與連帶判斷（換掉 `neighborUpdater`）兩個平台共用。
+**Shared layer**: the logic for both platforms (recording, saving, branch worlds, commands, UI) lives in `server/`, operating on worlds with vanilla classes (Mojang names); platforms only implement the `Platform` interface (scheduling, creating and unloading worlds, permissions, messages, bossbars, chest menus) and the hooks below. Command wrapping (`CommandHook`) and knock-on attribution (replacing `neighborUpdater`) are shared by both platforms.
 
-**Fabric 26.3／26.2／1.21.11**（已實作；mixin，`defaultRequire = 1`，掛不上就無法啟動，不會靜靜漏記）：
-- 原因（MixinExtras `@WrapMethod`，期間設定原因）：`ServerPlayerGameMode` 的 `destroyBlock`／`useItemOn`／`useItem`；`ServerGamePacketListenerImpl` 的容器點擊、容器按鈕（講台）、告示牌編輯；`Player.attack`、`Player.interactOn`（1.21.11 另掛 `ArmorStand.interactAt`）。
-- 寫入：`LevelChunk.setBlockState`（回傳非 null 才算改變）是單一入口，有原因就標記；方塊實體內容改變另掛 `BlockEntity.setChanged`。所以不需要 Paper 那樣逐一列舉事件，也不會多標記鄰居。
-- 傳遞實體與自然變化：`FallingBlockEntity.tick`、`Projectile.onHit`、`ServerExplosion.explode` 以實體記住的作者設定原因；活塞 `moveBlocks` 用附近最近的作者；`ServerLevel.tickChunk`（隨機刻、降雪、雷擊）、`FireBlock.tick` 與沒有作者的爆炸是自然變化，期間的寫入加入抑制集合。
-- 實體：`ServerLevel.addFreshEntity` 決定作者；`ServerLevel$EntityCallbacks` 的 `onTrackingStart`／`onTrackingEnd` 對應載入與移除（卸載不算移除）。TNT 先移除自己再爆炸，所以傳遞實體移除後下一刻才忘掉作者。
-- 檢查模式與唯讀檢視：`handleBlockBreakAction`（左鍵）與 `useItemOn`（右鍵，副手一併擋下）在開頭攔截；被擋的左鍵回送原本的方塊。
-- 分支世界：Fantasy 的持久世界，維度 `buildgit:<名稱>`（名稱中 `[a-z0-9_-]` 以外的字元寫成 `.u<十六進位>.`），存在 `<存檔>/dimensions/buildgit/`。合成讀取掛在 `RegionFileStorage.getRegionFile` 開頭：region 檔第一次開啟、檔案不存在時先合成；資料夾在建立世界前登記。26.3 的 `getRegionFile` 多了一個參數、快取的值改成 `Optional<RegionFile>`，所以以 `@Local(argsOnly = true)` 只取 `ChunkPos`、只看快取有沒有這個鍵，各版本共用。
-- 其他：`Commands.performCommand` 前確認指令都包好；`PlayerList.remove`（離線）、`ServerPlayer.triggerDimensionChangeTriggers`（換世界）；新 chunk 用 Fabric API 的 `ServerChunkEvents.CHUNK_GENERATE`。
-- 版本庫：專用伺服器在伺服器目錄的 `buildgit/`（同 Paper）；單人遊戲在存檔資料夾裡，每個存檔一個。設定在 `config/buildgit/`。
-- 兩版只差在少數 API（bossbar 建構子、chunk 座標打包、箱子畫面的點擊型別、Fantasy 的 Level／World 命名、`interactOn` 的參數），各自放在 `dev.twme.buildgit.fabric.mc`；26.2 不混淆、直接以 Mojang 名稱執行，1.21.11 由 Loom 轉成 intermediary。26.3 與 26.2 用同一份版本相依的類別（`fabric/mc26_3` 直接編譯 `fabric/mc26_2` 的原始碼）。
+**Fabric 26.3/26.2/1.21.11** (implemented; mixins with `defaultRequire = 1`, so if a hook cannot apply the server does not start, rather than silently missing records):
+- Cause (MixinExtras `@WrapMethod`, setting the cause for the duration): `destroyBlock`/`useItemOn`/`useItem` in `ServerPlayerGameMode`; container clicks, container buttons (lecterns) and sign edits in `ServerGamePacketListenerImpl`; `Player.attack`, `Player.interactOn` (plus `ArmorStand.interactAt` on 1.21.11).
+- Writes: `LevelChunk.setBlockState` (a change only when it returns non-null) is the single entry point, marking when there is a cause; block entity content changes also hook `BlockEntity.setChanged`. So there is no need to list events one by one like on Paper, and no extra neighbors are marked.
+- Propagating entities and natural changes: `FallingBlockEntity.tick`, `Projectile.onHit` and `ServerExplosion.explode` set the cause from the author the entity remembers; pistons' `moveBlocks` use the nearest author nearby; `ServerLevel.tickChunk` (random ticks, snowfall, lightning), `FireBlock.tick` and explosions with no author are natural changes, and writes during them join the suppression set.
+- Entities: `ServerLevel.addFreshEntity` decides the author; `onTrackingStart`/`onTrackingEnd` in `ServerLevel$EntityCallbacks` correspond to loading and removal (unloading does not count as removal). TNT removes itself before exploding, so a propagating entity's author is only forgotten the tick after it is removed.
+- Inspect mode and read-only views: `handleBlockBreakAction` (left click) and `useItemOn` (right click, also blocking the offhand) are intercepted at the start; blocked left clicks send back the original block.
+- Branch worlds: Fantasy persistent worlds with dimension `buildgit:<name>` (characters outside `[a-z0-9_-]` in the name are written as `.u<hex>.`), stored in `<save>/dimensions/buildgit/`. Synthesizing reads hook the start of `RegionFileStorage.getRegionFile`: when a region file is first opened and the file does not exist, it is synthesized first; folders are registered before the world is created. On 26.3, `getRegionFile` has an extra parameter and the cached value became `Optional<RegionFile>`, so `@Local(argsOnly = true)` takes only the `ChunkPos` and only checks whether the cache has the key, shared across versions.
+- Other: before `Commands.performCommand`, check that all commands are wrapped; `PlayerList.remove` (going offline), `ServerPlayer.triggerDimensionChangeTriggers` (changing worlds); new chunks use Fabric API's `ServerChunkEvents.CHUNK_GENERATE`.
+- Repository: on dedicated servers, `buildgit/` in the server directory (same as Paper); in single-player, inside the save folder, one per save. Settings are in `config/buildgit/`.
+- The versions differ only in a few APIs (the bossbar constructor, chunk coordinate packing, chest screen click types, Fantasy's Level/World naming, `interactOn` parameters), each in `dev.twme.buildgit.fabric.mc`; 26.2 is not obfuscated and runs directly with Mojang names, while 1.21.11 is remapped to intermediary by Loom. 26.3 and 26.2 use the same version-specific classes (`fabric/mc26_3` compiles `fabric/mc26_2`'s sources directly).
 
-**Paper 26.3／26.2／1.21.11**（已實作；不能用 mixin，改用事件加上 NMS 包裝）：
-- 直接操作：Bukkit／Paper 事件（全部 `MONITOR`，只讀不改），涵蓋 CoreProtect 的事件清單再加上 Spyglass 補的部分：
-  - 放置（含多格）、破壞、桶子、告示牌、點火、骨粉、玩家種樹、傳送門、採收、講台、鍋釜；
-  - 互動：右鍵標記點到的格子、鄰居與放置面；容器點擊／拖曳依容器持有者標記（含大箱子兩側、實體容器）。
-  - 寫入層沒有單一掛點。鄰居的連帶變化由下面的更新器判斷；多標記的格子內容若與父版本相同，提交時不會產生變更。但多標記的格子若之前被非玩家改過（主控台指令、自然變化），那些變化會一起被收進去，所以標記要盡量精確。
-- 指令：以反射包裝伺服器 Brigadier 指令樹的每個可執行節點（原版、Bukkit、Paper 插件指令在同一棵樹）。玩家執行時設定原因，並依座標參數（`from/to`、`begin/end/destination`、`pos`）外擴一格標記整個範圍——`/fill strict`、`/clone strict` 不發鄰居更新。
-  - 每次指令執行前逐一比對根節點的子節點，新節點（其他插件晚註冊、資料包重載）再包裝。
-  - `/function`、`/return` 的執行器由引擎以型別辨識，不包裝；函式裡的指令各自被記錄。
-- 連帶：以反射把每個 `Level` 的 `neighborUpdater`（`CollectingNeighborUpdater`）換成子類別，在形狀更新、鄰居通知時判斷作者：
-  1. 目前執行緒有原因 → 該作者；
-  2. 否則**傳染**：該格或 6 個鄰居在 `cascade-window`（預設 200 tick）內被標記過、且距離起點不超過 `max-distance` → 最近標記的作者。
-  - **只標記真的改變的格子**：剛改變的「來源」格直接標記；收到通知的「候選」格先記下當時的狀態，等最外層的更新跑完（巢狀更新會排進佇列）再比對，變了才標記。否則只是收到通知的格子也會變成傳染源，旁邊的自然變化會被一路記進去。實測：玩家放的石頭旁邊，高速隨機刻下草地蔓延 8 秒，仍然只記 1 格。
-  - 因此事件處理只標記目標格本身；鄰居的形狀變化由更新器判斷。世界沒掛上更新器時，才退回連同 6 個鄰居一起標記。
-  - 這取代了原本「排程 tick 旁表」的設計：水流、紅石、沙子等延遲變化都會碰到剛被標記的鄰居，不必包裝 `blockTicks`。快速路徑是一個 volatile 讀取，沒有標記活動時幾乎零成本。
-  - **排除自然變化**：生長、蔓延、結冰、融化、樹葉腐爛、燃燒、耕地乾濕、不被追蹤的實體與爆炸，在同一刻加入抑制集合，傳染不會把它們算進來。
-  - 活塞、水流（`BlockFromToEvent`）、海綿、爆炸另以事件補記。
-- 實體：`EntitySpawnEvent` 依原因、生成位置的近期標記、或 FAWE 寫入實體的 chunk 決定作者；投射物歸給射手。掉落方塊、TNT 等「傳遞實體」記住作者，落地或爆炸時的方塊變化歸給他。
-  - 卸載與跨維度：被追蹤實體卸載時記下；提交時不在世界中的被追蹤實體延後到再次載入，不會誤當成被移除。
+**Paper 26.3/26.2/1.21.11** (implemented; no mixins, so events plus NMS wrapping instead):
+- Direct actions: Bukkit/Paper events (all `MONITOR`, read-only), covering CoreProtect's event list plus what Spyglass adds:
+  - placing (including multi-block), breaking, buckets, signs, ignition, bone meal, trees grown by players, portals, harvesting, lecterns, cauldrons;
+  - interaction: right clicks mark the clicked block, its neighbors and the placement face; container clicks/drags mark by the container's holder (including both halves of double chests, and entity containers).
+  - The write layer has no single hook. Knock-on changes to neighbors are judged by the updater below; when an extra marked block's content equals the parent version, the commit produces no change. But if an extra marked block was previously changed by non-players (console commands, natural changes), those changes get included too, so marks should be as precise as possible.
+- Commands: every executable node of the server's Brigadier command tree is wrapped by reflection (vanilla, Bukkit and Paper plugin commands share one tree). While a player runs one, the cause is set, and the whole range from coordinate arguments (`from/to`, `begin/end/destination`, `pos`) is marked, extended by one block — `/fill strict` and `/clone strict` send no neighbor updates.
+  - Before each command runs, the root's children are compared one by one, and new nodes (registered later by other plugins, datapack reloads) are wrapped.
+  - Executors for `/function` and `/return` are recognized by type by the engine and are not wrapped; the commands inside functions are each recorded.
+- Knock-on: each `Level`'s `neighborUpdater` (`CollectingNeighborUpdater`) is replaced by reflection with a subclass, which decides the author on shape updates and neighbor notifications:
+  1. the current thread has a cause → that author;
+  2. otherwise **spreading**: the block or one of its 6 neighbors was marked within `cascade-window` (200 ticks by default), and it is within `max-distance` of the origin → the most recent mark's author.
+  - **Only blocks that really changed are marked**: a "source" block that just changed is marked directly; a notified "candidate" block has its state recorded at the time, and once the outermost update finishes (nested updates are queued) it is compared, and only marked if it changed. Otherwise blocks that merely got notified would become spreading sources, and nearby natural changes would be recorded all the way along. Tested: next to a stone placed by a player, grass spreading for 8 seconds at high random tick speed still recorded only 1 block.
+  - So event handlers only mark the target block itself; neighbors' shape changes are judged by the updater. Only when a world has no updater hooked does it fall back to marking the 6 neighbors too.
+  - This replaces the original "scheduled tick side table" design: delayed changes like water flow, redstone and sand all touch freshly marked neighbors, so `blockTicks` needs no wrapping. The fast path is one volatile read, so with no marking activity it costs almost nothing.
+  - **Excluding natural changes**: growth, spreading, freezing, melting, leaf decay, burning, farmland wetting and drying, untracked entities and explosions join the suppression set in the same tick, so spreading does not count them.
+  - Pistons, fluid flow (`BlockFromToEvent`), sponges and explosions are additionally recorded through events.
+- Entities: `EntitySpawnEvent` decides the author from the cause, recent marks at the spawn position, or the chunk FAWE wrote entities into; projectiles go to the shooter. "Propagating entities" such as falling blocks and TNT remember the author, and block changes when they land or explode go to them.
+  - Unloading and changing dimensions: tracked entities are noted when unloaded; tracked entities not in the world at commit time are deferred until they load again, rather than being taken as removed.
 
-### 3.8 WorldEdit／FAWE
+### 3.8 WorldEdit/FAWE
 
-CoreProtect 記錄 FAWE 有兩個問題（實際閱讀原始碼確認）：
-- 它以 extent 包裝逐格記錄，而且每格都讀舊方塊、寫資料庫佇列，大範圍編輯明顯變慢；
-- FAWE 預設只允許 `allowed-plugins` 清單中的 extent，不在清單中的會被略過，所以許多 FAWE 編輯根本沒有被記錄。Spyglass 也是逐格讀寫。
+CoreProtect's FAWE recording has two problems (confirmed by reading the source):
+- it records block by block with an extent wrapper, reading the old block and writing to a database queue for each, so large edits get noticeably slower;
+- by default FAWE only allows extents from the `allowed-plugins` list and skips the others, so many FAWE edits are not recorded at all. Spyglass also reads and writes block by block.
 
-BuildGit 的做法：只記**位置**，不讀世界。
-- **FAWE 佇列模式**（預設）：在 `EditSessionEvent`（`BEFORE_CHANGE`）時，對編輯的佇列加上批次處理器 `FaweRecorder`（與 FAWE 自身的歷史紀錄同一個掛點）。FAWE 每處理完一個 chunk 的修改集，處理器掃描每個 section 的 `char[]`，非 0 的格子組成位元集，**整個 section 一次標記**；方塊實體、實體移除與新實體也一併標記。
-- **FAWE 非佇列模式與原版 WorldEdit**：包一層 `MarkingExtent` 逐格標記（只記位置），並在執行期把套件名稱加進 FAWE 的 `allowed-plugins`（只在記憶體中）。
-- 作者：編輯者是玩家時取該玩家；沒有玩家（其他插件透過 API 呼叫 WorldEdit）時取目前執行緒的原因（§3.10 的 `attribute`）。
-- **Fabric**：WorldEdit 模組有裝時掛上同樣的 `EditSessionEvent` 與 `MarkingExtent`（Fabric 沒有 FAWE），選取範圍也讀 WorldEdit 的。WorldEdit 的世界轉回原版世界的方式依版本不同（7.4.2／Minecraft 1.21.11 是 `FabricAdapter.adapt`，7.4.5 起經過 core-mc 的 `FabricAdapter.get().toNativeWorld`），放在各版本自己的 `WorldEditWorlds`。編譯時只依賴 WorldEdit，不打包。
-- 實測（Paper 26.2、FAWE 2.15.4，256 萬格 `setBlocks`）：掛上處理器 123–212 ms，不掛 127–187 ms，差異在量測誤差內；標記數與實際修改數完全一致。
+BuildGit's approach: record only **positions**, never read the world.
+- **FAWE queue mode** (default): on `EditSessionEvent` (`BEFORE_CHANGE`), a batch processor `FaweRecorder` is added to the edit's queue (the same hook FAWE's own history uses). Each time FAWE finishes a chunk's change set, the processor scans each section's `char[]`, turns the non-zero blocks into a bitset, and **marks the whole section at once**; block entities, entity removals and new entities are marked too.
+- **FAWE non-queue mode and vanilla WorldEdit**: a `MarkingExtent` wrapper marks block by block (positions only), and at runtime the package name is added to FAWE's `allowed-plugins` (in memory only).
+- Author: when the editor is a player, that player; with no player (other plugins calling WorldEdit through its API), the current thread's cause (`attribute` in §3.10).
+- **Fabric**: when the WorldEdit mod is installed, the same `EditSessionEvent` and `MarkingExtent` are hooked (Fabric has no FAWE), and selections are read from WorldEdit too. How a WorldEdit world converts back to a vanilla world differs by version (`FabricAdapter.adapt` on 7.4.2/Minecraft 1.21.11, through core-mc's `FabricAdapter.get().toNativeWorld` from 7.4.5), in each version's own `WorldEditWorlds`. It depends on WorldEdit only at compile time and does not bundle it.
+- Tested (Paper 26.2, FAWE 2.15.4, `setBlocks` of 2.56 million blocks): 123–212 ms with the processor, 127–187 ms without, the difference within measurement noise; the mark count exactly matches the actual changes.
 
 ### 3.9 Axiom
 
-- 以 AxiomPaper 的 `Integration.registerCustomIntegration` 註冊：`checkSection` 對整個 section 標記並回傳「全部允許」；`canPlaceBlock`／`canBreakBlock` 標記該格與鄰居。
-- 實體：AxiomPaper 只透過生成、修改、刪除三種封包碰實體（貼上剪貼簿裡的實體也走生成），三者都有事件。事件只帶一個實體，但生成會連乘客一起加入、修改可以讓實體騎上或趕下乘客，所以記下整串（最外層載具與所有乘客）；修改時修改前、後的整串都記。
-- **略過權限的玩家**（`axiomadmin.bypass_region_checks`，預設沒有，OP 也沒有）：AxiomPaper 對他們不詢問任何整合，也沒有公開的掛點，所以讀 AxiomPaper 的內部（決策 #51）：
-  - 方塊緩衝區（筆刷、貼上、填充等）：把 AxiomPaper 的操作佇列換成 BuildGit 的子類別，加入佇列時包住這些玩家的方塊緩衝區操作，第一次執行前與完成後各把緩衝區裡的 section 整個標記一次。佇列在主執行緒、佇列空著時會在加入的當下執行，所以只能在加入時包住，不能事後去看佇列；操作可能跨好幾個 tick 等 chunk 載入，完成後再標記一次，中途存檔也不會漏。
-  - 單格放置：另外聽 `axiom:set_block` 頻道，讀封包開頭的位置表（VarInt 筆數，每筆 BlockPos 與方塊 id），標記該格與鄰居。
-  - 生態域筆刷記不到。
-  - 依賴 AxiomPaper 的內部結構，不需要設定：換佇列失敗、或之後讀不懂編輯內容時自動停用並在主控台警告，不影響 Axiom 本身的編輯。BuildGit 停用時換回原本的佇列。
-  - 這種玩家開啟 Axiom 時會收到提醒：記錄正常時說明生態域記不到；停用時說明方塊編輯可能不會被記錄。
-  - 實測（Paper 26.2、AxiomPaper 6.0.1）：以 AxiomPaper 自己的佇列執行 1200 格的方塊緩衝區、送一個單格放置封包，都記錄到。
-- **Fabric**：伺服器端跑的是 Axiom 模組本體，沒有整合 API，所以以 mixin 掛在它的伺服器封包上（只在裝了 Axiom 時套用，決策 #54）。所有玩家都這樣記錄，沒有略過權限的差別：
-  - 會改世界的封包（方塊緩衝區、單格放置、生成／修改／刪除實體、修正區域、方塊 tick）處理期間設定玩家為原因：經過 `setBlockState` 的變化、新加入的實體、連帶變化都記給他。
-  - 方塊緩衝區直接寫進 section、不經過 `setBlockState`：寫入前標記緩衝區裡有寫到的格子（同步執行，寫完前不會存檔）。
-  - 生態域緩衝區：每個生態域格記一格。
-  - 單格放置：每一格與鄰格。
-  - 修改、刪除實體：記下整串（最外層載具與所有乘客），修改前後各一次。
-  - 依賴 Axiom 的內部類別：啟動時確認對得上，對不上就停用並在主控台警告，不影響 Axiom 本身。
-  - 只記位置，內容由存檔時從世界讀，所以和跨版本的歷史無關。
-  - 實測（Fabric 26.2、26.3、1.21.11，Axiom 6.1.3）：以伺服器端的假玩家直接處理 Axiom 的方塊緩衝區、單格放置、刪除實體封包，都記在該玩家名下，草稿裡存得起來。
+- Registered through AxiomPaper's `Integration.registerCustomIntegration`: `checkSection` marks the whole section and returns "all allowed"; `canPlaceBlock`/`canBreakBlock` mark the block and its neighbors.
+- Entities: AxiomPaper only touches entities through three packets, spawn, modify and delete (pasting entities from the clipboard also goes through spawn), and all three have events. Events carry only one entity, but spawning adds passengers along with it, and modifying can mount or dismount passengers, so the whole stack (the outermost vehicle and all passengers) is recorded; for modify, the stacks before and after are both recorded.
+- **Players with the bypass permission** (`axiomadmin.bypass_region_checks`, not granted by default, not even to OPs): AxiomPaper asks no integration about them and offers no public hook, so AxiomPaper's internals are read (decision #51):
+  - Block buffers (brushes, pastes, fills and so on): AxiomPaper's operation queue is replaced with a BuildGit subclass, which wraps these players' block buffer operations when they are added, marking the sections in the buffer once before the first run and once after completion. The queue runs on the main thread and executes at the moment of adding when empty, so wrapping can only happen on add, not by inspecting the queue later; an operation may span several ticks waiting for chunks to load, so marking again after completion means nothing is missed if a save happens midway.
+  - Single block placement: the `axiom:set_block` channel is also listened to, reading the position table at the start of the packet (VarInt count, each entry a BlockPos and block id), marking the block and its neighbors.
+  - The biome brush cannot be recorded.
+  - Depends on AxiomPaper's internal structure, with nothing to configure: when replacing the queue fails, or edit contents later cannot be understood, it turns itself off with a console warning, without affecting Axiom's own edits. When BuildGit is disabled the original queue is put back.
+  - Such players get a notice when they turn Axiom on: when recording works, that biomes are not recorded; when turned off, that block edits may not be recorded.
+  - Tested (Paper 26.2, AxiomPaper 6.0.1): a 1200-block buffer run through AxiomPaper's own queue and one single-block placement packet were both recorded.
+- **Fabric**: the server runs the Axiom mod itself, which has no integration API, so mixins hook its server packets (applied only when Axiom is installed, decision #54). All players are recorded this way, with no bypass distinction:
+  - While world-changing packets are handled (block buffers, single block placement, spawning/modifying/deleting entities, region fixes, block ticks), the player is set as the cause: changes through `setBlockState`, newly added entities and knock-on changes all go to them.
+  - Block buffers write straight into sections without `setBlockState`: the blocks written in the buffer are marked before writing (synchronously, so no save happens before writing finishes).
+  - Biome buffers: one block marked per biome cell.
+  - Single block placement: each block and its neighbors.
+  - Modifying and deleting entities: the whole stack (outermost vehicle and all passengers), once before and once after.
+  - Depends on Axiom's internal classes: checked at startup, and turned off with a console warning when they do not match, without affecting Axiom itself.
+  - Only positions are recorded, and contents are read from the world at save time, so this is unrelated to cross-version history.
+  - Tested (Fabric 26.2, 26.3, 1.21.11, Axiom 6.1.3): with a fake player on the server directly handling Axiom's block buffer, single block placement and entity deletion packets, all were recorded under that player and could be saved in a draft.
 
-### 3.9.1 除錯棒與 DebugStickPro
+### 3.9.1 The debug stick and DebugStickPro
 
-- **原版除錯棒**：右鍵改狀態走一般的「使用物品」流程（Paper 由互動事件標記點到的格子，Fabric 在 `useItemOn` 期間設定原因），會記錄；左鍵只選屬性，不改方塊。
-- **DebugStickPro**（Paper，`integrations.debugstickpro`）：經典、複製模式以 `setBlockData(…, false)` 改方塊，不發鄰居更新，還會取消觸發的互動事件，一般掛點看不到；改由它的 `ClassicModeChangingBlockEvent`、`CopyModePasteBlockDataEvent`（MONITOR、未取消）標記那一格。編譯期簽章在 `paper/debugstickpro-api`（Apache-2.0，不打包）。
-- **凍結模式**：DebugStickPro 把真的方塊暫時換成屏障、對玩家送假的方塊封包，解凍（含玩家離線、插件停用，這些沒有事件）時換回。存檔時以 `FreezeBlockManager.isFreezeBlock` 詢問，凍結中的格子留在標記表（`Tracker.held`），等換回來再存，屏障不會進版本。
+- **The vanilla debug stick**: right-click state changes go through the usual "use item" flow (on Paper the interaction event marks the clicked block; on Fabric the cause is set during `useItemOn`), so they are recorded; left click only picks a property and does not change the block.
+- **DebugStickPro** (Paper, `integrations.debugstickpro`): classic and copy modes change blocks with `setBlockData(…, false)`, sending no neighbor updates, and also cancel the interaction events they trigger, so the usual hooks do not see them; instead its `ClassicModeChangingBlockEvent` and `CopyModePasteBlockDataEvent` (MONITOR, not cancelled) mark that block. Compile-time signatures are in `paper/debugstickpro-api` (Apache-2.0, not bundled).
+- **Freeze mode**: DebugStickPro temporarily replaces the real block with a barrier and sends players fake block packets, swapping it back on unfreeze (including when the player goes offline or the plugin is disabled, which have no events). At save time `FreezeBlockManager.isFreezeBlock` is asked, and frozen blocks stay in the mark table (`Tracker.held`) to be saved once swapped back, so barriers never get into versions.
 
-### 3.9.2 生態域
+### 3.9.2 Biomes
 
-生態域只能用指令或工具改（`/fillbiome`、WorldEdit／FAWE 的 `//setbiome`、Axiom 的生態域筆刷），沒有自然變化，所以不另外追蹤：
+Biomes can only be changed by commands or tools (`/fillbiome`, WorldEdit/FAWE's `//setbiome`, Axiom's biome brush), with no natural changes, so they are not tracked separately:
 
-- **存檔時**，每個有標記的 section 都比較全部 64 個生態域格（工作世界、父版本的覆寫表、起點世界），不同的才寫進覆寫表；改回起點的拿掉。作者取這個 section 第一個被標記的格子的作者。
-- **來源都會標記到所在的 section**：`/fillbiome` 經過指令掛點的 `from`／`to` 範圍標記（§3.2）；WorldEdit 的 `setBiome` 記下那一格；FAWE 的批次處理器在有生態域寫入的 section 記一格；Axiom 的生態域筆刷在 Paper 每格都會詢問 `canPlaceBlock`，在 Fabric 由生態域緩衝區的掛點每格記一格（§3.9）。其他插件以 API 改的生態域記錄不到，可以用 `/bg mark` 補記。
-- **寫回世界**（併回、撤銷、還原、沒有起點的新 chunk）：直接寫生態域容器，再送生態域更新封包給看得到的玩家；不認得的生態域（資料包已移除）略過。合成分支世界時改寫 section 的 `biomes` 調色盤，沒改方塊的 chunk 保留光照與高度圖。
-- **合併**：逐個生態域格三方合併。兩邊都改成不同的值時保留目標的內容，在併回預覽列出數量，但不算衝突、不進衝突整合（決策 #46）。部分併回、範圍還原時，生態域格和範圍重疊就算在內。
-- **顯示**：`diff` 與併回預覽以 4×4×4 的青色框標出改過的生態域格，兩邊都改過的用紫色。
-- **跨版本**：覆寫表裡的生態域 ID 依寫下時的資料版本，讀取時以 DataFixer（`References.BIOME`）升級（§4.5）。
+- **At save time**, each section with marks compares all 64 biome cells (working world, the parent version's overlay, the genesis world), writing only the differing ones into the overlay; ones changed back to the genesis are removed. The author is that of the first marked block in the section.
+- **Every source marks the section it is in**: `/fillbiome` is marked through the command hook's `from`/`to` range (§3.2); WorldEdit's `setBiome` records that block; FAWE's batch processor records one block in sections with biome writes; Axiom's biome brush asks `canPlaceBlock` for every block on Paper, and on Fabric the biome buffer hook records one block per cell (§3.9). Biomes changed by other plugins through APIs cannot be recorded; use `/bg mark` to mark them.
+- **Writing back to the world** (publish, revert, restore, new chunks without a genesis): the biome container is written directly, then biome update packets are sent to players who can see it; unknown biomes (from removed datapacks) are skipped. When synthesizing branch worlds the section's `biomes` palette is rewritten, and chunks with no block changes keep their lighting and heightmaps.
+- **Merging**: a three-way merge per biome cell. When both sides changed it to different values, the target's content is kept and the count listed in the publish preview, but it does not count as a conflict and does not go into conflict resolution (decision #46). For partial publishes and area restores, biome cells overlapping the area count.
+- **Display**: `diff` and the publish preview outline changed biome cells with 4×4×4 cyan boxes, and ones changed on both sides in purple.
+- **Across versions**: biome IDs in the overlay follow the data version at write time, and are upgraded on read with DataFixer (`References.BIOME`) (§4.5).
 
-### 3.10 公開 API
+### 3.10 Public API
 
-模組 `api/`（`dev.twme.buildgit.api`，只依賴 Bukkit API），以 `ServicesManager` 提供 `BuildGitApi`：
+The `api/` module (`dev.twme.buildgit.api`, depending only on the Bukkit API) provides `BuildGitApi` through `ServicesManager`:
 
 ```java
 var recorder = BuildGitApi.get().recorder();
-recorder.recordBlock(Actor.of(player), block);              // 單格
-recorder.recordBox(actor, world, x1, y1, z1, x2, y2, z2);   // 範圍
-recorder.recordSection(actor, world, cx, sy, cz, bits);     // 整個 section 的位元集，最快
+recorder.recordBlock(Actor.of(player), block);              // one block
+recorder.recordBox(actor, world, x1, y1, z1, x2, y2, z2);   // a box
+recorder.recordSection(actor, world, cx, sy, cz, bits);     // a whole section's bitset, the fastest
 recorder.recordEntity(actor, entity);
-try (var scope = recorder.attribute(actor)) {               // 這段期間的連帶變化、指令、WorldEdit 編輯都記給 actor
+try (var scope = recorder.attribute(actor)) {               // knock-on changes, commands and WorldEdit edits during this go to actor
   block.setType(Material.STONE);
 }
-recorder.pendingAuthor(block);                               // 尚未存檔的作者
+recorder.pendingAuthor(block);                               // the author not saved yet
 ```
 
-- 所有方法都只記位置、不讀世界，可從任何執行緒呼叫（`attribute` 例外：限主執行緒）。
-- 在指令執行期間派送的原版指令會排到外層指令結束後才執行；這種情況要在下一刻派送。
+- All methods only record positions and never read the world, so they can be called from any thread (except `attribute`: main thread only).
+- Vanilla commands dispatched while a command is running are queued until the outer command ends; in that case dispatch them on the next tick.
 
-### 3.11 已知限制
+### 3.11 Known limitations
 
-- Axiom 的略過權限玩家：生態域筆刷記不到；AxiomPaper 改版、內部對不上時方塊編輯也記不到（§3.9），這種玩家開啟 Axiom 時會收到提醒。
-- `/place feature` 等由世界產生器放置的大型結構，只記錄到觸發的鄰居更新範圍，可能不完整；可用 `/bg mark` 補記。
-- 非玩家造成的實體移除（例如盔甲座被苦力怕炸掉）不記錄，與方塊的自然變化相同；版本保留它，世界裡已經沒有。玩家碰過、或在玩家原因期間（指令）移除的實體都會記錄。
-- 伺服器當機時最後一次 flush（預設 1 秒）之後的標記可能遺失（§3.6）。
-- 生態域：兩邊都改了同一個生態域格時保留目標的內容（§3.9.2）；`/bg pull`、`/bg push` 不帶生態域（§6.7）；`inspect` 不顯示生態域的作者。
-- Fabric 版沒有公開 API（§3.10 依賴 Bukkit），也還沒有 DebugStickPro。
-- Fabric 的權限透過 fabric-permissions-api：沒有權限模組時是權限等級 2。
+- Axiom players with the bypass permission: the biome brush is not recorded; when AxiomPaper changes and its internals no longer match, block edits are not recorded either (§3.9); such players get a notice when they turn Axiom on.
+- Large structures placed by the world generator, such as with `/place feature`, are only recorded within the neighbor updates they trigger, possibly incompletely; use `/bg mark` to mark them.
+- Entity removals not caused by players (e.g. an armor stand blown up by a creeper) are not recorded, the same as natural block changes; the version keeps it while the world no longer has it. Entities touched by players, or removed during a player cause (commands), are recorded.
+- When the server crashes, marks after the last flush (1 second by default) may be lost (§3.6).
+- Biomes: when both sides changed the same biome cell, the target's content is kept (§3.9.2); `/bg pull` and `/bg push` do not carry biomes (§6.7); `inspect` does not show biome authors.
+- The Fabric version has no public API (§3.10 depends on Bukkit), and no DebugStickPro yet.
+- Fabric permissions go through fabric-permissions-api: without a permissions mod, permission level 2.
 
-## 4. 分支世界
+## 4. Branch worlds
 
-### 4.1 建立
+### 4.1 Creating
 
-`/bg try [名稱]`（決策 #63 之前還有不傳送的 `branch create`）：
-1. 寫入 ref（指向目前分支的最新提交）。
-2. 為草稿所屬的世界建立空的工作世界資料夾：
-   - 複製 `level.dat` 的種子、產生器設定與資料包清單；
-   - **不複製任何 region 檔案**。
-3. 世界在第一位玩家進入時才載入：
-   - Paper 用 `WorldCreator`（`copy` 來源世界；超平坦世界另外帶上層設定，`copy` 不會帶）；
-   - Fabric 用執行期世界函式庫（例如 Fantasy），單人模式也適用。
+`/bg try [name]` (before decision #63 there was also a non-teleporting `branch create`):
+1. Write the ref (pointing at the current branch's latest commit).
+2. Create empty working world folders for the worlds the draft belongs to:
+   - copying the seed, generator settings and datapack list from `level.dat`;
+   - **copying no region files**.
+3. The world loads only when the first player enters:
+   - Paper uses `WorldCreator` (`copy` of the source world; superflat worlds also carry the layer settings, which `copy` does not);
+   - Fabric uses a runtime world library (e.g. Fantasy), which also works in single-player.
 
-**草稿只屬於一個世界**（決策 #50）：`try` 開出的草稿屬於玩家所在的世界（維度；地獄、終界、多世界插件的世界各自分開），記在 `branches.yml` 的 `dimension`。主控台建立時沿用來源草稿的世界，來源是主世界時用預設世界。
-- 草稿只開這個世界；`try`／`go` 的補全、`/bg` 選單與 `branch list` 只列玩家所在世界的草稿（`branch list --all` 列出全部）。用名稱 `go` 到別的世界的草稿仍然可以。
-- 撤銷、還原只動草稿自己的世界：草稿的歷史裡也有主世界其他世界的存檔，整份撤銷或還原會把其他世界的內容一起改掉，併回時再帶進主世界。
-- 不同世界的草稿不能互相合併；主世界包含所有世界，和任何草稿都能合併。衝突整合世界只開草稿的世界。
-- 主世界照舊是所有受版本控制的世界。這項設定之前建立的草稿沒有 `dimension`，仍然涵蓋所有世界。
+**A draft belongs to one world only** (decision #50): a draft opened by `try` belongs to the world the player is in (the dimension; the Nether, the End and multiworld plugin worlds are each separate), recorded as `dimension` in `branches.yml`. Created from the console, it uses the source draft's world, or the default world when the source is main.
+- A draft only opens this world; completion for `try`/`go`, the `/bg` menu and `branch list` only list drafts of the player's world (`branch list --all` lists all). `go` by name to a draft in another world still works.
+- Reverting and restoring only touch the draft's own world: the draft's history also has saves of main's other worlds, and reverting or restoring it whole would change the other worlds' content too, which would then be carried into main on publish.
+- Drafts of different worlds cannot merge with each other; main contains all worlds and can merge with any draft. Conflict resolution worlds only open the draft's world.
+- main is still all versioned worlds. Drafts created before this setting have no `dimension` and still cover all worlds.
 
-### 4.2 延遲複製：合成讀取
+### 4.2 Lazy copy: synthesizing reads
 
-工作世界讀取一個 chunk 時，如果自己的 region 檔案裡沒有它，就**合成**這個 chunk：
-
-```
-讀取 chunk (x, z)：
-  自己的 region 檔有 → 照常讀取
-  否則：
-    起點世界有 → 讀起點 chunk NBT，套用「分支最新提交」在這個 chunk 的覆寫，交給伺服器
-    起點世界也沒有 → 讓產生器產生；chunk 完成生成後，套用覆寫
-```
-
-合成出來的 chunk 第一次存檔時，會寫進工作世界自己的 region 檔，之後就是一般 chunk。
-
-規則：**尚未被讀取過的 chunk，內容永遠等於分支最新提交在這個 chunk 的狀態**。合併或還原只需要處理已讀取過的 chunk，其餘的之後讀到時自然是新狀態。
-
-掛點：
-- Fabric：mixin 到 chunk 儲存的讀取（`ChunkStorage.read`／IO worker）。
-- Paper：以反射包裝 chunk 系統的 region 儲存讀取。這是最大的不確定點（§10 風險 2）。備案是「整個 region 預先合成」：玩家接近某個 region 之前，就把整個 region 的 32×32 chunk 寫成 region 檔案；傳送時先完成合成再傳送。
-
-**Paper 26.2 的實作（已驗證）**：採用「整個 region 合成」，但時機是**伺服器第一次開啟該 region 檔的當下**，不必預測玩家位置：
-- `RegionFileStorage` 每次取 region 檔都先在持有儲存鎖的情況下查 `regionCache`（`Long2ObjectLinkedOpenHashMap`）。`ChunkDataController` 與讀取方法都是 final，所以改在 `WorldInitEvent` 以反射把這個欄位換成子類別：快取沒命中、檔案又不存在時，先把整個 region 合成好（起點 region＋分支最新提交的覆寫），再交回 Paper 照常開檔。方塊（`region/`）與實體（`entities/`）各掛一個。
-- 合成出來的 chunk 拿掉 `isLightOn` 與 `Heightmaps`，讓 Paper 載入時重算光照與高度圖；有改動的 section 拿掉光照陣列，方塊實體補回座標。沒有覆寫的 chunk 原樣複製位元組。
-- 先寫到 `.buildgit-tmp/` 再原子搬移，伺服器不會讀到寫了一半的檔案。
-- 起點世界沒有、只有覆寫的 chunk：讓產生器產生，在 `ChunkLoadEvent.isNewChunk()` 當下以不觸發更新的寫入套上覆寫（系統寫入，不標記）。
-- 合成只在 region 檔不存在時發生，所以分支世界之後的存檔、重啟都和一般世界一樣。
-
-### 4.3 主分支
-
-`main` 的工作世界就是伺服器原本的世界，不需要合成。`init`（玩家所在的世界；主控台為預設世界）時：
-1. 只存這個世界（相當於一次自動存檔），之後立刻開始記錄。主執行緒只把 chunk 交給 IO 執行緒，不等寫完（Paper；決策 #48）；等寫完在複製執行緒上進行，然後才開始複製；
-2. 第一個世界同時建立版本庫與第一個提交（覆寫表為空）；
-3. 在背景執行緒把 region 與 entities 逐 chunk 複製到 `genesis/<維度>/`，伺服器不暫停，其他世界不受影響。
-
-背景複製為什麼是對的：存檔之後，磁碟上每個 chunk 都是 init 當下的樣子，直到伺服器再寫它一次；而伺服器只會寫載入過的 chunk。所以 init 時已載入的 chunk、以及複製期間才載入的 chunk 插隊先複製（在被改過、存回磁碟之前），其餘照順序複製；複製期間新生成的 chunk 以快照寫入。已寫進起點世界的 chunk 永不覆寫。
-
-複製完成前：這個世界的標記留在標記表、先不存檔（起點世界還不能比較），也不開它的草稿、檢視世界或 `pull`。`genesis/<維度>/copying` 表示還沒複製完；伺服器在途中關閉時，下次啟動補完（已有的 chunk 跳過；這段期間改過又存回的 chunk 會以當時的樣子當作起點，記錄警告）。
-
-這是每個世界整個生命週期中唯一一次完整複製。
-
-**起點世界的位置**（`init.genesis-dir`；決策 #53）：預設在 `buildgit/genesis`，可以設定到另一顆磁碟。實際位置記在 `buildgit/genesis-dir`（設定的字串，相對路徑以伺服器目錄為準，整個伺服器目錄搬家仍然有效）。啟動時若設定的位置不存在、原本記著的位置還在，表示資料還沒搬，繼續用原本的位置並警告，否則所有受版本控制的世界會看起來都沒 init。位置只在啟動時決定，`/bg reload` 不會改變它。
-
-**延遲複製**（`init.lazy-copy-above-mb`，預設 512 MB；決策 #52、#62）：世界存檔（region 與 entities）超過設定大小時，init 不做整個世界的複製，只在存檔寫完之後複製已載入的 chunk，之後每個 chunk 第一次載入時（在它被改過、存回之前）才複製；新生成的 chunk 照常以快照補進。`genesis/<維度>/lazy` 記著主世界存檔目錄（相對於伺服器目錄）。讀起點世界時（`AnvilSource`、`RegionSynthesizer`），起點世界裡沒有的 chunk 改讀主世界存檔：這些 chunk 從 init 之後沒載入過，伺服器沒寫過它，所以還是 init 當時的樣子。一個 chunk 的方塊已在起點世界裡時，它的實體也以起點世界為準（沒有就是沒有實體），不再讀主世界存檔裡的實體。
-
-正確性完全建立在「伺服器只寫載入過的 chunk、而載入都經過 BuildGit」上，所以 BuildGit 沒執行時開這個世界（拿掉插件、單人遊戲、`--forceUpgrade`）、離線工具改存檔、世界資料夾與 `buildgit/` 分開還原，都會悄悄改掉沒載入過的 chunk 的起點，而且無法察覺。升級 Minecraft 版本沒有問題：新版載入舊 chunk 時先複製原本的位元組，讀取時照常由 DataFixer 升級。因為代價只在大世界才值得，預設關閉，由管理員依世界大小決定。
-
-### 4.4 進出分支
-
-`/bg go <分支>` 把玩家傳送到該分支工作世界的**相同座標與相同維度**，物品欄與遊戲模式不變。
-
-玩家在草稿或整合世界裡離線（或伺服器關閉）時，BuildGit 把分支、維度與位置記在 `buildgit/players.yml`；下次上線時重新開啟那個草稿並送回原位。草稿世界可能已閒置卸載或隨伺服器關閉，伺服器自己找不到它，所以由 BuildGit 處理。草稿已刪除時玩家留在伺服器放的位置。在主世界離線則清掉紀錄。
-
-Paper 的世界名稱見 §2.4，以 `WorldCreator.copy(主世界)` 建立（同種子、同產生器）。新世界的出生點直接沿用主世界的並標成已初始化，跳過伺服器的出生點搜尋：搜尋會在主執行緒同步載入（合成）出生點附近的 chunk，開一個草稿曾因此卡住約 3 秒（決策 #48）。Fabric 由 Fantasy 建立世界，本來就不搜尋。分支的來源與建立時間記在 `buildgit/branches.yml`。每個分支有自己的標記表與標記日誌（`worktree/<分支>/`），追蹤器依世界找到對應的表，並把分支世界對應回主世界的維度 id，所以覆寫表的路徑在所有分支都相同。
-
-**閒置卸載**（決策 #34）：草稿與整合分支的世界只在需要時載入。一個分支的所有世界都沒有玩家超過 `worlds.unload-idle-seconds`（預設 60 秒，最少 30 秒，-1 停用）後：
-1. 世界存檔並卸載（`Bukkit.unloadWorld(world, true)`），region 檔留在磁碟；
-2. 工作區關閉，未存的標記寫進標記日誌；
-3. 下次 `go`、`try`、併回、整合等需要它時再開：region 檔已存在所以不會重新合成，標記從日誌恢復。
-
-正在存檔或併回（持有存檔鎖）的分支不卸載；每次開啟分支都重新計時，避免玩家還在傳送途中世界就被卸載。檢視世界則在最後一位玩家離開時直接刪除（§6.5）。
-
-### 4.5 跨版本的歷史
-
-伺服器升級 Minecraft 後，舊的存檔、起點世界都還是舊版的格式（方塊改名、方塊實體與實體的 NBT 結構改變）。BuildGit 的做法與 Minecraft 載入舊世界相同：**讀取時以原版的 DataFixer 升級，物件本身不改寫**。
-
-- **記錄版本**：覆寫表物件（section、實體）的編碼第 2 版多存一個資料版本（`DataVersion`），section 裡的生態域 ID 也依這個版本升級。第 1 版的物件沒有版本，以 `buildgit/data-version` 的 `legacy` 為準（升級前的 repo 第一次被開啟時寫下當時的版本）。起點世界的 chunk 本來就帶 `DataVersion`。
-- **讀取時升級**：資料版本比伺服器舊的方塊狀態（依「版本＋狀態」快取）、方塊實體、實體，以及起點世界的 chunk，先升級再使用。合成分支世界時，有覆寫的 chunk 先升級再套用；沒有覆寫的 chunk 原樣複製，交給伺服器載入時自己升級。
-- **chunk 的升級和伺服器相同**：方塊 chunk 升級時帶入原版 `ChunkMap.getChunkDataFixContextTag` 的內容（維度、地形產生器；Paper 的維度是世界的維度類型，另有 `level_identifier`），1.18 以前的主世界 chunk 才會和伺服器自己載入時一樣補上新的高度。世界沒載入時只帶維度。
-- **改寫起點世界**（`/bg genesis upgrade`，決策 #55）：把起點世界裡較舊版本存的 chunk 升級後寫回，省下之後每次讀取的升級。內容不變，所以覆寫表與雜湊都不用動，舊存檔照樣可以看與還原。
-  - 在寫入起點世界的執行緒上逐個 region 檔進行（和補進起點世界的新 chunk、延遲複製依序進行），不必暫停伺服器；起點世界還在複製（init）時拒絕。
-  - 每個檔案先在暫存目錄寫好再一次換掉：當機時不是舊檔就是新檔。換掉時還開著舊檔的讀取者讀到舊內容，讀取時照樣升級，兩者等價。檔案裡沒有舊 chunk 就不動它。
-  - 1.13 以前存的 chunk（舊的結構資料要伺服器另外轉換）保留原樣。
-  - 延遲複製的維度：之後才第一次載入的 chunk 照舊以磁碟上的樣子複製進來，可能又是舊版的；需要時再執行一次。
-  - 驗收：Fabric 26.2（1.21.11 建的起點世界，898 個 chunk）與 Paper 26.3（26.2 建的起點世界，含實體與多世界插件建的世界，共 1758 個 chunk）都改寫成目前的版本；改寫前後開的草稿裡方塊相同，歷史、狀態不變；再執行一次時沒有要改寫的。
-- **雜湊不受影響**：舊物件不改寫，所以舊存檔的雜湊不變；升級後內容相同的格子在新存檔裡會變成新版的寫法，比對時以升級後的內容為準。
-- **不能降版**：`data-version` 的 `newest` 記錄寫過這個 repo 的最新版本。伺服器版本比它舊時拒絕開啟 repo（舊版看不懂新版的方塊與 NBT），提示改用較新的伺服器。
-- **方塊狀態的寫法**：26.3（資料版本 5006 起）把方塊狀態的欄位 `Name`／`Properties` 改名為 `id`／`properties`，region 檔調色盤裡的預設狀態更只存方塊 ID（混合時包成 `{"": ID}`）。BuildGit 內部一律用 `名稱[屬性=值,…]`（列出全部屬性）；region 檔調色盤的讀寫交給伺服器以原版的 `BlockState.CODEC` 轉換（`Upgrader.paletteState`／`paletteEntry`），伺服器是哪一版就讀寫哪一版的寫法。升級舊的方塊狀態時，DataFixer 的輸入依寫下時的版本選欄位名稱，輸出也由 `BlockState.CODEC` 讀。
-- 驗收：1.21.11 建立的 repo（含方塊實體、實體、未併回的草稿）搬到 26.2 後，`view`、`go`、`diff`、`publish`、`restore` 都正常，箱子內容保留。1.21.11、26.2 的 repo 搬到 26.3（Paper 與 Fabric）後，非預設狀態的方塊（樓梯朝向、上下半、箱子朝向）與箱子內容在草稿世界裡都正確，可以併回與檢視。
-
-## 5. 提交、合併、還原
-
-### 5.1 提交
-
-`/bg save [訊息]`（與自動存檔走同一條路）：
-1. 鎖住該分支，同一時間只能有一個提交或合併。
-2. 原子地取走目前的標記表，換上新的空表。提交過程中玩家繼續建造，新的標記進入下一次提交。
-3. 對每個被標記的 chunk 讀取被標記格子的目前內容：
-   - chunk 已載入：在擁有該 chunk 的執行緒上讀；
-   - 未載入：直接讀 region 檔。
-4. 與父提交的覆寫表比較，算出 changeset：
-   - 內容和父版本相同的格子丟棄；
-   - 內容和起點世界相同的格子，從覆寫表刪除（變回「與起點相同」）。
-5. 寫入物件，更新 ref。
-
-標記表只會增加，提交才會清空，所以多人同時建造時，所有人的變更都進到同一次提交，每格保留各自的作者。
-
-### 5.2 三方合併
-
-`/bg merge <來源分支>`：把來源分支合併進目前所在的分支。
+When a working world reads a chunk that is not in its own region files, it **synthesizes** the chunk:
 
 ```
-base = 共同祖先；ours = 目標分支最新提交；theirs = 來源分支最新提交
-以 tree 雜湊分層短路，只展開兩邊都有變動的 section：
-  每一格：
+read chunk (x, z):
+  in its own region file → read as usual
+  otherwise:
+    in the genesis world → read the genesis chunk NBT, apply the branch's latest commit's overrides for this chunk, hand it to the server
+    not in the genesis world either → let the generator produce it; once generated, apply the overrides
+```
+
+The first time a synthesized chunk is saved, it is written into the working world's own region file and is an ordinary chunk from then on.
+
+The rule: **a chunk not yet read always equals the branch's latest commit's state for that chunk**. Merges and restores only need to handle chunks already read; the rest naturally have the new state when read later.
+
+Hooks:
+- Fabric: a mixin on chunk storage reads (`ChunkStorage.read`/the IO worker).
+- Paper: wrap the chunk system's region storage reads by reflection. This is the biggest uncertainty (§10 risk 2). The fallback is "synthesize whole regions in advance": before a player gets near a region, write the whole region's 32×32 chunks into a region file; on teleport, finish synthesizing first, then teleport.
+
+**The Paper 26.2 implementation (verified)**: "synthesize whole regions" was adopted, but the timing is **the moment the server first opens that region file**, with no need to predict player positions:
+- Every time `RegionFileStorage` gets a region file, it first checks `regionCache` (`Long2ObjectLinkedOpenHashMap`) while holding the storage lock. `ChunkDataController` and the read methods are final, so instead this field is replaced with a subclass by reflection at `WorldInitEvent`: on a cache miss where the file also does not exist, the whole region is synthesized first (genesis region + overrides from the branch's latest commit), then handed back for Paper to open as usual. One each for blocks (`region/`) and entities (`entities/`).
+- Synthesized chunks have `isLightOn` and `Heightmaps` removed so Paper recomputes lighting and heightmaps on load; changed sections have their light arrays removed, and block entities get their coordinates filled back in. Chunks without overrides are copied byte for byte.
+- Written to `.buildgit-tmp/` first, then moved atomically, so the server never reads a half-written file.
+- Chunks not in the genesis world, only in overrides: the generator produces them, and at `ChunkLoadEvent.isNewChunk()` the overrides are applied with writes that trigger no updates (system writes, not marked).
+- Synthesizing only happens when the region file does not exist, so later saves and restarts of the branch world are just like an ordinary world.
+
+### 4.3 The main branch
+
+`main`'s working world is the server's original world, with no synthesizing needed. On `init` (the world the player is in; the default world from the console):
+1. Save only this world (the same as one autosave), and start recording immediately. The main thread only hands chunks to the IO thread without waiting for the writes (Paper; decision #48); waiting for the writes happens on the copy thread, and only then does copying start;
+2. The first world also creates the repository and the first commit (with an empty overlay);
+3. A background thread copies region and entities chunk by chunk into `genesis/<dimension>/`, without pausing the server, and other worlds are not affected.
+
+Why the background copy is correct: after the save, every chunk on disk is as it was at init until the server writes it again, and the server only writes chunks that were loaded. So chunks already loaded at init, and chunks that load during copying, jump the queue and are copied first (before they are changed and saved back), and the rest are copied in order; new chunks generated during copying are written as snapshots. Chunks already in the genesis world are never overwritten.
+
+Before copying finishes: this world's marks stay in the mark table without being saved (the genesis world cannot be compared yet), and no drafts, view worlds or `pull` are opened for it. `genesis/<dimension>/copying` means copying is not finished; if the server stops midway, the next startup finishes it (existing chunks skipped; chunks changed and saved back during that time take their state then as the genesis, with a warning logged).
+
+This is the only full copy in each world's whole lifetime.
+
+**Where the genesis world lives** (`init.genesis-dir`; decision #53): `buildgit/genesis` by default, can be set to another disk. The location in use is recorded in `buildgit/genesis-dir` (the configured string; relative paths are relative to the server directory, so it stays valid when the whole server directory moves). At startup, if the configured location does not exist but the previously recorded one does, the data has not moved yet, so the old location keeps being used with a warning; otherwise every versioned world would look uninitialized. The location is only decided at startup; `/bg reload` does not change it.
+
+**Lazy copy** (`init.lazy-copy-above-mb`, 512 MB by default; decisions #52, #62): when the world save (region and entities) is bigger than the setting, init does not copy the whole world; after the save is written it copies only the loaded chunks, and from then on each chunk is copied the first time it loads (before it is changed and saved back); new chunks are added as snapshots as usual. `genesis/<dimension>/lazy` records main's world save directory (relative to the server directory). When reading the genesis world (`AnvilSource`, `RegionSynthesizer`), chunks missing from the genesis world are read from main's world save instead: these chunks have not loaded since init, the server has not written them, so they are still as they were at init. When a chunk's blocks are already in the genesis world, its entities also follow the genesis world (none means no entities), no longer reading entities from main's world save.
+
+Correctness rests entirely on "the server only writes loaded chunks, and all loading goes through BuildGit", so opening this world without BuildGit running (plugin removed, single-player, `--forceUpgrade`), changing the save with offline tools, or restoring the world folder and `buildgit/` separately all silently change the genesis of never-loaded chunks, undetectably. Upgrading Minecraft is fine: the new version copies the original bytes before loading an old chunk, and reads upgrade it with DataFixer as usual. Because the cost is only worth it for large worlds, it is off by default (for small worlds), and admins decide by world size.
+
+### 4.4 Entering and leaving branches
+
+`/bg go <branch>` teleports the player to the **same coordinates and dimension** in that branch's working world, with inventory and game mode unchanged.
+
+When a player goes offline in a draft or resolution world (or the server shuts down), BuildGit records the branch, dimension and position in `buildgit/players.yml`; on their next login that draft is opened again and they are sent back to the same place. The draft world may have been unloaded as idle or closed with the server, so the server cannot find it by itself, and BuildGit handles it. When the draft has been deleted, the player stays where the server put them. Going offline in main clears the record.
+
+Paper world names are in §2.4, created with `WorldCreator.copy(main world)` (same seed and generator). The new world's spawn point reuses main's directly and is marked initialized, skipping the server's spawn search: the search synchronously loads (synthesizes) chunks around the spawn on the main thread, and opening a draft once stalled for about 3 seconds because of it (decision #48). Fabric creates worlds with Fantasy, which never searches. Each branch's source and creation time are recorded in `buildgit/branches.yml`. Each branch has its own mark table and mark journal (`worktree/<branch>/`); the tracker finds the table by world and maps the branch world back to main's dimension id, so overlay paths are the same on every branch.
+
+**Idle unloading** (decision #34): draft and resolution branches' worlds load only when needed. After none of a branch's worlds have had players for longer than `worlds.unload-idle-seconds` (60 seconds by default, at least 30, -1 disables):
+1. The worlds are saved and unloaded (`Bukkit.unloadWorld(world, true)`), with region files left on disk;
+2. The workspace is closed, and unsaved marks are written to the mark journal;
+3. It opens again the next time `go`, `try`, publish, resolution and so on need it: the region files exist so nothing is synthesized again, and marks are restored from the journal.
+
+Branches that are saving or publishing (holding the save lock) are not unloaded; the timer restarts each time a branch opens, so a world is not unloaded while a player is still teleporting in. View worlds are deleted as soon as the last player leaves (§6.5).
+
+### 4.5 Cross-version history
+
+After the server upgrades Minecraft, old saves and the genesis world are still in the old format (renamed blocks, changed NBT structures of block entities and entities). BuildGit does the same as Minecraft loading an old world: **upgrade with vanilla's DataFixer on read, never rewriting the objects themselves**.
+
+- **Recording the version**: overlay objects (sections, entities) in encoding version 2 store an extra data version (`DataVersion`), and biome IDs in sections are upgraded by this version too. Version 1 objects have no version and follow `legacy` in `buildgit/data-version` (written with the version at the time when a pre-upgrade repo is first opened). Genesis world chunks already carry `DataVersion`.
+- **Upgrading on read**: block states (cached by "version + state"), block entities and entities with a data version older than the server, and genesis chunks, are upgraded before use. When synthesizing branch worlds, chunks with overrides are upgraded first and then have overrides applied; chunks without overrides are copied as is and upgraded by the server itself when it loads them.
+- **Chunks are upgraded the same way as the server does**: block chunk upgrades pass in the content of vanilla's `ChunkMap.getChunkDataFixContextTag` (dimension, terrain generator; on Paper the dimension is the world's dimension type, plus `level_identifier`), so pre-1.18 overworld chunks get the new height the same way as when the server loads them itself. When the world is not loaded, only the dimension is passed.
+- **Rewriting the genesis world** (`/bg genesis upgrade`, decision #55): chunks in the genesis world saved by older versions are upgraded and written back, saving the upgrade on every later read. The content does not change, so overlays and hashes stay untouched, and old saves can still be viewed and restored.
+  - Runs region file by region file on the genesis world's writer thread (in order with new chunks being added to the genesis world and lazy copying), without pausing the server; refused while the genesis world is still being copied (init).
+  - Each file is written fully in a staging directory and then swapped in at once: after a crash it is either the old file or the new one. Readers that still have the old file open at the swap read old content, which is upgraded on read as usual, so the two are equivalent. Files with no old chunks are left alone.
+  - Chunks saved before 1.13 (whose old structure data needs separate conversion by the server) are kept as they are.
+  - Lazily copied dimensions: chunks loaded for the first time later are still copied in as they are on disk, possibly in an old version; run it again when needed.
+  - Acceptance: Fabric 26.2 (a genesis world made on 1.21.11, 898 chunks) and Paper 26.3 (a genesis world made on 26.2, with entities and a world made by a multiworld plugin, 1758 chunks total) are both rewritten to the current version; drafts opened before and after the rewrite have the same blocks, and history and status are unchanged; running it again finds nothing to rewrite.
+- **Hashes are not affected**: old objects are not rewritten, so old saves keep their hashes; blocks with the same content after upgrading are written in the new form in new saves, and comparisons use the upgraded content.
+- **No downgrades**: `newest` in `data-version` records the newest version that has written this repo. When the server is older, opening the repo is refused (an older version cannot understand newer blocks and NBT), and a newer server is suggested.
+- **How block states are written**: 26.3 (from data version 5006) renamed the block state fields `Name`/`Properties` to `id`/`properties`, and default states in region file palettes store only the block ID (wrapped as `{"": ID}` when mixed). Internally BuildGit always uses `name[property=value,…]` (listing all properties); reading and writing region file palettes is left to the server, converting with vanilla's `BlockState.CODEC` (`Upgrader.paletteState`/`paletteEntry`), so whatever version the server is, that version's form is read and written. When upgrading old block states, the DataFixer input picks field names by the version at write time, and the output is read with `BlockState.CODEC` too.
+- Acceptance: a repo made on 1.21.11 (with block entities, entities and unpublished drafts) moved to 26.2 has `view`, `go`, `diff`, `publish` and `restore` all working, with chest contents kept. 1.21.11 and 26.2 repos moved to 26.3 (Paper and Fabric) have non-default block states (stair facing, top/bottom half, chest facing) and chest contents correct in draft worlds, and can be published and viewed.
+
+## 5. Commits, merges, restores
+
+### 5.1 Commits
+
+`/bg save [message]` (the same path as autosave):
+1. Lock the branch, so only one commit or merge runs at a time.
+2. Atomically take the current mark table and put a new empty one in its place. Players keep building during the commit, and new marks go into the next commit.
+3. For each marked chunk, read the current content of the marked blocks:
+   - chunk loaded: read on the thread that owns the chunk;
+   - not loaded: read the region file directly.
+4. Compare with the parent commit's overlay and work out the changeset:
+   - blocks whose content equals the parent version are dropped;
+   - blocks whose content equals the genesis world are removed from the overlay (back to "same as genesis").
+5. Write the objects and update the ref.
+
+The mark table only grows and is only cleared by a commit, so when several people build at once, everyone's changes go into the same commit, each block keeping its own author.
+
+### 5.2 Three-way merge
+
+`/bg merge <source branch>`: merge the source branch into the branch you are on.
+
+```
+base = common ancestor; ours = target branch's latest commit; theirs = source branch's latest commit
+short-circuit level by level on tree hashes, only expanding sections changed on both sides:
+  for each block:
     ours == theirs      → ours
     ours == base        → theirs
     theirs == base      → ours
-    否則                → 衝突
-實體：以 UUID 做同樣的比較
+    otherwise           → conflict
+entities: the same comparison by UUID
 ```
 
-- **前置條件**：目標分支不能有未提交的標記，否則先要求提交（或 `--auto-commit`）。
-- **無衝突**：
-  1. 建立合併提交；
-  2. 把變更寫進目標工作世界中已載入或已存檔過的 chunk，用不觸發更新的寫入，未讀取過的 chunk 不必處理（§4.2）；
-  3. 寫入期間停用追蹤，避免系統寫入被當成玩家變更。
-- **Paper 的套用**：以目標分支合併前的 tree 對合併結果算差異，逐 chunk 用 `getChunkAtAsync` 載入後寫入（結果是「與起點相同」的格子，從起點世界讀回內容）。寫入分刻進行，每刻最多 20 ms，做不完下一刻繼續，大量併回不會讓伺服器卡住；同一種方塊狀態只解析一次（決策 #48）；實體等 chunk 的實體載入完成後才增刪。目前的 `publish` 先自動存檔草稿與目標，取代「先要求提交」。
-- **原樣寫入，不修補形狀**：寫進世界的方塊狀態與草稿裡完全相同，不依目標世界的鄰居重算連接（柵欄、牆、玻璃片、樓梯等；決策 #49）。建築師以除錯棒刻意做出的狀態因此保留；接縫處偶爾連錯的地方由玩家自己調整。衝突整合（§5.3）選定一邊時的寫入、撤銷、還原都一樣，也都分刻進行。
+- **Precondition**: the target branch must have no uncommitted marks; otherwise a commit is required first (or `--auto-commit`).
+- **No conflicts**:
+  1. create the merge commit;
+  2. write the changes into chunks of the target working world that are loaded or have been saved, with writes that trigger no updates; chunks never read need nothing (§4.2);
+  3. tracking is off during the writes, so system writes are not taken as player changes.
+- **Applying on Paper**: diff the target branch's tree before the merge against the merge result, then load each chunk with `getChunkAtAsync` and write it (blocks whose result is "same as genesis" have their content read back from the genesis world). Writes are spread over ticks, at most 20 ms per tick, continuing next tick when unfinished, so large publishes do not stall the server; each distinct block state is parsed only once (decision #48); entities are added and removed only once the chunk's entities have loaded. The current `publish` autosaves the draft and the target first, instead of "requiring a commit first".
+- **Written as is, shapes not fixed up**: block states written into the world are exactly as in the draft, without recomputing connections from the target world's neighbors (fences, walls, glass panes, stairs and so on; decision #49). States builders made deliberately with the debug stick are therefore kept; the occasional wrong connection at a seam is for players to adjust. Writes when picking a side in conflict resolution (§5.3), reverts and restores are the same, all spread over ticks.
 
-### 5.3 衝突：對照世界
+### 5.3 Conflicts: comparison worlds
 
-有衝突時，建立三個工作世界，座標與目標世界完全相同：
+When there are conflicts, three working worlds are created, with exactly the same coordinates as the target world:
 
-| 世界 | 內容 | 可否編輯 |
+| World | Content | Editable |
 |---|---|---|
-| ours | 目標分支最新提交 | 唯讀 |
-| theirs | 來源分支最新提交 | 唯讀 |
-| 整合世界 | 自動合併結果；衝突格先放 ours 的內容 | 可編輯 |
+| ours | the target branch's latest commit | read-only |
+| theirs | the source branch's latest commit | read-only |
+| resolution world | the automatic merge result; conflicting blocks start with ours' content | editable |
 
-三者都用 §4.2 的合成讀取建立，不複製檔案。
+All three are built with §4.2's synthesizing reads, without copying files.
 
-| 指令 | 作用 |
+| Command | Effect |
 |---|---|
-| `/bg merge view ours\|theirs\|result` | 在三個世界之間，以相同座標傳送 |
-| `/bg merge conflicts` | 列出衝突區域：相鄰衝突格分群，附包圍盒與座標 |
-| `/bg merge take ours\|theirs [here\|<選取範圍>\|all]` | 把衝突格快速設成某一邊 |
-| `/bg merge continue [confirm]` | 以整合世界的內容建立合併提交，衝突格與玩家在整合世界額外改的格子都收進去；然後寫入目標世界、刪除三個暫時世界。還有沒動過的衝突（沒改過、也沒用 take 選過一邊）時先列出數量，加 `confirm` 才照樣完成。整合世界的提示列顯示「剩 X/Y 處衝突」 |
-| `/bg merge abort` | 放棄合併，刪除暫時世界 |
+| `/bg merge view ours\|theirs\|result` | Teleport between the three worlds at the same coordinates |
+| `/bg merge conflicts` | List conflict areas: adjacent conflicting blocks grouped, with bounding boxes and coordinates |
+| `/bg merge take ours\|theirs [here\|<selection>\|all]` | Quickly set conflicting blocks to one side |
+| `/bg merge continue [confirm]` | Create the merge commit from the resolution world's content, taking the conflicting blocks and any extra blocks players changed in the resolution world; then write into the target world and delete the three temporary worlds. When there are untouched conflicts (not changed, nor a side picked with take), it first lists how many, and only finishes anyway with `confirm`. The resolution world's bossbar shows "X/Y conflicts left" |
+| `/bg merge abort` | Give up the merge and delete the temporary worlds |
 
-- 衝突格以只給該玩家看的外框顯示：
-  - Paper：發光的方塊展示實體，但**只以封包送給該玩家**（NMS：在記憶體建一個不加入世界的 `Display.BlockDisplay`，用它產生生成與資料封包，打包成一個 bundle 送出）。伺服器上沒有這些實體，所以不占實體數、不會被追蹤或存檔、不受 chunk 是否載入影響；資料欄位編號由遊戲產生，不會因改版錯位。超過 400 個時依 section 合併成包圍盒；
-  - Fabric：伺服器送自訂 payload，有裝客戶端模組時渲染，沒裝時退回 display entity 封包。
-- 進行中的合併狀態存在 `merge/<id>.yml`，伺服器重啟後可以繼續。
+- Conflicting blocks are shown with outlines only that player can see:
+  - Paper: glowing block display entities, but **sent only to that player as packets** (NMS: a `Display.BlockDisplay` built in memory and never added to the world generates the spawn and data packets, sent as one bundle). These entities do not exist on the server, so they take no entity count, are never tracked or saved, and do not depend on chunks being loaded; data field ids are produced by the game, so they do not shift between versions. Beyond 400, they are merged into bounding boxes per section;
+  - Fabric: the server sends a custom payload, rendered when the client mod is installed, falling back to display entity packets otherwise.
+- The state of a merge in progress is kept in `merge/<id>.yml`, so it can continue after a server restart.
 
-**Paper 的實作**（決策 #30）：
-- 整合世界是一個暫時分支 `merge-<id>`（`branches.yml` 裡標為 `kind: merge`，不出現在草稿清單）：起點是自動合併結果的提交，所以它和草稿一樣會合成、追蹤、自動存檔、重啟後繼續。ours／theirs 是兩個唯讀的檢視世界（§6.5），玩家在裡面的修改一律取消。
-- `take`：把範圍內衝突格的內容（某一邊；是「與起點相同」時從起點世界讀）寫進整合世界，並記在下指令的人名下。`here` 是玩家周圍 8 格；主控台只能 `take ours|theirs all [<id>]`。
-- `continue`：先存整合分支與目標分支，再以 `mergeTrees(ours, 目標最新, 整合最新)` 合併。整合期間目標分支有新存檔也沒關係；和整合結果衝突時拒絕完成、整合保留。整合期間誰改了哪一格（`authorsSince`）記進合併提交。
-- 草稿整份併回產生雙親的合併提交；部分併回與撤銷產生單親提交。
-- 完成或 `abort` 後刪除暫時分支、它的世界與檢視世界，在裡面的玩家傳回目標分支。
+**The Paper implementation** (decision #30):
+- The resolution world is a temporary branch `merge-<id>` (marked `kind: merge` in `branches.yml`, not shown in the draft list): its starting point is a commit of the automatic merge result, so like a draft it is synthesized, tracked, autosaved and continues after restarts. ours/theirs are two read-only view worlds (§6.5), where players' changes are always cancelled.
+- `take`: writes the conflicting blocks' content in the range (one side; read from the genesis world when it is "same as genesis") into the resolution world, recorded under the person who ran the command. `here` is 8 blocks around the player; the console can only `take ours|theirs all [<id>]`.
+- `continue`: first saves the resolution branch and the target branch, then merges with `mergeTrees(ours, target latest, resolution latest)`. New saves on the target branch during resolution are fine; when they conflict with the resolution result, finishing is refused and the resolution is kept. Who changed which block during resolution (`authorsSince`) goes into the merge commit.
+- Publishing a whole draft produces a merge commit with two parents; partial publishes and reverts produce single-parent commits.
+- After finishing or `abort`, the temporary branch, its world and the view worlds are deleted, and players inside are sent back to the target branch.
 
-### 5.4 還原
+### 5.4 Restoring
 
-| 指令 | 作用 |
+| Command | Effect |
 |---|---|
-| `/bg revert <提交>` | 撤銷某一次提交，用三方合併套用它的反向變更，產生新提交；有衝突時走 §5.3 |
-| `/bg restore <提交> [選取範圍]` | 讓目前分支（或指定範圍）回到該提交的狀態，產生新提交。歷史不改寫 |
+| `/bg revert <commit>` | Undo one commit by applying its reverse changes with a three-way merge, producing a new commit; conflicts go through §5.3 |
+| `/bg restore <commit> [selection]` | Bring the current branch (or a given area) back to that commit's state, producing a new commit. History is not rewritten |
 
-本設計不提供改寫歷史的 `reset --hard`。
+This design has no history-rewriting `reset --hard`.
 
-- `revert` 是 `mergeTrees(壞提交, 目前最新, 壞提交的第一個父提交)`，提交時附 `Reverts` trailer；之後的修改碰到同一格時是衝突，開 §5.3 的整合（種類 `REVERT`）。
-- `restore` 把範圍內（沒給範圍就是全部）的 overlay 換成目標版本的內容，附 `Restored-From` trailer；不會衝突，所以先列出影響再要求點確認。
-- 兩者都會先自動存檔目前分支，再用 §5.2 的寫入流程更新世界。
+- `revert` is `mergeTrees(bad commit, current latest, the bad commit's first parent)`, committed with a `Reverts` trailer; later changes touching the same blocks are conflicts, opening §5.3's resolution (kind `REVERT`).
+- `restore` replaces the overlay within the range (everything when no range is given) with the target version's content, with a `Restored-From` trailer; it cannot conflict, so it lists the impact first and asks for a confirming click.
+- Both autosave the current branch first, then update the world with §5.2's write flow.
 
-## 6. 建築師操作層
+## 6. The builder layer
 
-§4、§5 的分支、提交、合併是底層。建築師日常只用這一層，底層指令保留給熟手。
+§4 and §5's branches, commits and merges are the underlying layer. Builders use only this layer day to day; the low-level commands stay for experienced users.
 
-### 6.1 用語
+### 6.1 Terms
 
-| 畫面用語（zh_tw） | en_us | 底層概念 |
+| UI term (en_us) | zh_tw | Underlying concept |
 |---|---|---|
-| 草稿 | draft | 分支 |
-| 存檔 | save | 提交 |
-| 里程碑 | milestone | 手動提交 |
-| 自動存檔 | autosave | 自動提交（commit 標記 `auto`） |
-| 併回 | publish | 合併回來源分支 |
-| 主世界 | main | `main` 分支 |
+| draft | 草稿 | branch |
+| save | 存檔 | commit |
+| milestone | 里程碑 | manual commit |
+| autosave | 自動存檔 | automatic commit (commit marked `auto`) |
+| publish | 併回 | merge back into the source branch |
+| main | 主世界 | the `main` branch |
 
-### 6.2 三步流程
+### 6.2 The three-step flow
 
-| 指令 | 作用 |
+| Command | Effect |
 |---|---|
-| `/bg try <名稱>` | 1. 自動存檔目前分支，讓草稿包含最新進度；2. 從它開出草稿；3. 把玩家傳送到草稿世界的相同位置 |
-| `/bg publish [--selection]` | 1. 自動存檔草稿；2. 預覽併回結果：變更格數、作者，並在來源世界用外框顯示會變動的位置（同一個草稿裡的其他玩家也會收到同一份預覽與外框，方便一起討論；確認按鈕只給執行的人）；改動分在兩區以上時（相連、含斜角的 chunk 算一區）逐區列出格數、chunk 數與範圍，點一下（`/bg publish goto <編號>`）傳送到草稿裡那一區，遠處的小改動不會因為外框只在身邊顯示而漏看；3. 點聊天訊息的 [確認併回] 才併回，旁邊的 [取消]（`/bg publish cancel`）不併回，並清掉執行的人與草稿裡玩家看到的預覽外框；4. 傳送回來源世界 |
-| `/bg back` | 不併回，直接傳送回來源世界的相同位置 |
+| `/bg try <name>` | 1. Autosave the current branch so the draft has the latest progress; 2. open a draft from it; 3. teleport the player to the same place in the draft world |
+| `/bg publish [--selection]` | 1. Autosave the draft; 2. preview the publish result: number of changed blocks, authors, and outlines in the source world where things will change (other players in the same draft get the same preview and outlines, so they can discuss it together; the confirm button is only for the person who ran it); when changes are in two or more areas (connected chunks, diagonals included, count as one area), each area is listed with its blocks, chunk count and extent, and a click (`/bg publish goto <number>`) teleports to that area in the draft, so small changes far away are not missed because outlines only show nearby; 3. only clicking **[Confirm publish]** in the chat message publishes; the **[Cancel]** next to it (`/bg publish cancel`) does not, and clears the preview outlines seen by the person who ran it and the players in the draft; 4. teleport back to the source world |
+| `/bg back` | Go straight back to the same place in the source world without publishing |
 
-- 草稿記得自己的「來源分支」，`publish` 就併回那裡。
-- 併回後草稿保留，可以繼續改；聊天訊息附「刪除草稿」按鈕。
-- 有衝突時進入 §5.3 的對照世界流程。
+- A draft remembers its "source branch", and `publish` merges back there.
+- After publishing the draft is kept and can be changed further; the chat message comes with a **[Delete draft]** button.
+- Conflicts go into §5.3's comparison world flow.
 
-### 6.3 自動存檔與里程碑
+### 6.3 Autosave and milestones
 
-- 一個分支有未存的標記，而且**該分支世界裡所有玩家都停手** `autosave.idle`（預設 5 分鐘）後，自動存檔。
-- 另外設最長間隔 `autosave.max-interval`（預設 30 分鐘），避免一直有人在蓋時永遠不存。
-- `try`、`publish`、伺服器關閉前，一律先自動存檔。
-- `/bg save <訊息>` 是里程碑。
-- 歷史預設只顯示里程碑，自動存檔點收合在里程碑底下，可以展開。
+- When a branch has unsaved marks and **every player in that branch's world has stopped** for `autosave.idle` (5 minutes by default), it saves automatically.
+- There is also a longest interval `autosave.max-interval` (30 minutes by default), so it still saves when someone keeps building.
+- `try`, `publish` and server shutdown always autosave first.
+- `/bg save <message>` is a milestone.
+- History shows only milestones by default, with autosaves folded under milestones, expandable.
 
-### 6.4 選取範圍
+### 6.4 Selections
 
-選取範圍依序取自：WorldEdit／FAWE 的選取 → `/bg sel pos1|pos2`。Axiom 的選取只存在客戶端，伺服器拿不到，所以不支援；用 Axiom 的人可以用 `/bg sel`。選取範圍只在它所在的維度有效（選在主世界的範圍不會影響地獄的同一座標）。
+Selections are taken, in order, from: the WorldEdit/FAWE selection → `/bg sel pos1|pos2`. Axiom's selection exists only on the client, which the server cannot get, so it is not supported; Axiom users can use `/bg sel`. A selection only applies in its own dimension (a selection made in the overworld does not affect the same coordinates in the Nether).
 
-| 用法 | 作用 |
+| Usage | Effect |
 |---|---|
-| `/bg publish --selection` | 只併回範圍內的變更。實作為在來源分支產生一個單親提交，內容是「草稿在範圍內的變更」的三方套用，並記錄來源草稿；不是合併提交。之後整份併回時，這些格子兩邊已相同，不會衝突 |
-| `/bg restore <版本> --selection` | 只把範圍內還原成該版本，產生新存檔 |
-| `/bg merge take ours\|theirs --selection` | 衝突處理時一次決定一整塊 |
+| `/bg publish --selection` | Publish only changes inside the range. Implemented as a single-parent commit on the source branch whose content is the three-way application of "the draft's changes inside the range", recording the source draft; not a merge commit. When the whole draft is published later, those blocks are already the same on both sides and do not conflict |
+| `/bg restore <version> --selection` | Restore only the range to that version, producing a new save |
+| `/bg merge take ours\|theirs --selection` | Decide a whole block of conflicts at once during resolution |
 
-### 6.5 回到過去看
+### 6.5 Looking into the past
 
-`/bg view <版本>`：
-1. 以 §4.2 的合成讀取開一個唯讀世界，內容是該版本；
-2. 把玩家傳送到相同位置；
-3. 最後一位玩家離開後卸載並刪除。
+`/bg view <version>`:
+1. Open a read-only world with §4.2's synthesizing reads, with that version's content;
+2. teleport the player to the same place;
+3. unload and delete it after the last player leaves.
 
-可以用 WorldEdit 的剪貼簿把舊版本的東西複製回工作世界，貼上的格子照常被標記。
+Things from the old version can be copied back to the working world with WorldEdit's clipboard, and pasted blocks are marked as usual.
 
-`/bg play [起點] [終點] [--all]`：播放歷史，玩家自己走動觀看。
-1. 沿著所在分支每次存檔的第一個上一版往回，挑出範圍內的存檔：起點、終點可以是存檔編號或時間（多久以前 `30m`／`12h`／`3d`，或日期 `MM-dd`、`yyyy-MM-dd`，可接 `/HH:mm`；只寫日期的終點算到那天結束）。起點是播放前的樣子：指定的存檔、起點時間之前的最後一次存檔，或分支的開頭。預設略過自動存檔（改動算進下一個里程碑），`--all` 全部播；最後一次存檔一定播到；內容沒變的存檔略過。
-2. 每次播放開一個自己的唯讀世界（不和 `/bg view` 共用），從起點合成，玩家傳送到相同位置。
-3. 每一步把兩個版本的差異寫進已載入的 chunk（和 `restore` 同樣的寫法）；往回、跳到任何一步都是同一件事。之後才生成的 chunk 照當下播到的版本合成。卸載過的 chunk 存在世界資料夾、不會重新合成，所以記下每個 chunk 是哪個版本的樣子，再載入時（下一刻）補上差異。
-4. 預設每 2 秒一步，播完停在最後；bossbar 顯示第幾步、存檔、時間、作者、訊息。`pause`、`resume`（播完時從頭）、`next`、`prev`、`goto <步>`、`speed <秒>`（1–60）、`stop`（同 `/bg back`）。離開播放世界就結束，世界照檢視世界的規則刪掉。
+`/bg play [start] [end] [--all]`: play back history while the player walks around watching.
+1. Follow each save's first parent back along the current branch and pick the saves in range: start and end can be save ids or times (how long ago, `30m`/`12h`/`3d`, or a date `MM-dd`, `yyyy-MM-dd`, optionally followed by `/HH:mm`; an end with only a date counts to the end of that day). The start is how things looked before playback: the given save, the last save before the start time, or the beginning of the branch. Autosaves are skipped by default (their changes count towards the next milestone), `--all` plays all of them; the last save is always played; saves with no content change are skipped.
+2. Each playback opens its own read-only world (not shared with `/bg view`), synthesized from the start, and the player is teleported to the same place.
+3. Each step writes the difference between two versions into loaded chunks (the same writes as `restore`); stepping back or jumping to any step is the same thing. Chunks generated later are synthesized at the version currently played. Unloaded chunks are stored in the world folder and are not synthesized again, so the version each chunk shows is recorded, and the difference is applied when it loads again (on the next tick).
+4. One step every 2 seconds by default, stopping at the end; the bossbar shows the step, save, time, author and message. `pause`, `resume` (from the start once finished), `next`, `prev`, `goto <step>`, `speed <seconds>` (1–60), `stop` (same as `/bg back`). Leaving the playback world ends it, and the world is deleted under the view world rules.
 
-### 6.6 介面
+### 6.6 UI
 
-- **草稿 bossbar**：不在主世界時一直顯示「草稿：<名稱>｜未存 <n> 格」，顏色依草稿區分；在整合世界與檢視世界各有自己的 bossbar（衝突數、唯讀提示）。
-- **進度 bossbar**：花時間的動作（`init`、存檔、併回的預覽與確認、開始與完成衝突整合、`revert`、`restore`）進行中時，執行的玩家的 bossbar 暫時改成進度，每秒更新，結束（成功或失敗）後恢復原本的提示。算得出總量的階段顯示百分比：`init` 以 region 檔計，存檔讀取 chunk 以 chunk 計，寫入世界以 chunk 與實體計；算不出的階段（計算合併、寫進版本）只顯示經過的秒數。主控台執行時不顯示。
-- **`/bg branch list`**：每個草稿後面列出在裡面的玩家。
-- **改前／改後切換**（`/bg diff flip`，`diff` 結果旁的按鈕）：`diff` 時順便算出玩家所在世界每個變更格的改前內容（未存的變更是目前存檔的樣子；`diff <存檔>` 是上一版；`diff <a> <b>` 是 `a`），切換時只送給這位玩家假的方塊更新，世界不變；再切一次重送世界裡真正的方塊。新的 `diff`、`diff off` 會先切回來。超過 5 萬格時不切換（封包太多），改用 `view`。只換方塊狀態，不含方塊實體內容與實體；玩家點到假方塊、或 chunk 重新送給玩家時，用戶端自然變回真的。
-- **檢查工具**：`/bg inspect` 切換檢查模式，類似 CoreProtect 的 `/co i`。
-  - 點方塊顯示最後修改的作者、存檔、時間。
-  - 還沒存檔的格子，顯示標記中的作者，以及「未存」。
-- **箱子介面**：`/bg` 不帶參數時開主選單，內容有常用動作（狀態、存檔、歷史、標出差異、檢查、誰在哪裡、選取範圍、併回／回去，在整合世界裡換成完成整合與衝突清單）、草稿清單與進行中的整合。排列兼顧游標距離與功能分組（5 排）：開啟容器時游標在視窗正中央，也就是 5 排箱子最下排的中間。最下排分成三組並以玻璃片隔開：左邊是歷史（檢查、歷史），中間是這個世界的工作（標出變更、狀態、存檔，狀態在游標上），右邊是玩家與範圍（誰在哪裡、選取範圍）。上一排是玻璃分隔線，情境動作嵌在中間、狀態正上方：草稿裡是回去與併回，整合世界裡是衝突清單與完成整合。每個動作的位置固定，沒有權限時那格不放按鈕。最上面三排是草稿清單，從左上角開始排；每個草稿的說明列出最後編輯時間（最後一次存檔，含自動存檔）與最近三個里程碑，由新到舊、顏色漸暗；放不下時最後一格提示還有幾個並列出全部。
-  - 點一下就以玩家身分執行對應的子指令，所以權限與行為和打指令完全相同。
-  - Fabric 版用伺服器端的箱子畫面，原版客戶端也能用。
+- **Draft bossbar**: when not in main, always shows "Draft: <name> | <n> blocks unsaved", colored per draft; resolution and view worlds each have their own bossbar (conflict count, read-only notice).
+- **Progress bossbar**: while slow actions (`init`, saving, publish preview and confirmation, starting and finishing conflict resolution, `revert`, `restore`) run, the bossbar of the player who ran it temporarily shows progress, updated every second, and goes back to the usual notice when it ends (success or failure). Stages with a known total show a percentage: `init` counts region files, reading chunks for a save counts chunks, writing into the world counts chunks and entities; stages without one (working out the merge, writing versions) only show elapsed seconds. Not shown when run from the console.
+- **`/bg branch list`**: lists the players inside after each draft.
+- **Before/after toggle** (`/bg diff flip`, a button next to the `diff` result): `diff` also works out the before-content of each changed block in the player's world (for unsaved changes, the current save; for `diff <save>`, the previous version; for `diff <a> <b>`, `a`), and toggling sends only this player fake block updates, leaving the world unchanged; toggling again resends the real blocks in the world. A new `diff` or `diff off` toggles back first. Over 50,000 blocks it does not toggle (too many packets); use `view` instead. Only block states are swapped, not block entity contents or entities; when the player clicks a fake block, or the chunk is resent to the player, the client naturally goes back to the real one.
+- **Inspect tool**: `/bg inspect` toggles inspect mode, similar to CoreProtect's `/co i`.
+  - Clicking a block shows the last author, save and time.
+  - Blocks not saved yet show the author in the marks, and "unsaved".
+- **Chest menus**: `/bg` without arguments opens the main menu, with common actions (status, save, history, outline differences, inspect, who is where, selection, publish/back; in resolution worlds these become finish resolution and the conflict list), the draft list and resolutions in progress. The layout balances cursor distance and grouping (5 rows): when a container opens the cursor is at the center of the window, which is the middle of the bottom row of a 5-row chest. The bottom row is split into three groups separated by glass panes: history on the left (inspect, history), this world's work in the middle (outline changes, status, save, with status under the cursor), players and areas on the right (who is where, selection). The row above is a glass divider, with context actions set in its middle right above status: back and publish in drafts, the conflict list and finish resolution in resolution worlds. Each action's position is fixed, and without permission the slot has no button. The top three rows are the draft list, starting from the top left; each draft's description lists the last edit time (the last save, autosaves included) and the three latest milestones, newest first and fading; when they do not fit, the last slot says how many more there are and lists them all.
+  - One click runs the matching subcommand as the player, so permissions and behavior are exactly the same as typing the command.
+  - The Fabric version uses server-side chest screens, so vanilla clients work too.
 
-### 6.7 帶到單人世界改，再送回伺服器
+### 6.7 Taking an area to single-player and sending it back to the server
 
-給想在自己電腦上（不怕延遲、可以開光影、用單人的工具）改建築的人。用戶端要裝 BuildGit 的 Fabric 版；伺服器可以是 Paper 或 Fabric。以一個範圍為單位，不搬整個世界。
+For people who want to change builds on their own computer (no lag, shaders, single-player tools). The client needs the Fabric version of BuildGit; the server can be Paper or Fabric. It works on one area at a time, not moving the whole world.
 
-1. **`/bg pull [名稱]`**（伺服器上）：先自動存檔，取出所在分支最新存檔在範圍內的全部格子與建築實體，打包成範圍檔，經 `buildgit:sync` 頻道送到用戶端，存成 `.minecraft/buildgit/sync/<名稱>.bgpack`。伺服器記下這次取出的分支、存檔、維度與範圍（`buildgit/sync/<玩家 UUID>/<名稱>.yml`）。
-   - 範圍：有選取範圍就用它；沒有時，在草稿裡是草稿從主世界分出來後在這個維度改過的方塊所佔的範圍外加 8 格，主世界或沒改過時是玩家周圍水平 `sync.radius` 格、整個高度。草稿改過的範圍超過上限時請玩家先選取。
-   - 名稱：沒給時用草稿名稱（主世界用玩家名稱），這位玩家取出過就加 `-2`、`-3`…，不會蓋掉用戶端改到一半的範圍。
-2. **`/bg load <名稱>`**（單人世界）：把範圍放到目前世界的同一個座標：方塊整塊蓋掉，範圍內的非玩家實體換成範圍檔裡的。不需要先 `/bg init`。
-   - 取出完成的訊息附 **[在單人世界打開]** 按鈕，執行用戶端指令 `/bgc open <名稱>`：在範圍檔旁留下記號（範圍名稱、世界資料夾 `buildgit-<名稱>`、玩家在伺服器上的位置與視角），離開伺服器，打開這個世界；沒有時以用戶端的版本建立創造模式、和平、可用指令、主世界為虛空超平坦的世界。單人世界的 BuildGit 在玩家進入時讀走記號，世界資料夾相符就把玩家帶到主世界的原位置（不在範圍內時是範圍正上方）並執行 load。
-3. **離開單人世界時**自動把載入過的範圍讀回來，存成 `<名稱>.edited.bgpack`。實體還沒載入的 chunk 維持取出時的實體。
-4. **`/bg push <名稱> [草稿名稱]`**（伺服器上）：伺服器要求用戶端上傳改過的範圍，從**當初取出的存檔**開一個草稿，把範圍內每一格與兩邊出現過的實體都標記給這位玩家後提交；提交本來就只留下真的不同的格子（§5.1），所以草稿裡就是單人世界做的變更。沒有變化時不建立草稿。沒給草稿名稱、而草稿已存在（同一個範圍送回第二次）時加上編號。完成後通知用戶端刪掉改過的範圍檔。
-   - 用戶端連上裝了 BuildGit 的伺服器時列出改過、還沒送回的範圍名稱；伺服器挑出這位玩家在這裡取出過的，附上送回的按鈕（要有 `buildgit.push`）。名稱只拿來比對自己的取出紀錄，最多看 64 個。
-5. 之後照一般流程：`/bg go` 看、`/bg publish` 預覽併回、衝突照 §5.3 處理。取出後伺服器上的變更由三方合併處理。
+1. **`/bg pull [name]`** (on the server): autosave first, take all blocks and build entities within the range from the current branch's latest save, pack them into an area file, and send it to the client over the `buildgit:sync` channel, saved as `.minecraft/buildgit/sync/<name>.bgpack`. The server records the branch, save, dimension and range of this pull (`buildgit/sync/<player UUID>/<name>.yml`).
+   - Range: the selection if there is one; otherwise, in a draft, the extent of the blocks the draft changed in this dimension since it branched off main, plus 8 blocks; in main, or with no changes, `sync.radius` blocks horizontally around the player, full height. When the draft's changed extent exceeds the limit, the player is asked to make a selection first.
+   - Name: without one, the draft name (the player name in main), adding `-2`, `-3`… when this player has pulled it before, so an area half-changed on the client is never overwritten.
+2. **`/bg load <name>`** (single-player): place the area at the same coordinates in the current world: blocks are overwritten as a whole, and non-player entities in the range are replaced with the ones in the area file. No `/bg init` needed first.
+   - The pull-finished message comes with an **[Open in single-player]** button, running the client command `/bgc open <name>`: it leaves a marker next to the area file (area name, world folder `buildgit-<name>`, the player's position and view direction on the server), leaves the server and opens that world; when there is none, it creates one with the client's version: creative, peaceful, commands allowed, overworld a void superflat. Single-player BuildGit reads the marker when the player enters, and when the world folder matches, takes the player to the same position in the overworld (right above the area when not inside it) and runs load.
+3. **On leaving the single-player world**, loaded areas are read back automatically and saved as `<name>.edited.bgpack`. Chunks whose entities have not loaded keep the entities from the pull.
+4. **`/bg push <name> [draft name]`** (on the server): the server asks the client to upload the changed area, opens a draft from **the save it was originally pulled from**, marks every block in the range and every entity seen on either side for this player, and commits; a commit only keeps blocks that really differ anyway (§5.1), so the draft holds exactly the changes made in single-player. With no changes, no draft is created. Without a draft name, when the draft already exists (the same area sent back a second time), a number is added. When done, the client is told to delete the changed area file.
+   - When the client connects to a server with BuildGit, it lists the names of areas changed and not yet sent back; the server picks the ones this player pulled here and attaches buttons to send them back (requires `buildgit.push`). Names are only used to match the player's own pull records, at most 64 of them.
+5. After that, the usual flow: `/bg go` to look, `/bg publish` to preview and publish, conflicts per §5.3. Changes on the server after the pull are handled by the three-way merge.
 
-**格式**：zstd 壓縮的二進位，含名稱、維度、範圍、資料版本、取出的存檔、調色盤＋每格索引、實體 NBT。不含生態域：單人世界裡改的生態域不會送回，送回的草稿也不會動到生態域。資料版本較舊時以 DataFixer 升級（§4.5），較新時拒絕。封包分段傳送：伺服器每段 512 KB、每刻一段；用戶端每段 30 KB、每刻 4 段。
+**Format**: zstd-compressed binary, with name, dimension, range, data version, the save pulled from, palette + per-block indices, entity NBT. No biomes: biomes changed in single-player are not sent back, and drafts sent back do not touch biomes. Older data versions are upgraded with DataFixer (§4.5), newer ones refused. Packets are sent in chunks: the server sends 512 KB per piece, one piece per tick; the client 30 KB per piece, 4 pieces per tick.
 
-**上傳的內容不可信任**（惡意或改過的用戶端）：
+**Uploaded content is not trusted** (malicious or modified clients):
 
-- 只接受伺服器要求過的上傳；其他封包直接忽略。每位玩家同時只能有一個 pull 或 push 在進行。
-- 壓縮後最多 16 MB，段數在第一段就固定，宣告的總量超過上限立刻放棄；2 分鐘沒收齊就丟掉；離線即清除。
-- 解壓前先檢查宣告的大小，上限依取出時的範圍計算（每格 4 位元組＋32 MB），所以小檔案也不能讓伺服器配置大量記憶體；格子數受解壓後的大小限制；實體最多 1 萬個。
-- 範圍與維度必須和取出紀錄相同；只比較範圍內的格子，所以碰不到範圍外。
-- 方塊狀態要能解析、方塊實體 NBT 要能以有深度與節點數上限的解析器讀取；沒有管理員方塊權限（`canUseGameMasterBlocks`）時，指令方塊等與指令方塊礦車不接受。不接受的格子維持取出時的樣子，並告訴玩家數量。
-- 實體只收建築實體、位置在範圍內，且不能用範圍外已有的 UUID（否則能把範圍外的實體搬進來）。
-- 資料錯誤只回覆玩家，不寫堆疊，避免被拿來洗記錄。
-- 取出的體積上限由 `sync.max-blocks` 設定（預設 1200 萬格，夠玩家周圍半徑 5 個區塊、整個高度）。`buildgit.pull`、`buildgit.push` 預設只有 OP。
+- Only uploads the server asked for are accepted; other packets are ignored. Each player can have only one pull or push in progress at a time.
+- At most 16 MB compressed, with the piece count fixed in the first piece, giving up at once when the declared total exceeds the limit; discarded when not complete within 2 minutes; cleared on disconnect.
+- The declared size is checked before decompressing, with a limit worked out from the range at pull time (4 bytes per block + 32 MB), so even a small file cannot make the server allocate lots of memory; the block count is bounded by the decompressed size; at most 10,000 entities.
+- The range and dimension must match the pull record; only blocks inside the range are compared, so nothing outside it can be touched.
+- Block states must parse, and block entity NBT must be readable by a parser with depth and node count limits; without permission to use operator blocks (`canUseGameMasterBlocks`), command blocks and the like and command block minecarts are not accepted. Rejected blocks stay as they were at pull time, and the player is told how many.
+- Entities: only build entities, positioned inside the range, and they cannot use UUIDs that already exist outside the range (otherwise entities outside could be moved in).
+- Data errors are only reported to the player, with no stack traces, so they cannot be used to flood the logs.
+- The volume limit for pulls is set by `sync.max-blocks` (12 million blocks by default, enough for a 5-chunk radius around the player, full height). `buildgit.pull` and `buildgit.push` are OP-only by default.
 
-## 7. 查詢與顯示（底層指令）
+## 7. Queries and display (low-level commands)
 
-| 指令 | 作用 |
+| Command | Effect |
 |---|---|
-| `/bg help [admin]` | 只列自己能用的指令；所在的地方最常用的一段放最前面（整合中是衝突、建築世界裡是建築世界）；管理指令在 `help admin` |
-| `/bg status` | 目前分支、未提交的格子數與實體數（依作者分）、上次是否正常關閉 |
-| `/bg log [分支] [頁數] [--all] [--author <玩家>]` | 提交歷史，每頁 8 列附翻頁按鈕，存檔編號可點（點了是 `diff <提交>`）；預設只列里程碑與併回，連續的自動存檔收成一行，`--all` 展開 |
-| `/bg log --graph [頁數] [--all] [--author <玩家>]` | 所有草稿的分支歷史圖（像 `git log --graph`），每頁 8 列（聊天室窗收合時只顯示 10 行），附上一頁／下一頁按鈕：方框字元畫分支線，用 `minecraft:uniform` 等寬字型才對齊；存檔編號可點；預設略過自動存檔，子存檔直接連到最近的可見祖先 |
-| `/bg diff [<提交> [<提交>]] [--cells]`、`/bg diff off` | 在世界裡顯示差異外框；沒給參數時顯示未提交的變更。只給一個提交時另外列出它的作者、訊息與每位玩家改了幾格，`--cells` 列出每一格。改動分在兩區以上時和 publish 一樣逐區列出，點一下（`/bg diff goto <編號>`）前往。結果訊息後面有 [關閉] 按鈕（`/bg diff off`），清掉外框；外框也會在 60 秒後或換世界時消失 |
-| `/bg branch list\|delete` | 分支管理（開草稿用 `try`）；`list` 只列玩家所在世界的草稿（`--all` 列出全部），附最新存檔編號、時間與在裡面的玩家；`delete` 在有未存變更、有還沒整份併回的存檔（草稿最新存檔不在來源的歷史裡）時拒絕，`--force` 強制；有草稿以它為來源時一律拒絕 |
-| `/bg merge <分支>` | 把任一分支合併進目前所在的分支（底層） |
-| `/bg genesis upgrade` | 管理員：升級 Minecraft 後，把起點世界裡舊版本存的 chunk 改寫成目前的格式（§4.5）；在背景進行，bossbar 顯示進度 |
-| `/bg disk` | 管理員：BuildGit 用掉的磁碟空間，分成版本紀錄（所有分支共用，無法拆給個別分支）、起點世界副本、標記日誌等、每個草稿的世界資料夾、檢視世界；背景執行緒計算。`/bg disk clean` 回收沒有任何版本庫用到、超過一天沒寫入的物件 |
-| `/bg sel pos1\|pos2\|show\|clear` | 不用 WorldEdit 時的選取範圍 |
-| `/bg mark <x1 y1 z1 x2 y2 z2>\|sel` | 手動補記一個範圍（記錄不到的變更）；`sel` 用目前的選取範圍。打座標時按 Tab 會依序補上選取範圍的座標 |
+| `/bg help [admin]` | Lists only the commands you can use; the most common section for where you are goes first (conflicts while resolving, build worlds in a build world); admin commands are in `help admin` |
+| `/bg status` | Current branch, uncommitted blocks and entities (per author), whether the last shutdown was clean |
+| `/bg log [branch] [page] [--all] [--author <player>]` | Commit history, 8 lines per page with page buttons, save ids clickable (clicking runs `diff <commit>`); by default only milestones and publishes are listed, consecutive autosaves folded into one line, `--all` expands them |
+| `/bg log --graph [page] [--all] [--author <player>]` | A branch history graph of all drafts (like `git log --graph`), 8 lines per page (the collapsed chat window shows only 10 lines), with previous/next page buttons: branch lines drawn with box-drawing characters, aligned only in the monospace `minecraft:uniform` font; save ids clickable; autosaves skipped by default, with child saves connected straight to the nearest visible ancestor |
+| `/bg diff [<commit> [<commit>]] [--cells]`, `/bg diff off` | Show difference outlines in the world; without arguments, the uncommitted changes. With one commit, also lists its author, message and how many blocks each player changed; `--cells` lists every block. When changes are in two or more areas, they are listed per area as with publish, and a click (`/bg diff goto <number>`) goes there. The result message ends with a **[Close]** button (`/bg diff off`) that clears the outlines; outlines also disappear after 60 seconds or on changing worlds |
+| `/bg branch list\|delete` | Branch management (open drafts with `try`); `list` only lists drafts of the player's world (`--all` lists all), with the latest save id, time and players inside; `delete` is refused when there are unsaved changes or saves not fully published (the draft's latest save is not in the source's history), `--force` forces it; always refused while a draft uses it as its source |
+| `/bg merge <branch>` | Merge any branch into the branch you are on (low level) |
+| `/bg genesis upgrade` | Admins: after upgrading Minecraft, rewrite chunks in the genesis world saved by older versions in the current format (§4.5); runs in the background with progress in a bossbar |
+| `/bg disk` | Admins: disk space used by BuildGit, split into history (shared by all branches, cannot be split per branch), genesis world copies, mark journals and the like, each draft's world folders, and view worlds; worked out on a background thread. `/bg disk clean` reclaims objects no repository uses that have not been written for more than a day |
+| `/bg sel pos1\|pos2\|show\|clear` | A selection without WorldEdit |
+| `/bg mark <x1 y1 z1 x2 y2 z2>\|sel` | Mark an area by hand (for changes that could not be recorded); `sel` uses the current selection. When typing coordinates, Tab fills in the selection's coordinates in order |
 
-指令以 Paper 的 Brigadier API（`LifecycleEvents.COMMANDS`）註冊：子指令依權限顯示，參數有補全；需要確認的動作（併回、還原）在聊天訊息附 MiniMessage 的點擊按鈕，主控台則提示要執行的完整指令。
+Commands are registered with Paper's Brigadier API (`LifecycleEvents.COMMANDS`): subcommands are shown by permission, and arguments have completion; actions that need confirming (publish, restore) put MiniMessage click buttons in the chat message, while the console is told the full command to run.
 
-差異顏色沿用 WorldGit 的色票：新增綠、移除紅、修改黃、衝突紫。數量太多時改成區域包圍盒。
+Difference colors reuse WorldGit's palette: added green, removed red, changed yellow, conflict purple. When there are too many, they become area bounding boxes.
 
-## 8. 權限
+## 8. Permissions
 
-預設全部只有 OP（Paper：`default: op`；Fabric：權限等級 2）。節點之間的包含關係由 `PermissionSets` 判斷，兩個平台相同（Fabric 的權限模組不知道 Paper 的 `children`），所以 `plugin.yml` 只宣告節點、不寫 `children`。給管理員的說明與權限集用途見[管理員手冊 §4](02-admin.md#4-權限)。
+By default everything is OP only (Paper: `default: op`; Fabric: permission level 2). Which nodes include which is decided by `PermissionSets`, the same on both platforms (Fabric's permission mods do not know Paper's `children`), so `plugin.yml` only declares nodes, without `children`. For the admin-facing explanation and what each permission set is for, see the [admin manual §4](02-admin.md#4-permissions).
 
-| 權限集 | 包含 |
+| Permission set | Includes |
 |---|---|
-| `buildgit.role.viewer` | menu、status、log、graph、show、diff、blame、inspect、who、sel、branch.list、go、back、view |
-| `buildgit.role.builder` | viewer、try、save、pull、push |
-| `buildgit.role.manager` | builder、publish、commit、merge、merge.resolve、revert、restore、mark、branch.create、branch.delete |
-| `buildgit.admin` | manager、init、reload、disk |
+| `buildgit.role.viewer` | menu, status, log, graph, show, diff, blame, inspect, who, sel, branch.list, go, back, view |
+| `buildgit.role.builder` | viewer, try, save, pull, push |
+| `buildgit.role.manager` | builder, publish, commit, merge, merge.resolve, revert, restore, mark, branch.create, branch.delete |
+| `buildgit.admin` | manager, init, reload, disk |
 
-其他節點都是 `buildgit.<指令>`（`branch` 的三個子指令是 `branch.list`／`branch.create`／`branch.delete`，處理衝突整合是 `merge.resolve`），一個節點只開一個指令、彼此不包含（決策 #47）。例外：有 `publish`、`revert`、`merge` 的人也能處理衝突整合，因為整合是這些動作引起的；單人世界的 `load` 與 `help` 不需要權限。
+All other nodes are `buildgit.<command>` (the three `branch` subcommands are `branch.list`/`branch.create`/`branch.delete`, and conflict resolution is `merge.resolve`); one node opens one command, and nodes do not include each other (decision #47). Exception: people with `publish`, `revert` or `merge` can also resolve conflicts, since those actions cause the resolution; single-player `load` and `help` need no permission.
 
-包含關係是程式判斷，所以權限集裡的單一節點設成 false 不會拿掉它；要少給某一項時逐項給節點。
+Inclusion is decided in code, so setting a single node inside a permission set to false does not take it away; to give one thing less, give nodes one by one.
 
-### 8.1 LuckPerms 情境（第一步已實作）
+### 8.1 LuckPerms contexts (step one implemented)
 
-裝了 LuckPerms 時，BuildGit 提供「玩家現在在 BuildGit 的哪裡」當作情境（context），管理員可以讓任何插件的權限依此生效，不必知道內部的世界名稱（`bg_d1`、`bgw_<id>` 等）。例如只在草稿裡能用 WorldEdit：
+With LuckPerms installed, BuildGit provides "where the player is in BuildGit right now" as contexts, so admins can make any plugin's permissions depend on it without knowing internal world names (`bg_d1`, `bgw_<id>` and so on). For example, WorldEdit only in drafts:
 
 ```
 /lp group builder permission set worldedit.* true buildgit:location=draft
 ```
 
-**提供的情境**（鍵都以 `buildgit:` 開頭）：
+**Contexts provided** (all keys start with `buildgit:`):
 
-| 鍵 | 值 | 什麼時候有 |
+| Key | Values | When present |
 |---|---|---|
-| `buildgit:location` | `main`（主世界）、`draft`（草稿）、`view`（檢視過去的版本）、`resolve`（衝突整合） | 在受版本控制的世界或它的草稿、檢視、整合世界裡 |
-| `buildgit:branch` | 分支名稱（主世界是 `main`） | 在主世界或草稿、整合世界裡 |
-| `buildgit:world` | 伺服器世界的名稱（預設是 `level-name`，通常是 `world`），或建築世界的「擁有者/名稱」 | 一律有（[03-worlds.md](03-worlds.md)） |
-| `buildgit:role` | `owner`、`manager`、`builder`、`visitor` | 在建築世界裡；只依那個世界的成員名單，私人世界的非成員沒有 |
+| `buildgit:location` | `main`, `draft`, `view` (viewing a past version), `resolve` (conflict resolution) | In a versioned world or its draft, view or resolution worlds |
+| `buildgit:branch` | the branch name (`main` for main) | In main or a draft or resolution world |
+| `buildgit:world` | the server world's name (`level-name` by default, usually `world`), or a build world's "owner/name" | Always ([03-worlds.md](03-worlds.md)) |
+| `buildgit:role` | `owner`, `manager`, `builder`, `visitor` | In build worlds; based only on that world's member list, so non-members of private worlds have none |
 
-- **角色往下包含**：擁有者同時帶 `owner`、`manager`、`builder` 三個值，管理者帶 `manager`、`builder`。所以設在 `buildgit:role=builder` 的權限，所有能建造的人都適用。
-- **角色只看成員名單，不看權限節點**：LuckPerms 是在檢查權限時向 BuildGit 要情境的，若算情境時又去檢查權限，會無限循環。所以伺服器世界只靠權限節點時，沒有 `buildgit:role`。
-- 不在 BuildGit 管的世界時，這些鍵都不帶。
-- LuckPerms 本身的 `world` 情境照常可用，只是值是內部世界名稱，會隨草稿建立、刪除而變。
+- **Roles include the ones below**: owners carry all three of `owner`, `manager` and `builder`, managers carry `manager` and `builder`. So a permission set under `buildgit:role=builder` applies to everyone who can build.
+- **Roles only look at the member list, not permission nodes**: LuckPerms asks BuildGit for contexts while checking permissions, and checking permissions again while working out contexts would loop forever. So when the server world relies only on permission nodes, there is no `buildgit:role`.
+- Outside worlds BuildGit manages, none of these keys are present.
+- LuckPerms' own `world` context still works as usual, but its values are internal world names, which change as drafts are created and deleted.
 
-**常見用法**（寫進管理員手冊）：
+**Common uses** (written into the admin manual):
 
-| 想要 | 設定 |
+| Want | Setting |
 |---|---|
-| 只在草稿裡能用 WorldEdit／Axiom，主世界不行 | `worldedit.*`、`axiom.*` 設在 `buildgit:location=draft` |
-| 建築世界的建造者都能用 WorldEdit | `worldedit.*` 設在 `buildgit:role=builder` |
-| 草稿裡能飛 | `essentials.fly` 設在 `buildgit:location=draft` |
-| 聊天前綴顯示在哪個草稿 | 前綴（meta）設在 `buildgit:location=draft` |
-| BuildGit 自己的指令依位置限制，例如只在某個草稿能併回 | `buildgit.publish` 設在 `buildgit:branch=<名稱>`（BuildGit 檢查權限時，LuckPerms 自動套用當下的情境） |
+| WorldEdit/Axiom only in drafts, not in main | `worldedit.*`, `axiom.*` under `buildgit:location=draft` |
+| All builders in build worlds can use WorldEdit | `worldedit.*` under `buildgit:role=builder` |
+| Flying in drafts | `essentials.fly` under `buildgit:location=draft` |
+| A chat prefix showing which draft | the prefix (meta) under `buildgit:location=draft` |
+| BuildGit's own commands limited by place, e.g. publishing only from one draft | `buildgit.publish` under `buildgit:branch=<name>` (when BuildGit checks permissions, LuckPerms applies the current contexts automatically) |
 
-**做法**：
-- 選用相依：Paper 在 `plugin.yml` 加 `softdepend: [LuckPerms]`，Fabric 看 `luckperms` 模組有沒有載入；沒有時完全不載入相關類別。LuckPerms API（`net.luckperms:api`）只在編譯時使用，不打包。
-- 向 `ContextManager` 註冊一個 `ContextCalculator`（Paper 的對象是 `Player`，Fabric 是 `ServerPlayer`），並提供 `estimatePotentialContexts()`，讓 LuckPerms 的網頁編輯器與補全列出可用的鍵與值（分支名稱、`location` 的四個值）。
-- **執行緒**：LuckPerms 可能在任何執行緒計算情境，不能讀 `Workspace` 的內部狀態。主執行緒每刻比對每位玩家目前的情境，存成一份「玩家 → 目前的情境」對照表（`ConcurrentHashMap`），計算時只讀這份表；有變才呼叫 `signalContextUpdate(玩家)`，讓 LuckPerms 丟掉快取。比對只是查幾個表，不必另外掛換世界、分支刪除等事件，也不會漏。補全用的分支清單每 10 秒更新一次。
-- 設定：`integrations.luckperms-contexts: true`（預設開，裝了 LuckPerms 才有作用）。
-- 跨版本：LuckPerms API 和 Minecraft 版本無關，程式放在共用的模組；Fabric 只要那個 Minecraft 版本有 LuckPerms 就能用（各版本要確認有沒有發佈）。情境的鍵與值是 BuildGit 自己定的，不隨 Minecraft 版本改變。
+**How**:
+- Optional dependency: Paper adds `softdepend: [LuckPerms]` to `plugin.yml`, Fabric checks whether the `luckperms` mod is loaded; without it, the related classes are never loaded. The LuckPerms API (`net.luckperms:api`) is used only at compile time and not bundled.
+- A `ContextCalculator` is registered with the `ContextManager` (for `Player` on Paper, `ServerPlayer` on Fabric), providing `estimatePotentialContexts()` so LuckPerms' web editor and completion list the available keys and values (branch names, the four `location` values).
+- **Threads**: LuckPerms may work out contexts on any thread, so the `Workspace`'s internal state cannot be read. The main thread compares each player's current contexts every tick and keeps a "player → current contexts" map (`ConcurrentHashMap`), and calculation only reads this map; only on a change is `signalContextUpdate(player)` called so LuckPerms drops its cache. The comparison is just a few lookups, with no need to hook world changes, branch deletions and other events, and nothing is missed. The branch list for completion is refreshed every 10 seconds.
+- Setting: `integrations.luckperms-contexts: true` (on by default, only has an effect with LuckPerms installed).
+- Across versions: the LuckPerms API is independent of the Minecraft version, so the code is in the shared module; Fabric works whenever LuckPerms exists for that Minecraft version (to be checked per version). The context keys and values are BuildGit's own and do not change with Minecraft versions.
 
-**分兩步**：
-1. **已實作**：`buildgit:location`、`buildgit:branch`（`server` 模組的 `Contexts`、`LuckPermsContexts`）。整合世界與兩邊的檢視世界都是 `resolve`，`buildgit:branch` 是要併入的目標分支。
-2. 建築世界做好後：`buildgit:world`、`buildgit:role`。建築世界改名時，舊名稱的情境設定會失效，所以改名時提示擁有者，並在管理員手冊說明；需要長期穩定時可以用世界的 id（`buildgit:world-id`，之後有需要再加）。
+**In two steps**:
+1. **Implemented**: `buildgit:location`, `buildgit:branch` (`Contexts` and `LuckPermsContexts` in the `server` module). The resolution world and both view worlds are `resolve`, and `buildgit:branch` is the target branch being merged into.
+2. Once build worlds are done: `buildgit:world`, `buildgit:role`. When a build world is renamed, context settings using the old name stop applying, so the owner is told when renaming and the admin manual explains it; for long-term stability the world's id could be used (`buildgit:world-id`, to add later if needed).
 
-驗收：Paper 與 Fabric 各裝 LuckPerms，在 `buildgit:location=draft` 給 `worldedit.*`：玩家在主世界不能用 WorldEdit，`/bg try` 進草稿後立刻可以，`/bg back` 回去後立刻不行；`/lp user <玩家> permission checkcontexts`（或 `/lp verbose`）看得到目前的情境；沒裝 LuckPerms 時照常啟動。
+Acceptance: on both Paper and Fabric with LuckPerms, give `worldedit.*` under `buildgit:location=draft`: the player cannot use WorldEdit in main, can as soon as `/bg try` takes them into a draft, and cannot as soon as `/bg back` takes them back; `/lp user <player> permission checkcontexts` (or `/lp verbose`) shows the current contexts; without LuckPerms the server starts as usual.
 
-已在 Paper 26.3 與 Fabric 26.3（LuckPerms 5.5.88）實測：主世界 `buildgit:location=main`、`buildgit:branch=main`，權限未設定；`/bg try lpt` 後 `draft`、`lpt`，權限生效；`/bg back` 後回到 `main`，權限又不生效。沒裝 LuckPerms 時 Paper 26.3、Fabric 1.21.11 照常啟動。檢視與整合世界的值還沒實測。LuckPerms 5.5.88 的 Fabric 版只支援 Minecraft 26.1 以後，Fabric 1.21.11 要用支援它的舊版 LuckPerms（未實測）。
+Tested on Paper 26.3 and Fabric 26.3 (LuckPerms 5.5.88): in main `buildgit:location=main`, `buildgit:branch=main`, permission unset; after `/bg try lpt`, `draft` and `lpt`, permission in effect; after `/bg back`, back to `main` and the permission no longer in effect. Without LuckPerms, Paper 26.3 and Fabric 1.21.11 start as usual. Values for view and resolution worlds have not been tested yet. The Fabric build of LuckPerms 5.5.88 only supports Minecraft 26.1 and later; Fabric 1.21.11 needs an older LuckPerms that supports it (not tested).
 
-## 9. 專案結構
+## 9. Project layout
 
 ```
 BuildGit/
-├─ core/            # 純 Java：物件、覆寫表、正規化、提交、合併、標記表、Anvil 讀取、範圍檔與同步封包。不依賴 Minecraft
-├─ api/             # 公開 API（§3.10），只依賴 Bukkit API，Java 21
+├─ core/            # plain Java: objects, overlays, normalization, commits, merges, mark tables, Anvil reading, area files and sync packets. No Minecraft dependency
+├─ api/             # public API (§3.10), depending only on the Bukkit API, Java 21
 ├─ paper/
-│   ├─ axiom-api/   # AxiomPaper API 的編譯用介面（MIT，不打包）
-│   ├─ debugstickpro-api/  # DebugStickPro 的編譯用介面（Apache-2.0，不打包）
-│   ├─ plugin/      # Paper 26.2 插件（paperweight userdev，Java 25），也是兩個 Paper 版本共用的原始碼
-│   ├─ plugin-1_21_11/  # Paper 1.21.11 插件：編譯同一份原始碼（Java 21），只放版本相依的類別
-│   └─ plugin-26_3/ # Paper 26.3 插件：編譯同一份原始碼（Java 25）
-├─ server/          # 兩個平台共用的邏輯（原版類別、Mojang 名稱）；不是獨立模組，由各平台的建置一起編譯
+│   ├─ axiom-api/   # compile-only interfaces of the AxiomPaper API (MIT, not bundled)
+│   ├─ debugstickpro-api/  # compile-only interfaces of DebugStickPro (Apache-2.0, not bundled)
+│   ├─ plugin/      # the Paper 26.2 plugin (paperweight userdev, Java 25), also the source shared by the Paper versions
+│   ├─ plugin-1_21_11/  # the Paper 1.21.11 plugin: compiles the same source (Java 21), holding only version-specific classes
+│   └─ plugin-26_3/ # the Paper 26.3 plugin: compiles the same source (Java 25)
+├─ server/          # logic shared by both platforms (vanilla classes, Mojang names); not a separate module, compiled by each platform's build
 ├─ fabric/
-│   ├─ common/      # Fabric 共用：入口（伺服器與用戶端）、平台實作、mixin
-│   ├─ mc26_2/      # Fabric 26.2 模組（Java 25，不需要 remap），只放版本相依的類別
-│   ├─ mc26_3/      # Fabric 26.3 模組：與 26.2 共用版本相依的類別
-│   └─ mc1_21_11/   # Fabric 1.21.11 模組（Java 21，Mojang 名稱編譯、Loom remap）
+│   ├─ common/      # shared Fabric code: entry points (server and client), platform implementation, mixins
+│   ├─ mc26_2/      # the Fabric 26.2 mod (Java 25, no remapping needed), holding only version-specific classes
+│   ├─ mc26_3/      # the Fabric 26.3 mod: shares the version-specific classes with 26.2
+│   └─ mc1_21_11/   # the Fabric 1.21.11 mod (Java 21, compiled with Mojang names, remapped by Loom)
 └─ docs/
 ```
 
-- 訊息使用 MiniMessage，提供 en_us 與 zh_tw。
-- 設定檔使用 YAML。
-- core 以 JUnit 測試；平台以真伺服器自動化驗收。
+- Messages use MiniMessage, with en_us and zh_tw.
+- Settings files use YAML.
+- core is tested with JUnit; platforms are accepted with automated runs on real servers.
 
-## 10. 風險與原型驗證
+## 10. Risks and prototype verification
 
-依風險高低，先做以下原型，結果記入決策表後再進入正式實作：
+In order of risk, these prototypes come first, with results recorded in the decision table before the real implementation:
 
-| # | 風險 | 驗證方式 | 備案 |
+| # | Risk | How to verify | Fallback |
 |---|---|---|---|
-| 1 | Paper 以反射替換 `neighborUpdater` 是否可行（final 欄位、Java 25 的限制、Paper 內部是否繞過） | Paper 26.2 與 1.21.11：玩家放水、接紅石、放沙子，確認連帶格全部被標記 | 改用 `BlockPhysicsEvent`、`BlockFromToEvent`、`BlockRedstoneEvent` 等事件傳遞，並接受部分遺漏。**26.2 結果**：替換可行；水源擴散的 145 格全部記給放水者 |
-| 2 | Paper 合成讀取（攔截 chunk 系統讀取） | 建立分支、走到遠處，比對合成的 chunk 與「起點＋覆寫」的格子是否一致 | 整個 region 預先合成（§4.2） |
-| 3 | Fabric 執行期世界（Fantasy 等）在 26.2、1.21.11、單人模式能否使用 | 建立、載入、卸載、刪除分支世界 | 自行實作執行期維度註冊 |
-| 4 | 世界生成的確定性 | 同種子、同版本產生 1000 個 chunk 兩次，格子逐一比對（含結構） | 新生成的 chunk 在主世界生成時一併寫入起點世界 |
-| 5 | FAWE 非同步寫入與 Axiom 寫入能否完整取得位置 | `//set`、`//paste`、`//undo`，以及 Axiom 的筆刷與貼上，比對標記與實際變更 | 對該操作的包圍盒做提交前比對。**26.2 結果**：FAWE `setBlocks` 標記數與修改數一致、無可量測的額外耗時；Axiom 尚待以客戶端驗證 |
-| 6 | 標記與傳遞的效能 | 大型紅石機器、大量水流時的 MSPT 與記憶體 | 位元集分頁、原因旁表定期清理 |
+| 1 | Whether replacing `neighborUpdater` by reflection works on Paper (final fields, Java 25 restrictions, whether Paper internals bypass it) | Paper 26.2 and 1.21.11: a player places water, wires redstone, places sand, and every knock-on block is marked | Pass causes through events such as `BlockPhysicsEvent`, `BlockFromToEvent` and `BlockRedstoneEvent`, accepting some misses. **26.2 result**: replacing works; all 145 blocks of a spreading water source were attributed to the player who placed it |
+| 2 | Synthesizing reads on Paper (intercepting chunk system reads) | Create a branch, walk far away, and compare synthesized chunks with "genesis + overrides" block by block | Synthesize whole regions in advance (§4.2) |
+| 3 | Whether runtime worlds on Fabric (Fantasy and the like) work on 26.2, 1.21.11 and in single-player | Create, load, unload and delete branch worlds | Implement runtime dimension registration ourselves |
+| 4 | Determinism of world generation | Generate 1000 chunks twice with the same seed and version, comparing every block (structures included) | Write newly generated chunks into the genesis world when main generates them |
+| 5 | Whether FAWE's async writes and Axiom's writes yield all positions | `//set`, `//paste`, `//undo`, and Axiom's brushes and pastes, comparing marks with actual changes | Compare the operation's bounding box before committing. **26.2 result**: FAWE `setBlocks` mark count equals change count, with no measurable extra time; Axiom still to be verified with a client |
+| 6 | Performance of marking and propagation | MSPT and memory with large redstone machines and lots of flowing water | Paged bitsets, periodic cleanup of the cause side table |
 
-## 11. 開發順序
+## 11. Development order
 
-1. **core**：物件儲存、覆寫表、提交、三方合併、changeset，以 JUnit 驗證。
-2. **原型**：風險 1–4。
-3. **Paper 26.2**：追蹤、WorldEdit／FAWE 與 Axiom 整合、公開 API、主世界的存檔與歷史、分支世界（try／go／back／publish）、無衝突合併、衝突整合、revert／restore、分支管理（已完成）。
-4. **Fabric 26.2 與 1.21.11**：共用 `server/` 的全部邏輯，平台只做掛點與 `Platform`（已完成；以伺服器端的假玩家在兩個版本的專用伺服器驗收放置、破壞、指令、箱子內容、盔甲座、TNT、存檔、草稿、併回、檢視唯讀、檢查模式、箱子選單、卸載與重啟。單人模式與 WorldEdit／Axiom 整合尚未做）。
-   - 帶到單人世界改再送回（§6.7，已完成）：在兩個版本以假玩家模擬裝了 BuildGit 的用戶端，驗收 pull、單人世界載入與打包（以另一台專用伺服器代替單人世界）、push 成草稿、併回，以及跨版本載入與惡意上傳（極多段、非 zstd、解壓炸彈、未要求的上傳）。真客戶端的畫面尚未確認。
-5. （併入第 3 步）
-6. **1.21.11**：兩個平台的舊版適配（Paper 已完成：同一份原始碼對 1.21.11 編譯即可，反射用到的內部欄位兩版相同；以 Java 21 的真伺服器驗收追蹤、草稿、併回、衝突整合、卸載、重啟與外框）。
-7. **建築師操作層**（§6）：
-   - 三步流程與自動存檔在第 3、4 步就一起做；
-   - 這一步補齊選取範圍、view、bossbar、檢查工具、箱子介面（Paper 已完成；外框、bossbar、箱子介面、`view`、`sel`、聊天按鈕以伺服器端的假玩家驗收過，畫面本身尚未以真客戶端確認）。
-8. **效能驗收**（風險 6）與使用者指南。
+1. **core**: object storage, overlays, commits, three-way merge, changesets, verified with JUnit.
+2. **Prototypes**: risks 1–4.
+3. **Paper 26.2**: tracking, WorldEdit/FAWE and Axiom integration, the public API, saves and history on main, branch worlds (try/go/back/publish), conflict-free merges, conflict resolution, revert/restore, branch management (done).
+4. **Fabric 26.2 and 1.21.11**: share all of `server/`'s logic, with the platform only doing hooks and `Platform` (done; accepted on dedicated servers of both versions with a fake player on the server: placing, breaking, commands, chest contents, armor stands, TNT, saving, drafts, publishing, read-only views, inspect mode, chest menus, unloading and restarting. Single-player and WorldEdit/Axiom integration not done yet).
+   - Taking areas to single-player and back (§6.7, done): on both versions, a fake player simulates a client with BuildGit, accepting pull, loading and packing in single-player (with another dedicated server standing in for single-player), push as a draft, publishing, plus cross-version loading and malicious uploads (huge piece counts, non-zstd, decompression bombs, unrequested uploads). The real client's screens are not confirmed yet.
+5. (merged into step 3)
+6. **1.21.11**: older-version support on both platforms (Paper done: the same source compiles against 1.21.11, and the internal fields used by reflection are the same in both versions; accepted on a real Java 21 server for tracking, drafts, publishing, conflict resolution, unloading, restarting and outlines).
+7. **The builder layer** (§6):
+   - the three-step flow and autosave were done together in steps 3 and 4;
+   - this step fills in selections, view, the bossbar, the inspect tool and chest menus (Paper done; outlines, the bossbar, chest menus, `view`, `sel` and chat buttons accepted with a fake player on the server, the screens themselves not yet confirmed with a real client).
+8. **Performance acceptance** (risk 6) and the user guide.
 
-## 12. 決策表
+## 12. Decision log
 
-| # | 日期 | 決策 |
+| # | Date | Decision |
 |---|---|---|
-| 1 | 2026-10-14 | 版本 = 起點世界＋覆寫表；只存玩家動過的格子 |
-| 2 | 2026-10-14 | 一格的內容（方塊狀態＋方塊實體 NBT）是合併的最小單位；實體以 UUID 為單位 |
-| 3 | 2026-10-14 | 每次提交附 changeset，記錄每格作者，供 log／blame 使用 |
-| 4 | 2026-10-14 | 追蹤以「原因」在執行緒內傳遞；排程 tick 與方塊事件用旁表帶著原因 |
-| 5 | 2026-10-14 | 生物的方塊副作用預設不傳遞原因；掉落方塊、TNT、投射物、礦車、船預設傳遞 |
-| 6 | 2026-10-14 | 連帶傳遞上限：距離 256 格、單一原因 100 萬格，可在 YAML 調整 |
-| 7 | 2026-10-14 | ~~Paper 寫入層沒有單一掛點，事件目標格連同 6 個鄰居一起標記~~ 改為只標記目標格，鄰居交給更新器精確判斷（#24）；沒掛上更新器時才退回 6 鄰居 |
-| 8 | 2026-10-14 | 分支世界以合成讀取延遲建立；未讀取過的 chunk 永遠等於分支最新提交 |
-| 9 | 2026-10-14 | 起點世界只在 init 時完整複製一次；之後新生成的 chunk 以世界產生器為起點 |
-| 10 | 2026-10-14 | 合併要求目標分支沒有未提交的標記；系統寫入期間停用追蹤 |
-| 11 | 2026-10-14 | 合併後對邊界格子重算形狀，變動以作者 `merge` 收進合併提交 |
-| 12 | 2026-10-14 | 不提供改寫歷史的 reset；還原一律產生新提交 |
-| 13 | 2026-10-14 | ~~開發先做 Fabric 26.2~~ 改為先做 Paper 26.2（使用者要求），Fabric 之後 |
-| 14 | 2026-10-14 | 建築師操作層：畫面用「草稿／存檔／併回／里程碑」；底層 git 指令保留 |
-| 15 | 2026-10-14 | 三步流程 `try`／`publish`／`back`；併回前必先預覽並確認；併回後草稿保留 |
-| 16 | 2026-10-14 | 自動存檔：分支世界所有玩家停手 5 分鐘、或距上次存檔 30 分鐘；`try`、`publish`、關服前一律先存 |
-| 17 | 2026-10-14 | 部分併回（`publish --selection`）產生單親提交並記錄來源草稿，不是合併提交 |
-| 18 | 2026-10-14 | `view` 以合成讀取開唯讀世界，最後一位玩家離開後刪除 |
-| 19 | 2026-10-14 | 箱子介面使用伺服器端畫面，兩個平台都不需要客戶端模組 |
-| 20 | 2026-10-14 | 使用 twme.dev 網域：Java 套件與 Maven group 為 `dev.twme.buildgit` |
-| 20 | 2026-10-14 | Paper 連帶追蹤改用「傳染」：鄰居更新碰到近期被標記的格子即沿用其作者，取代排程 tick 旁表；自然變化以同刻抑制集合排除 |
-| 21 | 2026-10-14 | WorldEdit／FAWE 只記位置不讀世界；FAWE 以批次處理器整個 section 標記，避免 CoreProtect 式的逐格成本與 `allowed-plugins` 漏記 |
-| 22 | 2026-10-14 | 提供公開 API（`api/` 模組、`ServicesManager`），其他插件可直接記錄或以 `attribute` 指定作者 |
-| 23 | 2026-10-14 | zstd-jni 不打包，改由 `plugin.yml` 的 `libraries` 從 Maven Central 下載（插件 jar 從 7.5 MB 降為 220 KB） |
-| 24 | 2026-10-14 | 連帶只標記真的改變的格子：候選格延到最外層更新結束後比對狀態 |
-| 25 | 2026-10-14 | init 之後新生成的 chunk，在生成當下補進起點世界（§2.3 的備案），不依賴生成確定性 |
-| 26 | 2026-10-14 | Paper 分支世界的合成掛在 `RegionFileStorage.regionCache`（反射換成子類別）：第一次開 region 檔時整個 region 合成，之後就是一般世界 |
-| 27 | 2026-10-14 | 存檔讀不到的 chunk 一律載入（必要時生成）後再讀，絕不當成空氣；讀不到就整個存檔失敗並把標記放回 |
-| 28 | 2026-10-14 | ~~衝突世界（§5.3）完成前，`publish` 有衝突時只列出衝突、不併回~~ 已由 #30 取代 |
-| 29 | 2026-10-15 | 形狀修補不收進合併提交，而是緊接著另存一次自動存檔（作者 `merge`）：合併提交只反映合併本身，修補可以單獨撤銷（取代 #11 的後半） |
-| 30 | 2026-10-15 | Paper 的整合世界是暫時分支 `merge-<id>`，ours／theirs 用唯讀檢視世界；完成時再做一次三方合併，整合期間目標分支有新存檔也能完成 |
-| 31 | 2026-10-15 | 合併提交與部分併回都把草稿裡每格的實際作者（`authorsSince`）記進 changeset，`show` 直接看得到；整合時改的格子記給改的人 |
-| 32 | 2026-10-15 | `/bg` 以 Paper Brigadier API 註冊（不再用 `plugin.yml` 的 `commands`）；確認按鈕用 MiniMessage `<click:run_command>` 對應的 Adventure 點擊事件 |
-| 33 | 2026-10-15 | 不支援 Axiom 的選取範圍（只存在客戶端）；選取範圍綁定所在維度 |
-| 34 | 2026-10-15 | 分支世界沒有玩家一段時間（預設 60 秒）後存檔並卸載，工作區一起關閉，需要時再載入（使用者要求，節省記憶體） |
-| 35 | 2026-10-15 | 記憶體上限：覆寫表快取依項目數計重（約 40 萬項）；起點世界的 chunk 快取保留打包格式；開著的 region 檔與已寫物件清單都有上限；沒有新標記時不 fsync |
-| 36 | 2026-10-15 | 外框改為只送封包的客戶端實體，直接用 NMS 產生封包，不依賴 PacketEvents（避免寫死會隨版本變動的資料欄位編號；BuildGit 已綁定 NMS 版本） |
-| 37 | 2026-10-16 | Paper 每個 Minecraft 版本各出一個 jar（`-paper-26.2`、`-paper-1.21.11`），原始碼共用、各自對該版本的伺服器編譯。不做單一 jar 多版本：只對舊版 API 編譯的類別在新版可能因簽名改變而在執行期才出錯。jar 啟動時比對伺服器版本，不符就停用 |
-| 38 | 2026-10-16 | 跨版本歷史：物件記錄資料版本，讀取時用原版 DataFixer 升級，不改寫舊物件；repo 被較新版本寫過後，較舊的伺服器拒絕開啟（§4.5） |
-| 39 | 2026-10-16 | Fabric 版以 mixin 掛在原版的寫入單一入口（`LevelChunk.setBlockState`）並以 `@WrapMethod` 設定原因；分支世界用 Fantasy。與 Paper 共用 `server/` 的邏輯，每個 Minecraft 版本各一個 jar（`-fabric-26.2`、`-fabric-1.21.11`），版本由 `fabric.mod.json` 限定 |
-| 40 | 2026-10-16 | 單人世界同步以選取範圍為單位，經遊戲內連線（`buildgit:sync` 頻道）傳輸，送回後從取出時的存檔開草稿，照一般流程併回；上傳內容視為不可信任，大小、段數、時間、實體數與方塊種類都有上限（§6.7） |
-| 41 | 2026-10-16 | `init` 只對玩家所在的世界；每個世界（含多世界插件建立的世界）各自 init，之後載入的世界自動納入、不讓卸載。起點世界在背景逐 chunk 複製，伺服器不暫停（§2.4、§4.3） |
-| 42 | 2026-10-16 | 支援 26.3（Paper、Fabric 各一個 jar）。26.3 改了 region 檔方塊調色盤與方塊狀態的寫法，BuildGit 不自己認格式，改由伺服器以原版的 `BlockState.CODEC` 轉換，以後再改格式也只要跟著伺服器版本編譯 |
-| 43 | 2026-10-16 | 主世界在它與它的草稿世界都沒有玩家時可以被多世界插件卸載（使用者要求）；沒載入時拒絕寫入那個分支，而不是自己把世界載回來（多世界插件的生成器等設定 BuildGit 不知道） |
-| 44 | 2026-10-16 | 權限集 `buildgit.role.viewer`／`builder`／`manager`（使用者要求，方便管理員授權）；包含關係改由程式判斷，Paper 與 Fabric 一致，`plugin.yml` 不再寫 `children` |
-| 45 | 2026-10-16 | 支援 DebugStickPro（使用者要求）：經典、複製模式以它的事件標記；凍結中的格子存檔時跳過，不把暫時的屏障存進版本（§3.9.1） |
-| 46 | 2026-10-17 | 記錄生態域（使用者指出遺漏）：以 4×4×4 生態域格存在 section 覆寫表裡，有標記的 section 存檔時一併比較；兩邊都改時保留目標、不進衝突整合；pull／push 先不帶（§3.9.2） |
-| 47 | 2026-10-17 | 每個指令一個獨立權限節點（使用者要求）：節點只開一個指令、彼此不包含，組合交給權限集；`buildgit.view` 改為只管 `/bg view`，原本的 `sync`、`admin` 底下的指令拆成 `pull`、`push`、`reload`、`disk`（§8） |
-| 48 | 2026-10-17 | 減少主執行緒的長時間佔用（使用者回報 init 與大量操作卡頓）：系統寫入（併回、撤銷、還原、衝突整合、當時還有的形狀修補）分刻進行，每刻最多 20 ms；新世界跳過出生點搜尋；`init` 的存檔不在主執行緒等 IO；`show`、`diff` 與併回預覽的計算（讀變更紀錄、算外框）改在背景（§4.3、§4.4、§5.2） |
-| 49 | 2026-10-17 | 拿掉合併後的形狀修補（使用者決定，取代 #11、#29）：重算連接會把建築師用除錯棒刻意做出的狀態改掉，併回應該完全維持草稿的狀態（§5.2） |
-| 50 | 2026-10-17 | 草稿只屬於一個世界（使用者決定；地獄、終界也各自分開）：只開那個世界，清單只列玩家所在世界的草稿，撤銷與還原只動它，不同世界的草稿不能互相合併；主世界與舊草稿仍涵蓋所有世界（§4.1） |
-| 51 | 2026-10-17 | Axiom 略過權限的玩家也記錄（使用者決定保留略過權限、讀 AxiomPaper 內部；不另設開關，對不上時自動停用）：替換操作佇列包住方塊緩衝區，另聽單格放置頻道；生態域筆刷除外（§3.9） |
-| 52 | 2026-10-18 | 起點世界可改用延遲複製（`init.lazy-copy-above-mb`，預設關閉）：chunk 第一次載入時才複製，沒載入過的讀主世界存檔；省空間、init 立刻完成，代價是不能在 BuildGit 之外改那個世界 |
-| 53 | 2026-10-18 | 起點世界可以放到別的資料夾（`init.genesis-dir`）：快的磁碟不夠大時改放大容量硬碟，仍然完整複製，比延遲複製沒有額外規則；設定改了但資料沒搬時沿用原位置 |
-| 54 | 2026-10-19 | Fabric 版以 mixin 記錄 Axiom（模組沒有整合 API）：包住會改世界的封包設定原因，方塊緩衝區寫入前標記寫到的格子；Axiom 只在編譯時參考，不打包；內部對不上時停用 |
-| 55 | 2026-10-19 | 起點世界可以改寫成目前版本的格式（`/bg genesis upgrade`）：內容不變、歷史不動，省下每次讀取的升級；背景逐檔換掉，不必停服。chunk 升級改為帶入和伺服器相同的維度資訊 |
-| 56 | 2026-10-19 | 設定檔與語言檔跟著外掛更新（使用者要求）：設定以新的預設檔為範本填回使用者的值；語言檔寫到伺服器上，與上次寫出的內建版本比對，沒改過的換成新版、改過的保留 |
-| 57 | 2026-10-19 | 帶到單人世界改的步驟簡化（使用者指出太複雜）：`/bg pull` 不必選取、不必取名（草稿改過的範圍或玩家周圍，名稱自動編號）；連回伺服器時提示送回，送回後用戶端刪掉改過的範圍檔。取出後可一鍵在專屬的單人世界打開（用戶端指令建立或打開世界，進入時自動放入範圍） |
-| 58 | 2026-10-19 | 異地備份（§2.5）：把版本庫增量上傳到 S3 相容的儲存（物件原樣上傳、起點世界與 level.dat 以內容雜湊命名、每次備份一份快照），新主機上下載後主世界以合成讀取由版本重建，不需要世界存檔；延遲複製的維度不完整，要搭配世界備份。自己實作 SigV4，不帶 AWS SDK |
-| 59 | 2026-10-20 | 異地備份的還原（§2.5）：主世界在下載時就合成好整個 region，重新啟動時只換資料夾，不在主世界掛合成讀取（較簡單，啟動時也不必等）；原本的一律改名留著；不同 Minecraft 版本時用目前伺服器的世界位置、不換 level.dat，種子不同時提醒 |
-| 60 | 2026-10-20 | 異地備份的補強（使用者選定）：上傳到一半中斷時不重傳；請求失敗重試；連續失敗提醒管理員；`/bg backup fetch` 只取回一個分支；還原只下載用得到的物件（§2.5） |
-| 61 | 2026-10-21 | 備份改成「備份工作」（§2.7，使用者決定）：每個目的地（本機或 S3）各自的內容、cron 排程或閒置觸發（沒有玩家滿幾分鐘後；不做關服時備份）、保留份數；`s3.yml` 只放具名的連線，`backup.yml` 放工作。另外備份世界資料夾（§2.6）：照世界資料夾的結構存放以便直接取用（本機用硬連結；S3 依 bucket 有沒有開版本控制自動選擇版本控制或以雜湊命名，也可以指定每份一個資料夾），只處理有玩家進入過的世界，預設開，開始與結束時提示玩家 |
-| 62 | 2026-10-25 | `init.lazy-copy-above-mb` 預設改成 512（使用者決定）：超過 512 MB 的世界 init 時改用延遲複製；只影響之後才 init 的世界，已經 init 的不變；設定檔已經寫了 -1 的照舊完整複製 |
-| 63 | 2026-10-26 | 收斂重複的指令（使用者決定）：拿掉 `commit`（同 `save`）、`blame`（用 `inspect`）、`branch create`（用 `try`）；`graph` 改成 `log --graph`；`show` 併進 `diff <提交>`；`who` 併進 `branch list`。對應的權限節點一起拿掉，舊指令不另外留提示 |
-| 64 | 2026-10-26 | 播放歷史 `/bg play`（§6.5，使用者要求）：玩家自己走動觀看，範圍可以是存檔編號或時間；用 `buildgit.view` 權限，不另開節點 |
-| 65 | 2026-10-26 | 改前／改後在原地切換（§6.6，使用者選擇）：用只送給玩家的假方塊，不另開世界、不傳送 |
-| 66 | 2026-10-26 | 大世界的備份與還原（§2.5、§2.6，使用者決定）：世界資料夾的 region 檔恢復存檔後才逐檔複製上傳，暫停存檔與本機暫存不隨世界變大；還原世界資料夾前檢查磁碟空間；版本紀錄的起點世界檔案有變時最多每 `genesis-hours`（預設 24）小時重傳一次 |
-| 67 | 2026-11-02 | 備份工作可以排除世界（§2.6，使用者要求）：`exclude-worlds` 寫世界資料夾或建築世界的「擁有者/名稱」；版本紀錄的工作只能排除建築世界；還原世界資料夾時被排除的世界原樣留著，不會跟著舊的世界資料夾改名收起來 |
-| 68 | 2026-11-03 | 預設英文、照玩家的遊戲語言顯示（使用者要求，外掛面向全世界）：`language` 預設 `en_us`，是主控台與沒有語言檔時用的；每位玩家看自己遊戲語言的語言檔（同一種語言的其他地區也算）；`language-per-player: false` 時所有人用 `language`。訊息取用時都帶上對象（玩家或發送者），不用執行緒變數，背景工作回到主執行緒後也對得上。給玩家的錯誤（`Workspace.Refused`）存語言檔的 key 與參數，送出時照收到的人組出來；伺服器記錄、設定檔範本註解、core 的例外訊息一律英文（不進語言檔：給管理員查問題、貼 issue 用） |
+| 1 | 2026-10-14 | A version = genesis world + overlay; only blocks touched by players are stored |
+| 2 | 2026-10-14 | A block's content (block state + block entity NBT) is the smallest unit of merging; entities are per UUID |
+| 3 | 2026-10-14 | Each commit comes with a changeset recording each block's author, for log/blame |
+| 4 | 2026-10-14 | Tracking passes a "cause" within the thread; scheduled ticks and block events carry the cause in a side table |
+| 5 | 2026-10-14 | Mobs' side effects on blocks do not pass the cause on by default; falling blocks, TNT, projectiles, minecarts and boats do |
+| 6 | 2026-10-14 | Knock-on limits: 256 blocks of distance, 1 million blocks per cause, adjustable in YAML |
+| 7 | 2026-10-14 | ~~The Paper write layer has no single hook, so event targets are marked along with their 6 neighbors~~ Changed to marking only the target, leaving neighbors to the updater's precise judgment (#24); falling back to 6 neighbors only when no updater is hooked |
+| 8 | 2026-10-14 | Branch worlds are created lazily with synthesizing reads; a chunk never read always equals the branch's latest commit |
+| 9 | 2026-10-14 | The genesis world is fully copied only once, at init; chunks generated later use the world generator as their genesis |
+| 10 | 2026-10-14 | Merging requires the target branch to have no uncommitted marks; tracking is off during system writes |
+| 11 | 2026-10-14 | After a merge, shapes of boundary blocks are recomputed, and the changes go into the merge commit with author `merge` |
+| 12 | 2026-10-14 | No history-rewriting reset; restores always produce a new commit |
+| 13 | 2026-10-14 | ~~Develop Fabric 26.2 first~~ Changed to Paper 26.2 first (user's request), Fabric afterwards |
+| 14 | 2026-10-14 | The builder layer: the UI says "draft/save/publish/milestone"; the low-level git commands are kept |
+| 15 | 2026-10-14 | The three-step flow `try`/`publish`/`back`; publishing always previews and asks for confirmation first; drafts are kept after publishing |
+| 16 | 2026-10-14 | Autosave: when every player in the branch world has stopped for 5 minutes, or 30 minutes after the last save; `try`, `publish` and shutdown always save first |
+| 17 | 2026-10-14 | Partial publishes (`publish --selection`) produce a single-parent commit recording the source draft, not a merge commit |
+| 18 | 2026-10-14 | `view` opens a read-only world with synthesizing reads, deleted after the last player leaves |
+| 19 | 2026-10-14 | Chest menus use server-side screens, so neither platform needs a client mod |
+| 20 | 2026-10-14 | Using the twme.dev domain: the Java package and Maven group are `dev.twme.buildgit` |
+| 20 | 2026-10-14 | Paper knock-on tracking switches to "spreading": a neighbor update touching a recently marked block takes its author, replacing the scheduled tick side table; natural changes are excluded with a same-tick suppression set |
+| 21 | 2026-10-14 | WorldEdit/FAWE only record positions without reading the world; FAWE marks whole sections with a batch processor, avoiding CoreProtect's per-block cost and the misses from `allowed-plugins` |
+| 22 | 2026-10-14 | A public API (`api/` module, `ServicesManager`), so other plugins can record directly or set the author with `attribute` |
+| 23 | 2026-10-14 | zstd-jni is not bundled, but downloaded from Maven Central through `libraries` in `plugin.yml` (the plugin jar went from 7.5 MB to 220 KB) |
+| 24 | 2026-10-14 | Knock-on changes only mark blocks that really changed: candidate blocks are compared after the outermost update finishes |
+| 25 | 2026-10-14 | Chunks newly generated after init are added to the genesis world at generation time (§2.3's fallback), not relying on deterministic generation |
+| 26 | 2026-10-14 | Paper branch world synthesis hooks `RegionFileStorage.regionCache` (replaced by a subclass via reflection): the whole region is synthesized the first time its region file opens, and it is an ordinary world after that |
+| 27 | 2026-10-14 | Chunks a save cannot read are always loaded (generated if needed) and then read, never taken as air; if still unreadable, the whole save fails and the marks are put back |
+| 28 | 2026-10-14 | ~~Until conflict worlds (§5.3) are done, `publish` with conflicts only lists them without publishing~~ Superseded by #30 |
+| 29 | 2026-10-15 | Shape fixes do not go into the merge commit, but are saved right after as a separate autosave (author `merge`): the merge commit only reflects the merge itself, and fixes can be reverted separately (replaces the second half of #11) |
+| 30 | 2026-10-15 | Paper's resolution world is a temporary branch `merge-<id>`, with ours/theirs as read-only view worlds; finishing does another three-way merge, so it can finish even when the target branch got new saves during resolution |
+| 31 | 2026-10-15 | Merge commits and partial publishes record each block's actual author in the draft (`authorsSince`) in the changeset, visible directly with `show`; blocks changed during resolution go to whoever changed them |
+| 32 | 2026-10-15 | `/bg` is registered with Paper's Brigadier API (no longer `commands` in `plugin.yml`); confirm buttons use the Adventure click events behind MiniMessage's `<click:run_command>` |
+| 33 | 2026-10-15 | Axiom selections are not supported (they exist only on the client); selections are tied to their dimension |
+| 34 | 2026-10-15 | Branch worlds are saved and unloaded after having no players for a while (60 seconds by default), closing the workspace too, and loaded again when needed (user's request, to save memory) |
+| 35 | 2026-10-15 | Memory limits: the overlay cache is weighed by entry count (about 400,000 entries); the genesis chunk cache keeps the packed format; open region files and the written-object list both have limits; no fsync without new marks |
+| 36 | 2026-10-15 | Outlines become client-only entities sent as packets, generating packets with NMS directly, without PacketEvents (avoiding hard-coded data field ids that change between versions; BuildGit is already tied to NMS versions) |
+| 37 | 2026-10-16 | Paper gets one jar per Minecraft version (`-paper-26.2`, `-paper-1.21.11`), sharing source, each compiled against that version's server. No single multi-version jar: classes compiled only against the old API could fail at runtime on newer versions because of signature changes. The jar checks the server version at startup and disables itself on a mismatch |
+| 38 | 2026-10-16 | Cross-version history: objects record their data version and are upgraded on read with vanilla's DataFixer, never rewriting old objects; once a repo has been written by a newer version, older servers refuse to open it (§4.5) |
+| 39 | 2026-10-16 | The Fabric version hooks vanilla's single write entry point (`LevelChunk.setBlockState`) with mixins and sets causes with `@WrapMethod`; branch worlds use Fantasy. It shares `server/`'s logic with Paper, with one jar per Minecraft version (`-fabric-26.2`, `-fabric-1.21.11`), the version pinned by `fabric.mod.json` |
+| 40 | 2026-10-16 | Single-player sync works per selection, transferred over the game connection (`buildgit:sync` channel); sending back opens a draft from the save it was pulled from, published through the usual flow; uploads are untrusted, with limits on size, piece count, time, entity count and block types (§6.7) |
+| 41 | 2026-10-16 | `init` only covers the world the player is in; each world (including ones created by multiworld plugins) is initialized separately, worlds loaded later join automatically and cannot be unloaded. The genesis world is copied chunk by chunk in the background without pausing the server (§2.4, §4.3) |
+| 42 | 2026-10-16 | Support 26.3 (one jar each for Paper and Fabric). 26.3 changed how region file block palettes and block states are written; BuildGit does not parse the format itself but lets the server convert with vanilla's `BlockState.CODEC`, so future format changes only need compiling against the server version |
+| 43 | 2026-10-16 | main's worlds can be unloaded by multiworld plugins when neither they nor their draft worlds have players (user's request); while not loaded, writes to that branch are refused, rather than BuildGit loading the world back itself (BuildGit does not know the multiworld plugin's generator and other settings) |
+| 44 | 2026-10-16 | Permission sets `buildgit.role.viewer`/`builder`/`manager` (user's request, to make granting easier for admins); inclusion is decided in code, consistent between Paper and Fabric, and `plugin.yml` no longer has `children` |
+| 45 | 2026-10-16 | Support DebugStickPro (user's request): classic and copy modes are marked through its events; frozen blocks are skipped at save time, so temporary barriers are never saved into versions (§3.9.1) |
+| 46 | 2026-10-17 | Record biomes (the user pointed out the gap): stored as 4×4×4 biome cells in the section overlay, compared when saving sections with marks; when both sides changed one, the target is kept and it does not go into conflict resolution; pull/push do not carry them for now (§3.9.2) |
+| 47 | 2026-10-17 | One separate permission node per command (user's request): a node opens one command and nodes do not include each other, with combinations left to permission sets; `buildgit.view` now only covers `/bg view`, and the commands under the old `sync` and `admin` are split into `pull`, `push`, `reload` and `disk` (§8) |
+| 48 | 2026-10-17 | Less long main-thread work (the user reported stalls on init and large operations): system writes (publish, revert, restore, conflict resolution, and the shape fixes that still existed then) are spread over ticks, at most 20 ms per tick; new worlds skip the spawn search; `init`'s save does not wait for IO on the main thread; `show`, `diff` and publish preview calculations (reading change records, working out outlines) move to the background (§4.3, §4.4, §5.2) |
+| 49 | 2026-10-17 | Remove shape fixes after merging (user's decision, replacing #11 and #29): recomputing connections would change states builders made deliberately with the debug stick, and publishing should keep the draft's states exactly (§5.2) |
+| 50 | 2026-10-17 | A draft belongs to one world only (user's decision; the Nether and the End are separate too): only that world opens, lists only show drafts of the player's world, reverts and restores only touch it, and drafts of different worlds cannot merge with each other; main and old drafts still cover all worlds (§4.1) |
+| 51 | 2026-10-17 | Record Axiom players with the bypass permission too (the user decided to keep the bypass and read AxiomPaper's internals; no separate switch, turning itself off on a mismatch): replace the operation queue to wrap block buffers, and also listen to the single block placement channel; except the biome brush (§3.9) |
+| 52 | 2026-10-18 | The genesis world can use a lazy copy (`init.lazy-copy-above-mb`, off by default): a chunk is copied the first time it loads, and never-loaded ones are read from main's world save; saves space and init finishes at once, at the price of not being able to change that world outside BuildGit |
+| 53 | 2026-10-18 | The genesis world can go in another folder (`init.genesis-dir`): when the fast disk is not big enough, use a large hard disk instead; still a full copy, with none of lazy copy's extra rules; when the setting changes but the data has not moved, the old location is kept |
+| 54 | 2026-10-19 | The Fabric version records Axiom with mixins (the mod has no integration API): world-changing packets are wrapped to set the cause, and block buffers mark the blocks they write before writing; Axiom is referenced only at compile time and not bundled; turned off on an internal mismatch |
+| 55 | 2026-10-19 | The genesis world can be rewritten in the current version's format (`/bg genesis upgrade`): content and history unchanged, saving the upgrade on every read; files are swapped one by one in the background, without stopping the server. Chunk upgrades now pass the same dimension information as the server |
+| 56 | 2026-10-19 | Settings and language files follow plugin updates (user's request): settings use the new default file as a template and fill the user's values back in; language files are written to the server and compared with the bundled version written last time, replacing unchanged messages with the new version and keeping changed ones |
+| 57 | 2026-10-19 | Simpler steps for taking areas to single-player (the user said it was too complicated): `/bg pull` needs no selection and no name (the draft's changed extent or the area around the player, named automatically); reconnecting to the server prompts to send back, and the client deletes the changed area file after sending. After pulling, it can be opened with one click in a dedicated single-player world (a client command creates or opens the world, and the area is placed automatically on entering) |
+| 58 | 2026-10-19 | Offsite backups (§2.5): the repository is uploaded incrementally to S3-compatible storage (objects as is, the genesis world and level.dat named by content hash, one snapshot per backup); on a new host after downloading, main's worlds are rebuilt from versions with synthesizing reads, without needing the world save; lazily copied dimensions are incomplete and need world backups too. SigV4 implemented ourselves, without the AWS SDK |
+| 59 | 2026-10-20 | Restoring offsite backups (§2.5): main's worlds have their whole regions synthesized during the download, and restarting only swaps folders, without hooking synthesizing reads into main's worlds (simpler, and startup does not have to wait); the originals are always kept renamed; with a different Minecraft version, the current server's world locations are used and level.dat is not swapped, with a reminder when the seed differs |
+| 60 | 2026-10-20 | Strengthening offsite backups (picked by the user): no re-sending after an upload is interrupted halfway; request retries; admins warned on repeated failures; `/bg backup fetch` fetches one branch; restoring downloads only the objects used (§2.5) |
+| 61 | 2026-10-21 | Backups become "backup jobs" (§2.7, user's decision): each destination (local or S3) has its own content, cron schedule or idle trigger (after no players for some minutes; no backup on shutdown) and retention; `s3.yml` only holds named connections, `backup.yml` holds jobs. World folders are backed up too (§2.6): stored in the world folder's layout so they can be used directly (hard links locally; on S3 versioned or hash-named is picked automatically by whether the bucket has versioning on, or one folder per snapshot can be set), only processing worlds players have entered, on by default, with players told when it starts and ends |
+| 62 | 2026-10-25 | `init.lazy-copy-above-mb` defaults to 512 (user's decision): worlds over 512 MB use a lazy copy at init; only affects worlds initialized later, not ones already initialized; settings files that already say -1 keep copying fully |
+| 63 | 2026-10-26 | Consolidate duplicate commands (user's decision): remove `commit` (same as `save`), `blame` (use `inspect`), `branch create` (use `try`); `graph` becomes `log --graph`; `show` merges into `diff <commit>`; `who` merges into `branch list`. The matching permission nodes are removed too, with no notices left for the old commands |
+| 64 | 2026-10-26 | History playback `/bg play` (§6.5, user's request): players walk around watching, with the range given as save ids or times; uses the `buildgit.view` permission, no new node |
+| 65 | 2026-10-26 | Before/after toggled in place (§6.6, user's choice): fake blocks sent only to the player, no extra world and no teleporting |
+| 66 | 2026-10-26 | Backups and restores of large worlds (§2.5, §2.6, user's decision): world folder region files are copied and uploaded one by one after saving resumes, so the saving pause and local staging do not grow with the world; disk space is checked before restoring world folders; history resends changed genesis world files at most every `genesis-hours` (24 by default) hours |
+| 67 | 2026-11-02 | Backup jobs can exclude worlds (§2.6, user's request): `exclude-worlds` takes world folders or build worlds as "owner/name"; history jobs can only exclude build worlds; when restoring world folders, excluded worlds stay as they are, rather than being renamed away along with the old world folder |
+| 68 | 2026-11-03 | English by default, shown in each player's game language (user's request, since the plugin is for a worldwide audience): `language` defaults to `en_us`, used for the console and when there is no lang file; each player sees the lang file for their game language (other regions of the same language count); with `language-per-player: false` everyone uses `language`. Every message lookup carries its recipient (player or sender), with no thread-local variable, so it still matches after background work returns to the main thread. Errors for players (`Workspace.Refused`) store the lang file key and arguments and are built for whoever receives them; server logs, settings file template comments and core exception messages are always English (not in lang files: they are for admins to investigate and paste into issues) |
+| 69 | 2026-11-03 | The README and the documents in `docs/` are written in English (user's request, following #68); the decision log keeps its original numbering and dates |
