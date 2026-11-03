@@ -1,188 +1,193 @@
 # BuildGit
 
-給 Minecraft 建築師用的版本控制。只記錄玩家造成的變更（含 WorldEdit／FAWE、Axiom、除錯棒與 DebugStickPro、生態域，以及連帶變化），以「起點世界＋覆寫表」保存每個版本；可以開草稿世界試做、存檔、併回、查歷史與責任歸屬。
+Version control for Minecraft builders. BuildGit records only the changes players make (including WorldEdit/FAWE, Axiom, the debug stick and DebugStickPro, biomes, and knock-on changes) and stores each version as a "genesis world + overlay". You can open draft worlds to try things out, save, publish back, and look through history and who changed what.
 
-- 平台：Paper 26.3、26.2、1.21.11；Fabric 26.3、26.2、1.21.11
-- 管理員手冊（安裝、init、權限集、備份、升級）：[`docs/02-admin.md`](docs/02-admin.md)
-- 設計文件：[`docs/01-design.md`](docs/01-design.md)；需求：[`docs/00-requirements.md`](docs/00-requirements.md)
+- Platforms: Paper 26.3, 26.2, 1.21.11; Fabric 26.3, 26.2, 1.21.11
+- Admin manual (installation, init, permission sets, backups, upgrades): [`docs/02-admin.md`](docs/02-admin.md)
+- Design document: [`docs/01-design.md`](docs/01-design.md); requirements: [`docs/00-requirements.md`](docs/00-requirements.md)
+- The documents under `docs/` are currently written in Chinese.
 
-## 下載
+## Download
 
-每次推送都會由 GitHub Actions 打包，jar 在該次執行的 Artifacts；推送 `v*` 標籤時會建立 Release。
+GitHub Actions packages every push; the jars are in that run's Artifacts. Pushing a `v*` tag creates a Release.
 
-每個 Minecraft 版本各有一個 jar，請下載與伺服器相同版本的那個：
+There is one jar per Minecraft version. Download the one that matches your server:
 
-| 伺服器 | 檔案 | Java |
+| Server | File | Java |
 |---|---|---|
-| Paper 26.3 | `BuildGit-<版本>-paper-26.3.jar` | 25 |
-| Paper 26.2 | `BuildGit-<版本>-paper-26.2.jar` | 25 |
-| Paper 1.21.11 | `BuildGit-<版本>-paper-1.21.11.jar` | 21 以上 |
-| Fabric 26.3 | `BuildGit-<版本>-fabric-26.3.jar` | 25 |
-| Fabric 26.2 | `BuildGit-<版本>-fabric-26.2.jar` | 25 |
-| Fabric 1.21.11 | `BuildGit-<版本>-fabric-1.21.11.jar` | 21 以上 |
+| Paper 26.3 | `BuildGit-<version>-paper-26.3.jar` | 25 |
+| Paper 26.2 | `BuildGit-<version>-paper-26.2.jar` | 25 |
+| Paper 1.21.11 | `BuildGit-<version>-paper-1.21.11.jar` | 21+ |
+| Fabric 26.3 | `BuildGit-<version>-fabric-26.3.jar` | 25 |
+| Fabric 26.2 | `BuildGit-<version>-fabric-26.2.jar` | 25 |
+| Fabric 1.21.11 | `BuildGit-<version>-fabric-1.21.11.jar` | 21+ |
 
-版本不符時插件會在啟動時提示並自行停用；Fabric 版由 Fabric Loader 拒絕載入。
+On a version mismatch the plugin says so at startup and disables itself; Fabric Loader refuses to load the Fabric jar.
 
-Fabric 版需要 Fabric API；Fantasy（分支世界）與 fabric-permissions-api 已包在 jar 裡。版本庫在伺服器目錄的 `buildgit/`，設定在 `config/buildgit/`。Fabric 版會記錄 WorldEdit 與 Axiom 模組的編輯，目前沒有 DebugStickPro 整合與公開 API。用戶端也可以裝 Fabric 版，用來把選取範圍帶到單人世界改再送回（見下方「帶到單人世界改」）。
+The Fabric version needs Fabric API; Fantasy (branch worlds) and fabric-permissions-api are bundled in the jar. The repository lives in `buildgit/` in the server directory, and the settings in `config/buildgit/`. The Fabric version records edits from the WorldEdit and Axiom mods; it has no DebugStickPro integration or public API yet. You can also install the Fabric version on your client, to take a selection to single-player, edit it there and send it back (see "Editing in single-player" below).
 
-## 編譯
+## Languages
 
-需要 JDK 21 與 JDK 25（Gradle toolchain 會自動挑選）。
+Messages default to English. Each player sees BuildGit in their own game language when there is a lang file for it (bundled: `en_us`, `zh_tw`). You can add your own as `lang/<code>.yml`. The console uses the `language` setting in `config.yml`; set `language-per-player: false` to show everyone `language`.
+
+## Building
+
+Needs JDK 21 and JDK 25 (the Gradle toolchain picks them automatically).
 
 ```sh
 ./gradlew build
-# 產物：paper/plugin-26_3/build/libs/BuildGit-<版本>-paper-26.3.jar
-#       paper/plugin/build/libs/BuildGit-<版本>-paper-26.2.jar
-#       paper/plugin-1_21_11/build/libs/BuildGit-<版本>-paper-1.21.11.jar
-#       fabric/mc26_3/build/libs/BuildGit-<版本>-fabric-26.3.jar
-#       fabric/mc26_2/build/libs/BuildGit-<版本>-fabric-26.2.jar
-#       fabric/mc1_21_11/build/libs/BuildGit-<版本>-fabric-1.21.11.jar
+# Output: paper/plugin-26_3/build/libs/BuildGit-<version>-paper-26.3.jar
+#         paper/plugin/build/libs/BuildGit-<version>-paper-26.2.jar
+#         paper/plugin-1_21_11/build/libs/BuildGit-<version>-paper-1.21.11.jar
+#         fabric/mc26_3/build/libs/BuildGit-<version>-fabric-26.3.jar
+#         fabric/mc26_2/build/libs/BuildGit-<version>-fabric-26.2.jar
+#         fabric/mc1_21_11/build/libs/BuildGit-<version>-fabric-1.21.11.jar
 ```
 
-## 玩家使用說明
+## Player guide
 
-不懂版本控制也沒關係。記住一件事就好：**想試新點子時開一個「草稿」，滿意了再「併回」main。**
-你在草稿裡做什麼都不會影響 main，弄壞了直接離開就好。
+You don't need to know version control. Just remember one thing: **when you want to try a new idea, open a "draft", and "publish" it back to main when you're happy with it.**
+Nothing you do in a draft affects main; if you break something, just leave.
 
-幾個詞：
+A few terms:
 
-- **伺服器世界**：伺服器原本的世界，大家一起蓋的地方。回這裡用伺服器原本的傳送指令（例如 `/spawn`）。
-- **建築世界**：用 `/bg new` 建立、屬於自己的獨立世界，有自己的歷史與草稿，可以邀別人進來。建立時選的「主世界／地獄／終界」只是天空和環境像原版的哪個維度。
-- **main**：每個世界（伺服器世界或建築世界）大家看到的那一份。
-- **草稿**：從 main 複製出來的試做副本，滿意了再併回 main。
+- **Server world**: the server's original world, where everyone builds together. Get back there with the server's usual teleport command (e.g. `/spawn`).
+- **Build world**: your own separate world created with `/bg new`, with its own history and drafts; you can invite others in. The "Overworld / Nether / End" type you pick only decides which vanilla dimension the sky and environment look like.
+- **main**: the copy of each world (server world or build world) that everyone sees.
+- **Draft**: a copy of main to try things in; publish it back to main when you're happy.
 
-> 指令需要權限（預設只有 OP 有）。看不到某個指令，請找管理員開權限。
+> Commands need permissions (only OPs have them by default). If you can't see a command, ask an admin for the permission.
 
-### 最快上手：輸入 `/bg`
+### Quickest start: type `/bg`
 
-`/bg` 會打開一個箱子選單，標題是「這個世界的版本與草稿 · 世界名稱」，點一下就執行：
+`/bg` opens a chest menu titled "Versions and drafts of this world · world name". Click to run things:
 
-- **上面三排**：這個世界的 main 和所有草稿，點一下就過去；你所在的那個是綠色玻璃。
-- **第四排**：依你在哪裡而變的動作（在草稿裡是「回去」「併回」，在整合世界裡是「衝突清單」「完成整合」）；最右邊是建築世界清單，在自己管理的建築世界裡旁邊多一個「這個世界的設定」。
-- **最下排**：檢查模式、歷史｜標出未存的變更、狀態、存檔｜誰在哪裡、選取範圍。
+- **Top three rows**: main and every draft of this world; click one to go there. The one you are in is green glass.
+- **Fourth row**: actions for where you are ("Back" and "Publish" in a draft, "Conflicts" and "Finish resolution" in a resolution world); on the far right, the build world list, plus "World settings" next to it in build worlds you manage.
+- **Bottom row**: Inspect mode, History | Outline unsaved changes, Status, Save | Drafts (who is where), Selection.
 
-看不到的按鈕是你沒有那個權限。指令忘了就打 `/bg help`，只會列出你能用的。
+Buttons you can't see need permissions you don't have. If you forget a command, type `/bg help`; it lists only what you can use.
 
-### 一次完整的流程
+### A complete workflow
 
-1. **開草稿**：`/bg try new-roof`
-   會開出一個和 main 一模一樣的副本，把你傳送到同一個位置。畫面上方的提示條會顯示「草稿 new-roof」。
-2. **盡情蓋**：手動、WorldEdit、FAWE、Axiom、除錯棒（含 DebugStickPro）都可以，改了什麼、誰改的都會自動記下來。
-3. **存檔**（可選）：`/bg save 屋頂骨架完成`
-   就像遊戲的存檔點，之後可以回頭看或還原。就算忘了存，沒人在蓋一陣子後也會自動存檔。
-4. **併回 main**：`/bg publish`
-   會先列出改了多少格、誰改的；改動分散在好幾處時會逐區列出（相連的 chunk 算一區），點一下就傳送過去看。按聊天欄的 **[確認併回]** 才會真的寫進 main。
-   併回後可以按 **[刪除草稿]** 收掉這個草稿。
-5. **不要了？** `/bg back` 回到原本的世界，草稿留著，之後還能 `/bg go new-roof` 回來繼續。
-6. **刪除草稿**：`/bg branch delete new-roof`（main 不能刪）。
-   還有沒存的變更、或有存過但還沒併回的存檔時會被擋下，確定不要了再加 `--force`；如果別的草稿是從它開出來的，要先處理那個草稿。
-   `/bg branch list` 可以看所有草稿與各自最後存檔的時間。
+1. **Open a draft**: `/bg try new-roof`
+   This opens a copy identical to main and teleports you to the same spot. The bar at the top of the screen shows "draft new-roof".
+2. **Build freely**: by hand, WorldEdit, FAWE, Axiom, the debug stick (including DebugStickPro); what changed and who changed it are recorded automatically.
+3. **Save** (optional): `/bg save roof frame done`
+   Like a save point in a game: you can look back at it or restore it later. If you forget, BuildGit saves automatically after nobody has built for a while.
+4. **Publish to main**: `/bg publish`
+   It first lists how many blocks changed and who changed them; when changes are spread over several places it lists each area (connected chunks count as one area), and you can click to teleport there. Nothing is written to main until you click **[Confirm publish]** in chat.
+   After publishing, click **[Delete draft]** to remove the draft.
+5. **Changed your mind?** `/bg back` returns to the original world. The draft stays, and `/bg go new-roof` takes you back to continue.
+6. **Delete a draft**: `/bg branch delete new-roof` (main cannot be deleted).
+   It is refused while there are unsaved changes, or saves that are not published yet; add `--force` when you're sure. If another draft was made from it, deal with that draft first.
+   `/bg branch list` shows all drafts and when each was last saved.
 
-只想併回一部分？先用 WorldEdit 選取範圍（或 `/bg sel pos1`、`/bg sel pos2`），再 `/bg publish --selection`。
+Only want to publish part of it? Select an area with WorldEdit (or `/bg sel pos1`, `/bg sel pos2`), then `/bg publish --selection`.
 
-### 看看改了什麼
+### Seeing what changed
 
-| 想知道…… | 指令 |
+| To find out… | Command |
 |---|---|
-| 我還有多少沒存 | `/bg status` |
-| 在世界裡標出改過的方塊（會發光一陣子） | `/bg diff` |
-| 這個方塊是誰改的 | `/bg inspect` 開啟後點方塊 |
-| 過去的存檔 | `/bg log`；每頁 8 筆，點 **[下一頁]** 或 `/bg log 2` 翻頁 |
-| 所有草稿的分支歷史圖（像 `git log --graph`） | `/bg log --graph`；每頁 8 筆，點 **[下一頁]** 或 `/bg log --graph 2` 往前翻；加 `--all` 連自動存檔一起顯示 |
-| 某次存檔改了哪些 | `/bg diff <存檔編號>`：列出誰改了幾格並在世界裡標出；加 `--cells` 列出每一格 |
-| 在原地比較改前、改後 | `/bg diff` 之後點 **[改前/改後]**（或 `/bg diff flip`）：只有你看到改前的樣子，世界不變；再按一次回到現在 |
-| 舊版本長什麼樣子 | `/bg view <存檔編號>`（唯讀，不能動；`/bg back` 回來） |
-| 看建築一步一步蓋起來 | `/bg play [起點] [終點]`：在唯讀世界裡依序播放存檔，自己走動看；起點、終點可以是存檔編號、日期（`10-20`、`10-20/14:00`）或多久以前（`3h`、`2d`）。播放中 `/bg play pause\|resume\|next\|prev\|goto <步>\|speed <秒>\|stop` |
-| 有哪些草稿、誰在裡面 | `/bg branch list` |
+| How much I haven't saved | `/bg status` |
+| Outline changed blocks in the world (they glow for a while) | `/bg diff` |
+| Who changed this block | turn on `/bg inspect`, then click a block |
+| Past saves | `/bg log`; 8 per page, click **[Next]** or `/bg log 2` to turn pages |
+| A branch history graph of all drafts (like `git log --graph`) | `/bg log --graph`; 8 per page, click **[Next]** or `/bg log --graph 2` to go back further; add `--all` to include autosaves |
+| What a save changed | `/bg diff <save id>`: lists who changed how many blocks and outlines them in the world; add `--cells` to list every block |
+| Compare before and after in place | after `/bg diff`, click **[Before/After]** (or `/bg diff flip`): only you see the old state, the world is unchanged; click again to return to now |
+| What an old version looked like | `/bg view <save id>` (read-only; `/bg back` to return) |
+| Watch a build go up step by step | `/bg play [from] [to]`: plays saves in order in a read-only world you can walk around; from and to can be save ids, dates (`10-20`, `10-20/14:00`) or how long ago (`3h`, `2d`). While playing: `/bg play pause\|resume\|next\|prev\|goto <step>\|speed <seconds>\|stop` |
+| Which drafts exist and who is in them | `/bg branch list` |
 
-存檔編號就是 `/bg log` 裡的那串黃色英數字，點一下就會列出那次存檔改了什麼，並在世界裡標出；打指令時只要打前幾碼，按 Tab 也會列出最近的存檔。
+A save id is the yellow string of letters and digits in `/bg log`; click it to list what that save changed and outline it in the world. When typing commands, the first few characters are enough, and Tab lists recent saves.
 
-### 改壞了怎麼辦
+### When something goes wrong
 
-- **撤銷某一次存檔**，之後的變更保留：`/bg revert <存檔編號>`
-- **整個退回舊版本**：`/bg restore <存檔編號>`；只退回選取範圍：加 `--selection`
+- **Undo one save** and keep later changes: `/bg revert <save id>`
+- **Go back to an old version entirely**: `/bg restore <save id>`; only the selection: add `--selection`
 
-`restore` 會先讓你確認範圍。兩者都會變成一次新的存檔，所以「還原」本身也能再撤銷。
+`restore` asks you to confirm the area first. Both become a new save, so a restore can itself be undone.
 
-### 遇到衝突
+### Conflicts
 
-如果你在草稿裡改的方塊，main 那邊也有人改了，併回時就會「衝突」。這時會把你帶到一個**整合世界**，
-衝突的方塊會發光，畫面上方顯示還剩幾處。
+If blocks you changed in a draft were also changed by someone in main, publishing runs into a "conflict". BuildGit then takes you to a **resolution world**,
+where conflicting blocks glow and the top of the screen shows how many are left.
 
-- 點聊天欄的清單（或 `/bg merge goto 1`）跳到衝突的位置
-- 想要哪一邊？直接把方塊改成你要的樣子就好；或用：
-  - `/bg merge take theirs here`：附近的衝突都用**草稿**的版本
-  - `/bg merge take ours here`：附近的衝突都用**main**的版本
-  - 把 `here` 換成 `all` 就是全部
-- 拿不定主意？`/bg merge view ours`／`theirs` 去看兩邊原本的樣子，`/bg back` 回來
-- 處理完：`/bg merge continue`；不想合了：`/bg merge abort`（什麼都不會寫入）
+- Click the list in chat (or `/bg merge goto 1`) to jump to a conflict
+- Which side do you want? Just change the block to what you want, or use:
+  - `/bg merge take theirs here`: use the **draft's** version for nearby conflicts
+  - `/bg merge take ours here`: use **main's** version for nearby conflicts
+  - replace `here` with `all` for everything
+- Not sure? `/bg merge view ours` / `theirs` shows how each side looked; `/bg back` to return
+- When done: `/bg merge continue`; to give up: `/bg merge abort` (nothing is written)
 
-### 帶到單人世界改
+### Editing in single-player
 
-想在自己電腦上慢慢改？用戶端裝 BuildGit 的 Fabric 版（伺服器是 Paper 或 Fabric 都可以）：
+Want to take your time on your own computer? Install the Fabric version of BuildGit on your client (the server can be Paper or Fabric):
 
-1. 在伺服器上輸入 `/bg pull`。有選取範圍就帶走選取範圍；沒有的話，在草稿裡帶走草稿改過的地方，在 main 帶走你周圍一塊。名稱自動取（草稿名稱或你的名字），也可以自己給：`/bg pull house`。
-2. 點訊息下方的 **[在單人世界打開]**：會離開伺服器，開一個這個範圍專屬的單人世界（第一次會建立創造模式、和平、虛空的世界），範圍放到同一個座標，你也會站在伺服器上的位置。也可以自己開任一個單人世界（版本相同或較新），輸入 `/bg load <名稱>`。
-3. 改好後離開世界，會自動存成改過的版本。
-4. 連回伺服器時會列出還沒送回的範圍，點 **[送回 …]**（或輸入 `/bg push <名稱>`）：改的東西會變成草稿，用 `/bg go` 看、`/bg publish` 併回。
+1. On the server, type `/bg pull`. With a selection it takes the selection; without one, it takes what the draft changed when you're in a draft, or an area around you in main. It is named automatically (the draft's name or yours), or name it yourself: `/bg pull house`.
+2. Click **[Open in single-player]** under the message: you leave the server and a single-player world just for this area opens (the first time, it creates a creative, peaceful, void world). The area is placed at the same coordinates, and you stand where you were on the server. You can also open any single-player world (same version or newer) and type `/bg load <name>`.
+3. When done, leave the world; the edited version is saved automatically.
+4. When you join the server again, it lists the areas not sent back yet. Click **[Send back …]** (or type `/bg push <name>`): your changes become a draft; look at it with `/bg go` and publish with `/bg publish`.
 
-取出之後伺服器上別人改的部分照常合併，兩邊都改到同一格時就是一般的衝突。
+What others change on the server after you pulled merges as usual; when both sides changed the same block, it is a normal conflict.
 
-### 自己的建築世界
+### Your own build worlds
 
-伺服器開放的話，可以建立自己的建築世界（管理員隨時可以）：
+If the server allows it, you can create your own build worlds (admins always can):
 
-1. `/bg new`：打開建立對話框，填名稱（留空自動取）、選類型（主世界／地獄／終界）、地形（一般、超平坦、虛空等）、規則，有範本時也可以選範本，按「建立」就會過去。
-   也可以直接打名稱和選項，選項名和值用空白隔開，按 Tab 補全：`/bg new house type nether terrain flat`，加上 `confirm` 不開對話框直接建立。
-2. 裡面一樣可以開草稿、存檔、併回，和伺服器世界的歷史分開。
-3. `/bg world members add <玩家>` 邀人一起蓋，`/bg world visibility public` 公開給大家參觀。
-4. `/bg world settings` 打開設定選單：時間、天氣、生物、遊戲模式、出生點、清單上的名稱與簡介等。
-5. `/bg worlds` 看大家的建築世界，點一下進去；回伺服器世界用伺服器原本的傳送指令（例如 `/spawn`）。
-6. 想改別人的世界？`/bg fork <擁有者/名稱>` 複製一份成自己的，改好用 `/bg submit` 送回去給對方併回。
+1. `/bg new`: opens the create dialog. Fill in a name (empty picks one), choose the type (Overworld / Nether / End), terrain (normal, superflat, void and so on) and rules, or a template when there are any, and click "Create" to go there.
+   You can also type the name and options directly, with option names and values separated by spaces and Tab completion: `/bg new house type nether terrain flat`. Add `confirm` to create it without the dialog.
+2. Inside, you can open drafts, save and publish just the same, with history separate from the server world.
+3. `/bg world members add <player>` invites someone to build with you; `/bg world visibility public` opens it for everyone to visit.
+4. `/bg world settings` opens the settings menu: time, weather, mobs, game modes, spawn point, the name and description in the list, and more.
+5. `/bg worlds` shows everyone's build worlds; click one to go in. Get back to the server world with the server's usual teleport command (e.g. `/spawn`).
+6. Want to change someone else's world? `/bg fork <owner/name>` copies it as your own; when done, `/bg submit` sends it back for them to merge.
 
-### 小提示
+### Tips
 
-- 只有管理員在裡面執行過 `/bg init` 的世界受版本控制；地獄、終界與 Multiverse 等多世界插件的世界要各自 init。init 不會讓伺服器暫停：起點世界在背景複製。
-- 草稿世界沒人在裡面時會自動從記憶體卸載，下次進去會自動載入，內容不會不見。
-- 伺服器重開也不會遺失沒存的變更（當機時最多少記最後一秒）。
-- 完整指令清單：遊戲內 `/bg help`。
+- Only worlds where an admin has run `/bg init` are under version control; the Nether, the End and worlds from multiworld plugins like Multiverse each need their own init. Init doesn't pause the server: the genesis world is copied in the background.
+- Draft worlds unload from memory when nobody is in them and load again when you go in; nothing is lost.
+- Restarting the server doesn't lose unsaved changes (a crash loses at most the last second).
+- Full command list: `/bg help` in game.
 
-## 指令總覽
+## Command overview
 
 ```
-/bg                      主選單（箱子介面）
-/bg init                 讓所在的世界開始受版本控制（管理員；每個世界各自 init）
-/bg try [名稱]           開草稿並傳送到同一個位置（名稱只能用小寫英文、數字、底線、連字號；不寫時自動取，例如 steve-1）
-/bg go <草稿|main>       到某個草稿或 main
-/bg save [訊息]          存檔（里程碑）
-/bg publish [--selection] 預覽併回，點確認後寫入；--selection 只併回選取範圍
-/bg back                 不併回，回到來源世界
-/bg merge take|continue|abort   有衝突時處理整合世界
-/bg revert <存檔>        撤銷某次存檔
-/bg restore <存檔> [--selection] 還原到舊版本
-/bg view <存檔>          唯讀地看舊版本
-/bg play [起點] [終點] [--all]  播放歷史（自己走動看）；播放中 pause|resume|next|prev|goto|speed|stop
-/bg branch list|delete <名稱> [--force]  列出草稿與裡面的玩家、刪除草稿
-/bg log --graph [頁數] [--all]  分支歷史圖（分頁）
-/bg pull [名稱]          把選取範圍（沒選時是草稿改過的地方或周圍）帶到單人世界（用戶端要裝 BuildGit）
-/bg load <名稱>          （單人世界）放進取出的範圍
-/bg push <名稱> [草稿]   把單人世界改過的範圍送回，存成草稿
-/bg disk                 BuildGit 用掉的磁碟空間（管理員）
-/bg backup [status|now|list|fetch|restore]  備份版本紀錄與世界資料夾到 S3 或本機、取回分支、從備份還原（管理員，見管理員手冊 §8.1）
-/bg new [名稱] [選項]    建立建築世界（不帶選項開對話框；伺服器開放時一般玩家也能用，見管理員手冊 §7.1）
-/bg open <世界>、worlds  進入建築世界、建築世界清單
-/bg fork、submit         複製別人的建築世界、把改動送回去
-/bg world settings|members|visibility|…  管理所在的建築世界
-/bg help [admin]         列出自己能用的指令
-/bg log、show、diff、blame、inspect、who、sel
+/bg                      main menu (chest interface)
+/bg init                 put the current world under version control (admin; init each world separately)
+/bg try [name]           open a draft and teleport to the same spot (lowercase letters, digits, _ and - only; picked automatically when omitted, e.g. steve-1)
+/bg go <draft|main>      go to a draft or main
+/bg save [message]       save (a milestone)
+/bg publish [--selection] preview publishing and write after you confirm; --selection publishes only the selection
+/bg back                 return to the source world without publishing
+/bg merge take|continue|abort   handle the resolution world when there are conflicts
+/bg revert <save>        undo one save
+/bg restore <save> [--selection] restore to an old version
+/bg view <save>          look at an old version read-only
+/bg play [from] [to] [--all]  play back history (walk around to watch); while playing pause|resume|next|prev|goto|speed|stop
+/bg branch list|delete <name> [--force]  list drafts and who is in them, delete a draft
+/bg log --graph [page] [--all]  branch history graph (paged)
+/bg pull [name]          take the selection (without one, what the draft changed or the area around you) to single-player (the client needs BuildGit)
+/bg load <name>          (single-player) place a pulled area
+/bg push <name> [draft]  send an area edited in single-player back as a draft
+/bg disk                 disk space used by BuildGit (admin)
+/bg backup [status|now|list|fetch|restore]  back up history and world folders to S3 or a local folder, fetch branches, restore from backups (admin, see admin manual §8.1)
+/bg new [name] [options] create a build world (without options it opens a dialog; regular players can use it when the server allows, see admin manual §7.1)
+/bg open <world>, worlds enter a build world, list build worlds
+/bg fork, submit         copy someone else's build world, send your changes back
+/bg world settings|members|visibility|…  manage the build world you are in
+/bg help [admin]         list the commands you can use
+/bg log, show, diff, blame, inspect, who, sel
 ```
 
-權限與權限集見[管理員手冊 §4](docs/02-admin.md#4-權限)。
+For permissions and permission sets, see [admin manual §4](docs/02-admin.md#4-權限).
 
-## 給其他插件的 API
+## API for other plugins
 
-`api/` 模組；以 `ServicesManager` 取得 `BuildGitApi`，可直接記錄變更或以 `attribute(actor)` 指定作者。
+The `api/` module. Get `BuildGitApi` from the `ServicesManager`; you can record changes directly or set the author with `attribute(actor)`.
 
-## 授權
+## License
 
 [MIT](LICENSE)
