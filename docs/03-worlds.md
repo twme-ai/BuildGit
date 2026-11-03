@@ -1,427 +1,427 @@
-# 建築世界：一個世界一個 repo（2026-10-21 規劃，第一、二階段已實作，第三階段實作中）
+# Build worlds: one repo per world (planned 2026-10-21; phases 1 and 2 implemented, phase 3 in progress)
 
-需求見 [00-requirements.md](00-requirements.md)，底層設計見 [01-design.md](01-design.md)。本文件規劃讓玩家自己建立「建築世界」：每個建築世界是一個獨立的 repo，有自己的起點、歷史、草稿與成員，可以設成私人或公開。
+Requirements are in [00-requirements.md](00-requirements.md), the underlying design in [01-design.md](01-design.md). This document plans letting players create their own "build worlds": each build world is a separate repo with its own genesis, history, drafts and members, and can be private or public.
 
-## 1. 概念與用語
+## 1. Concepts and terms
 
-| 玩家看到的 | 底層 | 說明 |
+| What players see | Underneath | Description |
 |---|---|---|
-| **建築世界** | repo | 一個獨立的世界與它的全部歷史。名稱是「擁有者/名稱」，例如 `alice/castle`；自己的世界只打 `castle` |
-| **伺服器世界** | 伺服器的 repo | 伺服器原本的主世界（與地獄、終界）。行為和現在相同，也是一個建築世界，可以設定成員與可見性。名稱預設是 `server.properties` 的 `level-name`（預設 `world`），可用 `player-worlds.server-world-name` 改 |
-| 草稿、存檔、併回 | 分支、提交、合併 | 和現在一樣，每個建築世界各自有 |
+| **Build world** | repo | A separate world and all of its history. Its name is "owner/name", e.g. `alice/castle`; for your own world just type `castle` |
+| **Server world** | the server's repo | The server's original overworld (with the Nether and the End). It behaves as it does now, and is also a build world that can have members and visibility. Its name defaults to `level-name` from `server.properties` (`world` by default) and can be changed with `player-worlds.server-world-name` |
+| Draft, save, publish | branch, commit, merge | Same as now; each build world has its own |
 
-UI 用「建築世界」，不用「我的世界」（和 Minecraft 的中文名稱撞名）。
+(The Chinese UI says 建築世界 rather than 我的世界, which is Minecraft's Chinese name.)
 
-**最重要的方便之處：站在哪個世界，指令就作用在哪個世界。** `save`、`try`、`log`、`publish`、`restore`、`pull` 等現有指令都不加參數，作用在玩家所在的建築世界（在它的草稿裡也算）。玩家只要多學「建立、進出、找世界、邀人」幾件事。
+**The most important convenience: commands act on the world you stand in.** Existing commands such as `save`, `try`, `log`, `publish`, `restore` and `pull` take no extra argument and act on the build world the player is in (being in one of its drafts counts). Players only need to learn a few more things: creating, entering and leaving, finding worlds, inviting people.
 
-## 2. 玩家怎麼用
+## 2. How players use it
 
-### 2.1 指令
+### 2.1 Commands
 
-| 想做的事 | 指令 | 說明 |
+| To do | Command | Description |
 |---|---|---|
-| 建立 | `/bg new [名稱]` | 開建立對話框（§3）；沒給名稱就自動編號（`world-1`、`world-2`…），之後可改名。名稱只能用小寫英文、數字、`_`、`-`（1～32 字），因為它就是世界資料夾的名稱（§6.1）；中文可以寫在顯示名稱。建好直接傳送進去 |
-| 進入 | `/bg open <名稱>` | 自己的寫 `castle`，別人的寫 `alice/castle`，伺服器世界寫它的名稱（預設 `world`）。回到上次離開的位置；第一次來到出生點 |
-| 找世界 | `/bg worlds` | 選單：「我的」（自己的與受邀的）、「公開」（依最近存檔排序）、「最近去過」 |
-| 複製別人的公開作品 | `/bg fork <擁有者/名稱> [新名稱]` | 複製成自己的私人世界，歷史一起帶過來 |
-| 管理 | `/bg world settings｜members｜visibility｜rename｜transfer｜delete｜undelete` | 在自己的世界裡執行；也都可以從 `/bg menu` 點選 |
+| Create | `/bg new [name]` | Opens the create dialog (§3); without a name it numbers automatically (`world-1`, `world-2`, …), which can be renamed later. Names may only use lowercase letters, digits, `_` and `-` (1–32 characters), because the name is the world folder's name (§6.1); other languages can go in the display name. You are teleported in once it is created |
+| Enter | `/bg open <name>` | Your own as `castle`, someone else's as `alice/castle`, the server world by its name (`world` by default). Returns you to where you left last time; the first time, to the spawn point |
+| Find worlds | `/bg worlds` | Menu: "Mine" (own and invited), "Public" (most recently saved first), "Recently visited" |
+| Copy someone's public work | `/bg fork <owner/name> [new name]` | Copies it as your own private world, with its history |
+| Manage | `/bg world settings｜members｜visibility｜rename｜transfer｜delete｜undelete` | Run inside your own world; all of them can also be clicked from `/bg menu` |
 
-- 選單是主要入口：`/bg menu` 多一個「建築世界」按鈕，建立、進入、邀人、設定都點得到，不必記指令。
-- 邀人：`/bg world members add <玩家> [builder|manager]`，預設 builder；選單裡可以點線上玩家的頭像。
-- 提示列（bossbar）在建築世界裡顯示 `alice/castle · 草稿 d1` 或 `參觀中 alice/castle · /bg fork 複製`。
-- 單人世界整合（設計 §6.7）照常：在誰的世界 `/bg pull`，就帶誰的範圍。
+- The menu is the main entry point: `/bg menu` gets a "Build worlds" button, and creating, entering, inviting and settings can all be clicked, with no commands to remember.
+- Inviting: `/bg world members add <player> [builder|manager]`, builder by default; in the menu you can click an online player's head.
+- The bossbar in a build world shows `alice/castle · draft d1` or `Visiting alice/castle · /bg fork to copy`.
+- Single-player integration (design §6.7) works as usual: `/bg pull` in someone's world takes an area of that world.
 
-### 2.2 進出時自動處理
+### 2.2 What happens automatically on entering and leaving
 
-- **遊戲模式**：成員與訪客各自切成這個世界設定的模式（預設成員創造、訪客旁觀者，擁有者可以改，§3）；離開時恢復原本的模式。
-- **背包**：預設所有世界共通，進出不換。
-  - **背包隔離**（每個世界的設定，擁有者自己打開，成員與訪客分開）：進入時把原本的背包、終界箱、經驗、狀態效果收起來，換成這個玩家在**這個世界**的那一份；離開時換回。各世界各自一份，不會從創造的建築世界帶東西出去。
-  - **起始物品**（要先打開那個角色的背包隔離）：擁有者設定成員與訪客各自身上預設有什麼（含裝備與副手）。設定方式：`/bg world settings kit-member`（或 `kit-visitor`，選單裡也有）打開一個大箱子，上面三排是背包、第四排是快捷欄、第五排左邊五格是頭盔、胸甲、護腿、靴子、副手；把物品放進去，關上就存好。放進去的物品是從自己身上拿走的（拿出來也是真的拿到），不會多出東西。同一份起始物品同時只能一個人編輯，別人開著時會告訴你是誰。存不下來時（例如磁碟滿了）物品還給你，背包放不下的掉在腳下。後面加 `clear` 清空。
-  - **每次重設**（`kit-member-reset`／`kit-visitor-reset`，預設開）：開著時每次進入都換上起始物品；關掉時只有第一次給，之後換上自己上次留在這個世界的背包。
-  - **死後重給**（`kit-member-respawn`／`kit-visitor-respawn`，預設開）：在這個世界死掉、也在這個世界重生時，背包換成起始物品（終界箱、經驗不動）。死掉時掉在地上的照樣留著。
-  - 管理員可以用 `inventory-isolation: always` 讓所有建築世界都強制隔離（生存伺服器建議），或 `never` 不讓擁有者打開（預設 `owner`：擁有者決定）。新世界一開始開不開由 `defaults.inventory-member`、`defaults.inventory-visitor` 決定。
-- **離線再上線**：在建築世界裡離線，上線時照目前的權限重新判斷。已經被移除，或世界改成私人、被刪除時，送回伺服器世界。位置照現在的 `players.yml` 機制記下（設計 §4.4）。
-- **傳送門**：建築世界裡的地獄門、終界門不能用（不然會被傳到伺服器的地獄）。
+- **Game mode**: members and visitors each switch to the mode set for this world (members creative and visitors spectator by default; owners can change it, §3); leaving restores the original mode.
+- **Inventory**: shared across all worlds by default, not swapped on entering or leaving.
+  - **Inventory isolation** (a per-world setting the owner turns on, separately for members and visitors): entering stores the original inventory, ender chest, experience and status effects, and swaps in the player's copy for **this world**; leaving swaps back. Each world has its own copy, so nothing is carried out of a creative build world.
+  - **Starting kit** (that role's inventory isolation must be on first): the owner sets what members and visitors each start with (including armor and offhand). How: `/bg world settings kit-member` (or `kit-visitor`, also in the menu) opens a large chest; the top three rows are the inventory, the fourth row the hotbar, and the first five slots of the fifth row the helmet, chestplate, leggings, boots and offhand. Put items in and close it to save. Items put in are taken from yourself (and taking them out really gives them to you), so nothing is duplicated. Only one person can edit a starting kit at a time; when someone else has it open, you are told who. When it cannot be saved (e.g. a full disk), the items are given back, and what does not fit in your inventory drops at your feet. Add `clear` to empty it.
+  - **Reset every time** (`kit-member-reset`/`kit-visitor-reset`, on by default): when on, the starting kit is put on every time you come in; when off, only the first time, and after that you get the inventory you last left in this world.
+  - **Give again after death** (`kit-member-respawn`/`kit-visitor-respawn`, on by default): when you die in this world and respawn in this world, the inventory is replaced with the starting kit (the ender chest and experience are untouched). What dropped on the ground on death stays there.
+  - Admins can force isolation in every build world with `inventory-isolation: always` (recommended for survival servers), or prevent owners from turning it on with `never` (default `owner`: owners decide). Whether new worlds start with it on is decided by `defaults.inventory-member` and `defaults.inventory-visitor`.
+- **Going offline and coming back**: a player who goes offline in a build world is checked again against the current permissions when they come back. If they have been removed, or the world became private or was deleted, they are sent back to the server world. Positions are recorded with the existing `players.yml` mechanism (design §4.4).
+- **Portals**: Nether and End portals do not work in build worlds (otherwise people would be sent to the server's Nether).
 
-## 3. 建立時的設定
+## 3. Settings at creation
 
-建立對話框裡每一項都有預設值，直接按「建立」就好：
+Every item in the create dialog has a default, so just pressing "Create" works:
 
-1. **世界類型**：主世界、地獄、終界。影響天空、光線、天花板、水會不會蒸發、床會不會爆炸。
-   - 終界類型不會有終界龍：龍只屬於伺服器原本的終界。
-2. **地形**：
-   - **一般**：種子可指定（留空隨機）。主世界類型另外可選「一般／大型生態域／巨型化」。
-   - **超平坦（可自訂）**：選預設的層設定，或自己寫層（和原版超平坦的「預設代碼」同樣的寫法，例如 `minecraft:bedrock,2*minecraft:dirt,minecraft:grass_block;minecraft:plains`；層由世界的最低點往上疊）。預設的層底下墊空氣，地面在 y=64：主世界是基岩、2 層泥土、草地（y=61～64）；地獄是基岩、2 層地獄石（y=62～64）；終界是 3 層終界石（y=62～64）。可選要不要生成結構。
-   - **虛空**：什麼都沒有，單一生態域。建立時在出生點腳下放一格方塊，預設石頭，可以選別種；只有建立時放這一格。
-   - **範本**：從管理員準備好的範本世界建立（等於 fork 範本，§5.3）。
-3. **規則預設**：
-   - **建築用**（預設）：固定正午、固定晴天、和平、不生成生物、隨機刻 0（作物不長、冰不融化、樹葉不腐爛）、火不蔓延、生物不破壞方塊。建築不會被自然變化弄亂，BuildGit 也不必記一堆自然變化。
-   - **原版**：全部照原版。
+1. **World type**: Overworld, Nether, End. Affects the sky, lighting, ceiling, whether water evaporates and whether beds explode.
+   - End-type worlds have no ender dragon: the dragon belongs only to the server's original End.
+2. **Terrain**:
+   - **Normal**: the seed can be given (empty is random). The overworld type can also pick "normal/large biomes/amplified".
+   - **Superflat (customizable)**: pick a preset layer setup, or write layers yourself (the same format as vanilla superflat "preset codes", e.g. `minecraft:bedrock,2*minecraft:dirt,minecraft:grass_block;minecraft:plains`; layers stack up from the bottom of the world). The presets have air underneath and the ground at y=64: overworld is bedrock, 2 dirt, grass (y=61–64); Nether is bedrock, 2 netherrack (y=62–64); End is 3 end stone (y=62–64). Structures can be turned on or off.
+   - **Void**: nothing at all, a single biome. At creation, one block is placed under the spawn point, stone by default, another block can be picked; only this one block, only at creation.
+   - **Template**: create from a template world prepared by an admin (the same as forking the template, §5.3).
+3. **Rule presets**:
+   - **Build** (default): always noon, always clear, peaceful, no mob spawning, random tick speed 0 (crops do not grow, ice does not melt, leaves do not decay), no fire spread, no mob griefing. Builds are not messed up by natural changes, and BuildGit does not have to record lots of natural changes.
+   - **Vanilla**: everything as in vanilla.
 
-**建立後不能改的**：世界類型、地形、種子、結構。這些決定了「起點」，改了會讓起點和歷史對不上。
+**Cannot be changed after creation**: world type, terrain, seed, structures. These decide the "genesis", and changing them would make the genesis and the history disagree.
 
-**建立後隨時可以改的**（`/bg world settings` 或選單，擁有者與管理者）：
+**Can be changed at any time after creation** (`/bg world settings` or the menu, owners and managers):
 
-| 設定 | 預設 | 說明 |
+| Setting | Default | Description |
 |---|---|---|
-| 名稱 | 自動編號 | 指令裡用的名稱，也就是世界資料夾的名稱；改名時世界資料夾跟著改（§6.1） |
-| 顯示名稱、簡介、圖示 | 同名稱、空白、草方塊 | 清單上顯示；顯示名稱可以用中文 |
-| 可見性 | 私人 | 私人／公開（§4） |
-| 允許複製 | 公開時開 | 訪客能不能 fork、`pull` 到單人世界 |
-| 世界邊界 | 伺服器設定（預設 1024×1024） | 大小與中心，不能超過管理員的上限；也限制訪客能去的範圍 |
-| 時間 | 固定正午 | 固定某個時刻，或正常流動 |
-| 天氣 | 固定晴天 | 固定晴天／下雨／雷雨，或正常變化 |
-| 難度與生物生成 | 和平、不生成 | |
-| 自然變化 | 全關 | 隨機刻速度、火焰蔓延、生物破壞方塊 |
-| 成員的遊戲模式 | 創造 | 創造／生存／冒險 |
-| 訪客的遊戲模式 | 旁觀者 | 旁觀者／冒險（§4.1） |
-| 背包隔離 | 關 | 打開後這個世界有自己的背包（§2.2） |
-| 起始物品 | 空 | 成員、訪客各一份；要先打開背包隔離 |
-| 出生點 | 建立時的位置 | 傳送進來時出現的地方；`/bg world settings spawn` 設成自己站的位置 |
-| 在這裡重生 | 開 | 死在這個世界（含草稿）的人在同一個世界的出生點重生；自己的床、重生錨在這個世界時照原版。關掉時照原版回伺服器世界 |
+| Name | automatic number | The name used in commands, which is also the world folder's name; renaming renames the world folder too (§6.1) |
+| Display name, description, icon | same as the name, empty, grass block | Shown in the list; the display name can be in any language |
+| Visibility | private | Private/public (§4) |
+| Allow copies | on when public | Whether visitors can fork and `pull` to single-player |
+| World border | server setting (1024×1024 by default) | Size and center, no larger than the admin's limit; also limits where visitors can go |
+| Time | always noon | Fixed at a time, or passing normally |
+| Weather | always clear | Always clear/rain/thunder, or changing normally |
+| Difficulty and mob spawning | peaceful, none | |
+| Natural changes | all off | Random tick speed, fire spread, mob griefing |
+| Members' game mode | creative | Creative/survival/adventure |
+| Visitors' game mode | spectator | Spectator/adventure (§4.1) |
+| Inventory isolation | off | When on, this world has its own inventory (§2.2) |
+| Starting kit | empty | One each for members and visitors; inventory isolation must be on first |
+| Spawn point | where it was at creation | Where people appear when teleported in; `/bg world settings spawn` sets it to where you stand |
+| Respawn here | on | People who die in this world (including its drafts) respawn at the spawn point of the same world; their own bed or respawn anchor in this world works as in vanilla. When off, they go back to the server world as in vanilla |
 
-其他可以考慮、但先不做的：資料包（每個世界不同的資料包會影響起點的一致性）、自訂維度類型、多個維度連在一起的世界（一個建築世界同時有主世界與地獄）。
+Worth considering but not done for now: datapacks (different datapacks per world would affect how consistent the genesis is), custom dimension types, worlds with several connected dimensions (one build world with both an overworld and a Nether).
 
-## 4. 可見性與角色
+## 4. Visibility and roles
 
-| 角色 | 能做的事 | 對應現有的權限集（設計 §8） |
+| Role | Can do | Matching existing permission set (design §8) |
 |---|---|---|
-| 擁有者 | 全部，加上刪除、轉讓、改可見性 | manager 全部＋管理這個世界 |
-| 管理者 | 邀請或移除 builder、改設定、併回、還原 | manager |
-| 建造者 | 建造、存檔、開草稿、帶到單人世界 | builder |
-| 訪客 | 進來參觀；看歷史（`log`）、差異、「這格是誰改的」；允許時 fork、提出併回（§5.4） | viewer（但不能進草稿；檢視舊版本預設不行，擁有者可以開放） |
+| Owner | everything, plus delete, transfer, change visibility | all of manager + managing this world |
+| Manager | invite or remove builders, change settings, publish, restore | manager |
+| Builder | build, save, open drafts, take to single-player | builder |
+| Visitor | come in to look around; view history (`log`), differences, "who changed this block"; when allowed, fork and submit (§5.4) | viewer (but cannot enter drafts; viewing old versions is off by default, owners can allow it) |
 
-- **私人**：只有成員看得到、進得去，不出現在公開清單。
-- **公開**：所有人都是訪客，能進來看、能 fork；只有成員能改。
-- 每個世界的成員記在它自己的 `repo.yml`，不需要管理員開權限模組。伺服器權限只管「能不能建立建築世界」（`buildgit.world.create`）與「能管理所有建築世界」（`buildgit.world.admin`）。
-- 成員被移除、世界改成私人時，裡面不再有權限的人送回伺服器世界。
-- **檢視舊版本**會建立一個檢視世界，訪客一多伺服器就一直開新世界，所以預設只有成員能檢視；擁有者可以打開「訪客可以檢視舊版本」，檢視世界照樣算進 `max-loaded`。
-- **管理員**（`buildgit.world.admin`）可以進任何世界、改任何世界的設定，另外：
-  - **下架**：`/bg world unlist <世界>` 強制改成私人並鎖住，擁有者不能自己改回公開，要管理員 `relist`。不做檢舉與名稱過濾。
-  - **轉讓與刪除**：對任何世界執行 `transfer`、`delete`，例如擁有者被封鎖或很久沒上線時。不做自動清理。
-- 裝了 LuckPerms 時，玩家所在的世界與角色會成為情境（`buildgit:world`、`buildgit:role`，設計 §8.1），管理員可以讓其他插件的權限照角色生效，例如建造者都能用 WorldEdit。訪客仍一律擋下 WorldEdit、Axiom（§4.1），不受情境影響。
+- **Private**: only members can see it and come in; it is not in the public list.
+- **Public**: everyone is a visitor, can come in to look and can fork; only members can change it.
+- Each world's members are recorded in its own `repo.yml`, so admins do not need to set up a permissions plugin. Server permissions only govern "can create build worlds" (`buildgit.world.create`) and "can manage all build worlds" (`buildgit.world.admin`).
+- When a member is removed or a world becomes private, people inside who no longer have permission are sent back to the server world.
+- **Viewing old versions** creates a view world, and with many visitors the server would keep opening new worlds, so by default only members can view; owners can turn on "visitors can view old versions", and view worlds still count towards `max-loaded`.
+- **Admins** (`buildgit.world.admin`) can enter any world and change any world's settings, and also:
+  - **Unlist**: `/bg world unlist <world>` forces it private and locks it, so the owner cannot make it public again without an admin's `relist`. No reporting or name filtering.
+  - **Transfer and delete**: `transfer` and `delete` on any world, e.g. when the owner is banned or has not been online for a long time. No automatic cleanup.
+- With LuckPerms installed, the player's world and role become contexts (`buildgit:world`, `buildgit:role`, design §8.1), so admins can make other plugins' permissions depend on the role, e.g. all builders can use WorldEdit. Visitors are still always blocked from WorldEdit and Axiom (§4.1), regardless of contexts.
 
-### 4.1 訪客：遊戲模式與限制範圍
+### 4.1 Visitors: game mode and how far they can go
 
-訪客的遊戲模式由擁有者選：
-- **旁觀者**（預設）：可以飛著看、穿牆、看箱子裡有什麼，但改不了任何東西。
-- **冒險**：用走的參觀，適合解謎、跑酷、導覽類的作品；可以帶起始物品（例如地圖、鞘翅）。冒險模式仍能按按鈕、開箱子拿東西、和實體互動、丟東西，所以 BuildGit 照擋建造的方式擋下訪客對世界的所有改動（拿取箱子內容、破壞展示框與盔甲座、踩壞農田、點燃等），訪客看得到但改不了。按鈕、拉桿、門、壓力板是否放行做成一個設定（`visitor-interact`，預設不放行）。放行時，這些改動會留在世界裡，所以只建議用在作者本來就希望人去按的作品（例如門、機關）。（已實作，細節見 §7 第三階段）
+The owner picks the visitors' game mode:
+- **Spectator** (default): can fly around, pass through walls and see what is in chests, but cannot change anything.
+- **Adventure**: look around on foot, good for puzzle, parkour and tour builds; can come with a starting kit (e.g. a map, an elytra). Adventure mode can still press buttons, take things from chests, interact with entities and drop things, so BuildGit blocks every change visitors make to the world the same way building is blocked (taking chest contents, breaking item frames and armor stands, trampling farmland, lighting fires and so on); visitors can see but not change. Whether buttons, levers, doors and pressure plates are allowed is one setting (`visitor-interact`, off by default). When allowed, these changes stay in the world, so it is only recommended for builds where the author wants people to press things (e.g. doors, mechanisms). (Implemented; details in phase 3 of §7)
 
-限制跑圖：
+Limiting exploration:
 
-1. **不生成新地形**：建築世界的遊戲規則 `spectators_generate_chunks` 設成 false（1.21.11 與 26.x 都有這條規則），旁觀者走到沒生成過的地方只會看到空的，不會讓伺服器生成地形。
-2. **不能離開範圍**：旁觀者會穿過世界邊界，所以 BuildGit 每秒檢查訪客的位置，超出這個世界的邊界就拉回邊界內側，並提示一次。（已實作）
-3. **WorldEdit、Axiom 擋下**：旁觀者照樣可以下 WorldEdit 指令、用 Axiom，所以在建築世界裡，不是建造者的人一律擋下這兩者（BuildGit 已經掛在兩者上記錄，同一個地方加上拒絕）。
+1. **No new terrain**: the game rule `spectators_generate_chunks` is false in build worlds (both 1.21.11 and 26.x have this rule), so spectators walking into ungenerated areas only see emptiness, and the server does not generate terrain.
+2. **Cannot leave the area**: spectators pass through the world border, so BuildGit checks visitors' positions every second, and pulls anyone outside this world's border back inside, with one notice. (Implemented)
+3. **WorldEdit and Axiom blocked**: spectators can still run WorldEdit commands and use Axiom, so in build worlds anyone who is not a builder is blocked from both (BuildGit already hooks into both for recording, and the refusal goes in the same place).
 
-冒險模式的訪客會被世界邊界擋住，但走路仍會生成新地形，所以預設的邊界要夠小（建立時的邊界、§3）；第 1 點只對旁觀者有效。
+Adventure-mode visitors are stopped by the world border, but walking still generates new terrain, so the default border needs to be small enough (the border at creation, §3); point 1 only works for spectators.
 
-已驗證（Paper 26.3、Fabric 1.21.11 與 26.3）：旁觀者確實不受世界邊界阻擋；每個建築世界有自己的遊戲規則與邊界（Fantasy 的世界也是）。
+Verified (Paper 26.3, Fabric 1.21.11 and 26.3): spectators really are not stopped by the world border; each build world has its own game rules and border (Fantasy worlds too).
 
-### 4.2 伺服器世界也能設定
+### 4.2 The server world can be set up too
 
-伺服器世界照現在的權限節點運作（`buildgit.role.*`），另外也可以加成員、設可見性：
+The server world works with the existing permission nodes (`buildgit.role.*`), and can also have members and visibility:
 
-- **公開**（預設，等於現在）：所有人照原本的權限節點。
-- **私人**：沒有權限、也不是成員的人不能在這裡。因為伺服器世界通常是出生點，設成私人前必須先指定一個大廳世界（`worlds.lobby`），沒有權限的人上線或被移出時送到那裡；沒設大廳就拒絕改成私人。
-  - 大廳可以是不受版本控制的普通世界（管理員自己建立、BuildGit 只負責送人過去），也可以是一個建築世界（例如 `admin/lobby`，大廳也能存檔、還原）。是建築世界時必須是公開的；進去的人照它的設定當訪客，所以大廳通常把訪客設成冒險模式（§4.1）。
-  - 大廳一律持續載入（下面）。
+- **Public** (default, same as now): everyone follows the existing permission nodes.
+- **Private**: people without permission who are not members cannot be here. Since the server world is usually the spawn, a lobby world (`worlds.lobby`) must be set before it can be made private; people without permission are sent there when they join or are removed. Without a lobby, making it private is refused.
+  - The lobby can be a normal world without version control (created by the admin; BuildGit only sends people there), or a build world (e.g. `admin/lobby`, so the lobby can also be saved and restored). A build world lobby must be public; people entering are visitors under its settings, so lobbies usually set visitors to adventure mode (§4.1).
+  - The lobby always stays loaded (below).
 
-### 4.3 持續載入的世界
+### 4.3 Worlds that stay loaded
 
-`worlds.keep-loaded` 列出不會被閒置卸載的世界，伺服器啟動時就載入，例如大廳、熱門的公開作品：
+`worlds.keep-loaded` lists worlds that are never unloaded when idle and are loaded at server start, e.g. the lobby or popular public builds:
 
 ```yaml
 worlds:
-  keep-loaded: ["admin/lobby", "alice/castle"]   # 建築世界寫「擁有者/名稱」；也可以寫草稿，例如 "alice/castle:d1"
+  keep-loaded: ["admin/lobby", "alice/castle"]   # build worlds as "owner/name"; drafts too, e.g. "alice/castle:d1"
 ```
 
-- 改名、轉讓後照 id 對應，不必改設定；`/bg world settings` 會顯示「持續載入」。
-- 持續載入的世界不算進 `max-loaded`，但列太多會吃記憶體，手冊要說明。
+- Matched by id after renames and transfers, so the setting does not need changing; `/bg world settings` shows "Kept loaded".
+- Worlds kept loaded do not count towards `max-loaded`, but listing too many uses memory; the manual must say so.
 
-## 5. 管理
+## 5. Administration
 
-### 5.1 管理員設定（`config.yml` 新增 `player-worlds:`）
+### 5.1 Admin settings (`player-worlds:` added to `config.yml`)
 
-| 設定 | 預設 | 說明 |
+| Setting | Default | Description |
 |---|---|---|
-| `enabled` | `false` | 是否開放玩家建立建築世界 |
-| `max-per-player` | `3` | 每人最多擁有幾個（不含受邀的） |
-| `border`／`max-border` | `1024`／`4096` | 新世界的邊界大小、玩家能設定的上限（實作時改成兩個鍵，`border` 沿用第二階段的寫法） |
-| `allowed-types`／`allowed-terrain` | 全部 | 例如只開放超平坦與虛空 |
-| `max-loaded` | `20` | 同時載入的建築世界上限，草稿與檢視世界也算在內（持續載入的不算）；滿了就請玩家稍後再試。不做每人的硬碟配額，邊界上限已經限制了大小 |
-| `inventory-isolation` | `owner` | 背包隔離（§2.2）：`owner` 擁有者決定、`always` 所有建築世界強制隔離（生存伺服器建議）、`never` 不隔離。取代舊版的 `separate-inventories`、`allow-inventory-isolation`（讀到時自動換算） |
-| `defaults.*` | | 新世界一開始的設定（規則預設、可見性、成員與訪客的模式、訪客互動、背包隔離、fork、提出併回、重生），建立後擁有者還能改 |
-| `trash-days` | `7` | 刪除後保留幾天 |
-| `paths.*` | 見 §6.1 | 版本庫、物件、起點世界、生成設定各放在哪裡 |
-| `templates` | 空 | 可以當範本的建築世界（例如 `admin/spawn-template`） |
-| `server-world-name` | 空白 | 伺服器世界在指令、清單與 LuckPerms 情境裡的名稱；空白時用 `server.properties` 的 `level-name`（預設 `world`）。玩家不能把自己的建築世界取這個名稱 |
+| `enabled` | `false` | Whether players can create build worlds |
+| `max-per-player` | `3` | How many each player can own (not counting invited ones) |
+| `border`/`max-border` | `1024`/`4096` | New worlds' border size, and the largest players can set (split into two keys during implementation; `border` keeps the phase 2 format) |
+| `allowed-types`/`allowed-terrain` | all | E.g. only superflat and void |
+| `max-loaded` | `20` | How many build worlds can be loaded at once, counting drafts and view worlds (not ones kept loaded); when full, players are asked to try later. No per-player disk quota; the border limit already limits size |
+| `inventory-isolation` | `owner` | Inventory isolation (§2.2): `owner` owners decide, `always` forced in every build world (recommended for survival servers), `never` no isolation. Replaces the old `separate-inventories` and `allow-inventory-isolation` (converted when read) |
+| `defaults.*` | | New worlds' initial settings (rule preset, visibility, members' and visitors' modes, visitor interaction, inventory isolation, fork, submissions, respawn); owners can change them after creation |
+| `trash-days` | `7` | How many days deleted worlds are kept |
+| `paths.*` | see §6.1 | Where the repository, objects, genesis world and generation settings go |
+| `templates` | empty | Build worlds that can be templates (e.g. `admin/spawn-template`) |
+| `server-world-name` | empty | The server world's name in commands, lists and LuckPerms contexts; when empty, `level-name` from `server.properties` (`world` by default). Players cannot give their own build worlds this name |
 
-沒人在的建築世界照草稿世界的閒置卸載（設計 §4.4）卸載。
+Empty build worlds are unloaded with the same idle unloading as draft worlds (design §4.4).
 
-### 5.2 刪除與回收區
+### 5.2 Deleting and the trash
 
-- `/bg world delete`：擁有者確認後，裡面的人送回伺服器世界，世界卸載；世界資料夾、版本庫、起點世界（各自在 §6.1 設定的位置）**原地改名**為 `<名稱>.deleted-<時間>`，索引記下它們。原地改名不必搬檔案，資料夾在別的磁碟也一樣快。
-- 保留 7 天（`trash-days`）：期間擁有者可以 `/bg world undelete` 找回（改回原名），名稱被占用時要給新名稱。每天檢查一次，過期的才真正刪掉。
-- 物件放在共用位置時（預設），刪除建築世界不刪物件；之後若要回收，另做「刪掉所有 repo 都用不到的物件」。物件放在版本庫裡時，跟著版本庫一起刪。
+- `/bg world delete`: after the owner confirms, people inside are sent back to the server world and the world is unloaded; the world folder, repository and genesis world (each at the location set in §6.1) are **renamed in place** to `<name>.deleted-<time>`, and the index records them. Renaming in place moves no files, so it is just as fast when a folder is on another disk.
+- Kept for 7 days (`trash-days`): meanwhile the owner can get it back with `/bg world undelete` (renamed back), giving a new name if the name is taken. Checked once a day; only expired ones are really deleted.
+- When objects are in the shared location (the default), deleting a build world does not delete objects; reclaiming them later is a separate "delete objects no repo uses" step. When objects are inside the repository, they are deleted along with it.
 
-### 5.3 fork 與範本
+### 5.3 Forks and templates
 
-- fork 建立一個新的私人建築世界：起點世界複製一份，main 指向來源 main 的最新存檔，設定照抄（名稱、成員除外）。
-  - 兩邊的物件位置相同（預設的共用位置）時，物件不必複製；不同時（例如物件放在各自的版本庫裡）用硬連結複製來源用得到的物件，物件不會被修改所以安全，同一個磁碟上幾乎不佔空間，跨磁碟才真的複製。
-- 範本就是管理員指定的建築世界，從範本建立等於 fork 它，但不顯示「複製自」。
-- fork 出來的世界記下來源的 id 與 fork 時的存檔，用於提出併回（§5.4）。
+- A fork creates a new private build world: the genesis world is copied, main points at the source main's latest save, and settings are copied (except name and members).
+  - When both sides have the same object location (the default shared one), objects need not be copied; when they differ (e.g. objects inside each repository), the objects the source uses are copied with hard links. Objects are never modified, so this is safe; on the same disk it takes almost no space, and only across disks is anything really copied.
+- A template is just a build world chosen by an admin; creating from a template forks it, but without showing "Forked from".
+- A forked world records the source's id and the save at fork time, for submissions (§5.4).
 
-### 5.4 提出併回（類似 pull request）
+### 5.4 Submissions (like pull requests)
 
-訪客在自己 fork 的世界改好後，請原作者把改動併回去：
+When a visitor has finished changes in their own fork, they ask the original author to merge them back:
 
-1. **提出**：在 fork 的世界 `/bg submit [說明]`，把目前 main（或指定的草稿）送到來源世界。來源世界多一個分支 `submit-<玩家>-<編號>`，指向提出的存檔；物件共用或硬連結複製（§5.3），不必重傳。來源的擁有者與管理者收到通知（不在線時下次上線提示）。
-2. **再更新**：之後在 fork 裡繼續改，再 `/bg submit` 一次就更新同一個提出（分支往前移），不會開新的。
-3. **審查**：來源的擁有者或管理者在 `/bg world submissions` 清單（選單也有）看說明、差異；可以像一般草稿一樣進去看（延遲複製，進去才產生世界）。
-4. **併回或拒絕**：併回就是現有的 `publish` 流程（有衝突時照現有的三個對照世界處理）；拒絕時附上理由，分支刪掉，提出的人收到通知。
-- 只有來源「允許複製」時才能提出；擁有者可以另外關掉「接受提出」。
-- 每人對同一個世界同時最多一個未處理的提出，避免洗版。
-- 跨版本：來源與 fork 在同一台伺服器上，物件都帶資料版本；fork 已繼承來源的 `legacy`（§6.4），所以分支直接指過去就能讀。
+1. **Submit**: in the forked world, `/bg submit [message]` sends the current main (or a given draft) to the source world. The source world gets a branch `submit-<player>-<number>` pointing at the submitted save; objects are shared or copied with hard links (§5.3), so nothing is re-sent. The source's owner and managers are notified (if offline, on their next login).
+2. **Update**: keep changing in the fork and `/bg submit` again to update the same submission (the branch moves forward), without opening a new one.
+3. **Review**: the source's owner or managers see the message and differences in the `/bg world submissions` list (also in the menu); they can go in to look like any draft (copied lazily; the world is only made when going in).
+4. **Merge or reject**: merging is the existing `publish` flow (conflicts are handled with the existing three comparison worlds); rejecting comes with a reason, the branch is deleted and the submitter is notified.
+- Submitting is only possible when the source "allows copies"; owners can also turn off "accept submissions".
+- Each person can have at most one open submission per world, to avoid spam.
+- Cross-version: the source and fork are on the same server, and objects carry data versions; the fork has inherited the source's `legacy` (§6.4), so pointing a branch there just works.
 
-## 6. 底層
+## 6. Underneath
 
-### 6.1 存放位置（可自訂）
+### 6.1 Storage locations (customizable)
 
-伺服器世界的版本庫照舊在 `buildgit/`（起點世界照舊可以用 `init.genesis-dir` 放到別處），不受這一節影響。每個建築世界的資料分成四部分，各自的位置用路徑範本設定：
+The server world's repository stays in `buildgit/` (and its genesis world can still be put elsewhere with `init.genesis-dir`), unaffected by this section. Each build world's data is split into four parts, each placed with a path template:
 
 ```yaml
 player-worlds:
   paths:
-    # 版本庫：refs、branches.yml、data-version、repo.yml（成員、可見性、可改的設定）、worktree、merge
+    # Repository: refs, branches.yml, data-version, repo.yml (members, visibility, changeable settings), worktree, merge
     repo: "{buildgit}/worlds/{id}"
-    # 物件：預設所有建築世界共用一個位置（fork 不必複製）
+    # Objects: by default one location shared by all build worlds (forks need no copying)
     objects: "{buildgit}/objects"
-    # 起點世界
+    # Genesis world
     genesis: "{repo}/genesis"
 ```
 
-生成設定（類型、地形、種子、超平坦的層）記在版本庫的 `repo.yml`，不另外設定位置：世界資料夾不見時要靠它重建世界，所以跟著版本庫走（實作時改的，原本規劃放在世界資料夾）。
+Generation settings (type, terrain, seed, superflat layers) are recorded in the repository's `repo.yml`, with no separate location: when the world folder is missing, the world is rebuilt from them, so they go with the repository (changed during implementation; originally planned for the world folder).
 
-**佔位符**：
+**Placeholders**:
 
-| 佔位符 | 意思 |
+| Placeholder | Meaning |
 |---|---|
-| `{server}` | 伺服器根目錄 |
-| `{buildgit}` | 伺服器的 `buildgit/` |
-| `{world-folder}` | 這個建築世界的世界資料夾（名稱見下面的 `world-name`，位置由 Minecraft 決定，例如 Paper 1.21.11 的 `bw_alice_castle/`、26.x 的 `world/dimensions/minecraft/bw_alice_castle/`） |
-| `{id}` | 建築世界的 id（建立時產生的短亂數，之後不變） |
-| `{owner}` | 擁有者的 UUID（轉讓也不變，記建立時的擁有者） |
-| `{repo}` | 上面 `repo` 算出來的位置（`objects`、`genesis` 可以用） |
+| `{server}` | The server root directory |
+| `{buildgit}` | The server's `buildgit/` |
+| `{world-folder}` | This build world's world folder (named by `world-name` below, located where Minecraft puts it, e.g. `bw_alice_castle/` on Paper 1.21.11, `world/dimensions/minecraft/bw_alice_castle/` on 26.x) |
+| `{id}` | The build world's id (a short random string made at creation, never changing) |
+| `{owner}` | The owner's UUID (unchanged by transfers; the owner at creation) |
+| `{repo}` | The location `repo` above works out to (usable in `objects` and `genesis`) |
 
-不提供名稱類的佔位符（建築世界名稱、玩家名稱）：改名後路徑就對不上了。
+No name placeholders (build world name, player name) are offered: paths would stop matching after renames.
 
-**整個建築世界都放進世界資料夾**（壓縮一個資料夾就帶走世界、歷史、起點與設定，和 Fabric 單人世界的 `<存檔>/buildgit/` 一樣）：
+**Keeping the whole build world in its world folder** (zipping one folder takes the world, history, genesis and settings along, like `<save>/buildgit/` in Fabric single-player):
 
 ```yaml
     repo: "{world-folder}/buildgit"
     objects: "{repo}/objects"
 ```
 
-這樣 fork 改用硬連結複製物件（§5.3）；用其他工具刪除或重設這個世界時，歷史也會一起刪掉。
+Then forks copy objects with hard links (§5.3); deleting or resetting this world with other tools deletes its history too.
 
-**規則**：
-- **設定只影響之後建立的世界。** 建立時只把 `{id}`、`{owner}` 代進去，其他佔位符原樣記在索引 `buildgit/worlds.yml`。之後改設定，舊世界照索引找，資料不會「消失」。
-- **`{server}`、`{buildgit}` 也是每次執行時才算**：整個伺服器資料夾搬到別處（換機器、換路徑）後照樣找得到。
-- **`{world-folder}` 每次執行時才算**：Paper 從 1.21.11 升到 26.x 時，新建的世界資料夾會從伺服器根目錄搬到 `world/dimensions/minecraft/` 底下；放在世界資料夾裡的資料跟著搬，BuildGit 每次從資料夾目前的位置找，升級後照樣找得到。
-- **不能撞在一起**：`repo`、`genesis` 必須每個世界不同（範本要含 `{id}` 或 `{world-folder}`，或含 `{repo}`），否則拒絕建立並在主控台說明。`objects` 可以共用。
-- 索引 `buildgit/worlds.yml` 的位置固定：它只記「有哪些建築世界、在哪裡、誰的」，讓清單和沒載入的世界查得到。
-- 搬動已經存在的世界之後再說（例如 `/bg world move`）；現在要搬就關服後手動搬，再改索引。
+**Rules**:
+- **Settings only affect worlds created later.** At creation only `{id}` and `{owner}` are filled in; other placeholders are recorded as they are in the index `buildgit/worlds.yml`. When settings change later, old worlds are found via the index, so data does not "disappear".
+- **`{server}` and `{buildgit}` are also worked out at each run**: after moving the whole server folder elsewhere (new machine, new path) everything is still found.
+- **`{world-folder}` is worked out at each run**: when Paper upgrades from 1.21.11 to 26.x, world folders move from the server root to `world/dimensions/minecraft/`; data inside the world folder moves along, and BuildGit always looks at the folder's current location, so it is still found after the upgrade.
+- **No collisions**: `repo` and `genesis` must differ per world (the template must contain `{id}` or `{world-folder}`, or contain `{repo}`), otherwise creation is refused with an explanation on the console. `objects` can be shared.
+- The index `buildgit/worlds.yml` has a fixed location: it only records "which build worlds exist, where and whose", so the list and unloaded worlds can be looked up.
+- Moving existing worlds is for later (e.g. `/bg world move`); for now, stop the server, move by hand and edit the index.
 
-**其他位置**：
-- **世界資料夾的名稱照玩家取的名稱**，格式由管理員設定：
+**Other locations**:
+- **World folder names follow the name the player gave**, in a format set by the admin:
 
   ```yaml
   player-worlds:
-    world-name: "bw_{owner-name}_{name}"         # 建築世界
-    draft-world-name: "{world}-{draft}"          # 草稿
-    merge-world-name: "{world}-{draft}"          # 衝突整合（{draft} 是 merge-…）
-    view-world-name: "bgview_{world}_{commit}"   # 看舊版
+    world-name: "bw_{owner-name}_{name}"         # build world
+    draft-world-name: "{world}-{draft}"          # draft
+    merge-world-name: "{world}-{draft}"          # conflict resolution ({draft} is merge-…)
+    view-world-name: "bgview_{world}_{commit}"   # viewing old versions
   ```
 
-  草稿、整合、檢視的範本另外可以用 `{world}`（上面算出來的世界資料夾）、`{draft}`、`{commit}`（版本編號前 10 碼）；草稿與整合必須有 `{draft}`、檢視必須有 `{commit}`，而且都要有 `{world}` 或 `{id}`（不同世界才不會撞名）。草稿建立時把資料夾記在版本庫的 `branches.yml`（`<草稿>.folder`），之後改範本，舊的草稿照樣找得到；舊版建立、沒記的草稿是 `<世界資料夾>-<草稿>`。照範本命名的檢視世界記在 `views.yml`，下次開啟時刪掉。改名、轉讓時記下的草稿照目前的範本換成新的名稱。伺服器世界的草稿與檢視不受影響（`bg_<草稿>`、`bgview_<提交>`）。
+  Draft, resolution and view templates can also use `{world}` (the world folder worked out above), `{draft}` and `{commit}` (the first 10 characters of the version id); drafts and resolution must have `{draft}`, views must have `{commit}`, and all must have `{world}` or `{id}` (so different worlds do not clash). A draft records its folder in the repository's `branches.yml` (`<draft>.folder`) at creation, so old drafts are still found after the template changes; drafts made by older versions without this record are `<world folder>-<draft>`. View worlds named from the template are recorded in `views.yml` and deleted the next time it opens. On renames and transfers, recorded drafts are renamed to the current template. The server world's drafts and views are not affected (`bg_<draft>`, `bgview_<commit>`).
 
-  佔位符：`{name}`（建築世界的名稱）、`{owner-name}`（擁有者的玩家名稱，小寫）、`{owner}`（擁有者的 UUID）、`{id}`。例如 alice 的 `castle` 在 Paper 1.21.11 是伺服器根目錄的 `bw_alice_castle/`，在 26.x 是 `world/dimensions/minecraft/bw_alice_castle/`（世界的 key 也跟著是這個名稱）。
-  - 範本必須含 `{name}`；**前綴可以沒有**，例如 `world-name: "{name}"`，alice 的 `castle` 資料夾就叫 `castle/`。
-  - 範本沒有 `{owner-name}`、`{owner}`、`{id}` 時，名稱在整台伺服器是唯一的：先取先得，bob 就不能再取 `castle`（指令仍可寫 `alice/castle`）。
-  - 算出來的名稱有任何衝突就拒絕建立或改名，並告訴玩家原因：
-    - 已經有別的世界、草稿或資料夾叫這個名稱（含回收區裡還沒過期的）；
-    - 伺服器世界的名稱（`level-name` 與它的 `_nether`、`_the_end`）；
-    - 世界放在伺服器根目錄時（Paper 1.21.11）根目錄已有的資料夾與檔案，例如 `plugins`、`logs`、`config`、`mods`、`libraries`、`cache`、`versions`、`crash-reports`、`buildgit`；
-    - BuildGit 用的開頭（`bg_`、`bgview_`）。
-  - 草稿資料夾是 `<世界名稱>-<分支>`，建立世界與建立草稿時都互相檢查，例如已經有 `castle` 的草稿 `castle-d1` 時，就不能建立名叫 `castle-d1` 的世界。
-  - **改名、轉讓時資料夾跟著改**：把裡面的人送回伺服器世界、卸載這個世界與它的草稿，資料夾改名（草稿資料夾一起改），更新索引後再載入，裡面的人可以 `/bg open` 回去。改名在同一個磁碟上只是改資料夾名稱，很快。
-  - **擁有者在 Mojang 改了玩家名稱**：下次這個世界載入前（沒人在裡面時）照新名稱改資料夾。
-  - 建築世界內部仍以 `{id}` 識別：索引、玩家上次的位置、各世界的背包、備份清單都記 id，所以改名後這些都不會斷。路徑範本（上面的 `repo`、`genesis`…）仍不提供名稱類的佔位符，用 `{world-folder}` 就會跟著世界資料夾走。
-  - 改名後，LuckPerms 原生的 `world` 情境與 BuildGit 的 `buildgit:world` 情境都會換成新名稱（設計 §8.1），改名時提示擁有者。
-- 檢視與整合世界的資料夾照舊另外放，隨時可以從版本重建。
-- 玩家資料：`buildgit/players/<uuid>.yml`（各建築世界上次的位置；離開時要恢復的遊戲模式；打開背包隔離時，收起來的原本背包）；每個世界各自的背包在 `buildgit/players/<uuid>/<世界 id>.dat`。
-- 一個建築世界只有一個維度：在它的 tree 裡固定叫 `minecraft:overworld`（地獄、終界類型也一樣），這樣 fork、範本、單人世界整合都不必轉換維度路徑；實際的維度類型記在 `repo.yml` 的生成設定裡。
+  Placeholders: `{name}` (the build world's name), `{owner-name}` (the owner's player name, lowercase), `{owner}` (the owner's UUID), `{id}`. For example, alice's `castle` is `bw_alice_castle/` in the server root on Paper 1.21.11, and `world/dimensions/minecraft/bw_alice_castle/` on 26.x (the world's key is that name too).
+  - The template must contain `{name}`; **a prefix is optional**, e.g. `world-name: "{name}"` makes alice's `castle` folder `castle/`.
+  - When the template has none of `{owner-name}`, `{owner}` and `{id}`, names are unique across the whole server: first come, first served, so bob cannot also use `castle` (commands still write `alice/castle`).
+  - Any clash in the worked-out name refuses creation or renaming, telling the player why:
+    - another world, draft or folder already has this name (including ones in the trash that have not expired);
+    - the server world's name (`level-name` and its `_nether`, `_the_end`);
+    - when worlds live in the server root (Paper 1.21.11), folders and files already there, such as `plugins`, `logs`, `config`, `mods`, `libraries`, `cache`, `versions`, `crash-reports`, `buildgit`;
+    - BuildGit's prefixes (`bg_`, `bgview_`).
+  - Draft folders are `<world name>-<branch>`, and creating worlds and drafts check each other, e.g. when `castle` already has a draft `castle-d1`, no world named `castle-d1` can be created.
+  - **Folders change on renames and transfers**: people inside are sent back to the server world, this world and its drafts are unloaded, the folders renamed (draft folders too), the index updated, then it loads again and people can `/bg open` back in. On the same disk a rename only renames folders, so it is fast.
+  - **The owner changed their player name with Mojang**: the folder is renamed to the new name before the world next loads (when nobody is inside).
+  - Inside, build worlds are still identified by `{id}`: the index, players' last positions, per-world inventories and backup lists all record ids, so none of them break after a rename. Path templates (`repo`, `genesis`… above) still offer no name placeholders; use `{world-folder}` to follow the world folder.
+  - After a rename, both LuckPerms' own `world` context and BuildGit's `buildgit:world` context change to the new name (design §8.1); the owner is told when renaming.
+- View and resolution world folders are kept separately as before, and can always be rebuilt from versions.
+- Player data: `buildgit/players/<uuid>.yml` (last position in each build world; the game mode to restore when leaving; the stored original inventory when inventory isolation is on); each world's own inventory is in `buildgit/players/<uuid>/<world id>.dat`.
+- A build world has only one dimension: in its tree it is always called `minecraft:overworld` (also for Nether and End types), so forks, templates and single-player integration never need to convert dimension paths; the actual dimension type is recorded in the generation settings in `repo.yml`.
 
-### 6.2 程式
+### 6.2 Code
 
-- **最大的改動**：現在整台伺服器一個 `Workspace`，用維度 id 找主世界。要改成每個 repo 一個 `Workspace`，由一個登記表把「世界 → 哪個 repo 的哪個維度」對應起來；追蹤器、指令、提示列、同步、備份都先找出玩家或世界屬於哪個 repo。伺服器 repo 是登記表裡的第一個，行為不變。
-- `Repository` 改成可以指定物件目錄（§6.1 的 `objects`）。
-- **起點不用複製**：新的建築世界是空的起點，chunk 第一次生成時補進起點世界（設計 §2.3 的機制，現在主世界新 chunk 就是這樣），所以建立是立刻的。
-- 虛空世界腳下那一格是建立時的第一個存檔（作者為擁有者、訊息「建立」），不直接改世界：起點是生成當下的快照，直接放方塊會讓世界和「起點＋覆寫表」對不上。
-- 草稿世界的產生器、種子、維度類型照 `repo.yml` 建立，和建築世界相同（設計 §2.3 要求草稿與主世界的產生器相同）。
-- 建立世界：Paper 用 `WorldCreator`（產生器、種子、環境），Fabric 用 Fantasy；超平坦與虛空在兩邊都用原版的平坦產生器設定（虛空就是沒有層的平坦）。
+- **The biggest change**: now there is one `Workspace` per server, finding the overworld by dimension id. This becomes one `Workspace` per repo, with a registry mapping "world → which dimension of which repo"; trackers, commands, the bossbar, sync and backups first find which repo the player or world belongs to. The server repo is the first one in the registry and behaves as before.
+- `Repository` can be given an object directory (`objects` in §6.1).
+- **No genesis copy needed**: a new build world starts with an empty genesis, and chunks are added to the genesis world the first time they are generated (the mechanism in design §2.3, which is how new overworld chunks already work), so creation is instant.
+- The block under a void world's spawn is the first save at creation (authored by the owner, message "Create"), not a direct world change: the genesis is a snapshot at generation time, and placing a block directly would make the world disagree with "genesis + overrides".
+- Draft worlds are created with the generator, seed and dimension type from `repo.yml`, the same as the build world (design §2.3 requires drafts to use the same generator as main).
+- Creating worlds: Paper uses `WorldCreator` (generator, seed, environment), Fabric uses Fantasy; superflat and void use vanilla's flat generator settings on both (void is flat with no layers).
 
-### 6.3 異地備份
+### 6.3 Offsite backups
 
-- 每個建築世界各自寫快照：遠端多一層 `<prefix>/worlds/<id>/snapshots/`、`files/`；物件共用 `<prefix>/objects/`，所以 fork 不會多傳。
-- `repo.yml` 與生成設定跟著快照備份。還原時照生成設定重建世界（產生器、種子、維度類型），起點世界與歷史照現在的方式還原，放回索引記的位置。
-- `/bg backup fetch`、`restore` 加上要哪個建築世界的參數，預設是伺服器世界。
+- Each build world writes its own snapshots: the remote gets an extra level `<prefix>/worlds/<id>/snapshots/` and `files/`; objects are shared in `<prefix>/objects/`, so forks send nothing extra.
+- `repo.yml` and the generation settings are backed up with the snapshot. Restoring rebuilds the world from the generation settings (generator, seed, dimension type); the genesis world and history are restored as now, back to the location recorded in the index.
+- `/bg backup fetch` and `restore` get a parameter for which build world; the default is the server world.
 
-### 6.4 跨版本的歷史
+### 6.4 Cross-version history
 
-- 每個建築世界有自己的 `data-version`；伺服器升級時，所有建築世界的讀取照樣升級（設計 §4.5）。
-- **fork 要繼承來源的 `legacy`**：舊版本庫裡有沒標資料版本的物件，屬於哪個版本由 repo 的 `legacy` 決定。fork 舊的伺服器世界時，不論物件共用還是硬連結複製，新 repo 都必須用來源的 `legacy`，否則同一個物件會被當成不同版本讀。新建的世界不受影響（新物件都標了版本）。
-- **設定用自己的格式存**：遊戲規則名稱（1.21.11 起改成 `snake_case`）、超平坦的層設定、生態域 id 在不同版本可能改名或改格式，所以 `repo.yml` 存 BuildGit 自己的鍵（例如 `time: noon`、`layers: [{block, count}]`），由各版本的程式轉成那個版本的寫法。生態域與方塊 id 讀取時照樣用 DataFixer 升級。
-- **起始物品與隔離的背包**存成原版物品的 NBT 並記下資料版本，讀取時用 DataFixer 升級（物品 id、元件格式在 1.20.5 以後常改）；和 `players.yml` 一樣跟著備份。
-- 升級 Minecraft 後，建築世界裡**還沒生成過**的地方，用新版的產生器生成。已生成過的都在起點世界裡，不受影響；超平坦與虛空本來就不會變。
-- fork、範本、帶到單人世界都可能跨版本：起點 chunk 與物件都帶資料版本，照現有規則升級；較新版本建立的世界不能 fork 到較舊的伺服器（不會發生在同一台伺服器上，但還原與單人世界要檢查）。
+- Each build world has its own `data-version`; when the server upgrades, reads of all build worlds are upgraded as usual (design §4.5).
+- **A fork must inherit the source's `legacy`**: old repositories contain objects without a data version, whose version is decided by the repo's `legacy`. When forking an old server world, whether objects are shared or hard-linked, the new repo must use the source's `legacy`, or the same object would be read as different versions. Newly created worlds are not affected (new objects all carry versions).
+- **Settings are stored in our own format**: game rule names (changed to `snake_case` from 1.21.11), superflat layer settings and biome ids may be renamed or change format between versions, so `repo.yml` stores BuildGit's own keys (e.g. `time: noon`, `layers: [{block, count}]`), which each version's code converts to that version's form. Biome and block ids are still upgraded with DataFixer when read.
+- **Starting kits and isolated inventories** are stored as vanilla item NBT with the data version, and upgraded with DataFixer when read (item ids and component formats change often from 1.20.5 on); they are backed up together like `players.yml`.
+- After upgrading Minecraft, places in a build world that **have never been generated** are generated by the new version's generator. Places already generated are in the genesis world and are not affected; superflat and void never change anyway.
+- Forks, templates and taking to single-player can all cross versions: genesis chunks and objects carry data versions and are upgraded by the existing rules; a world made by a newer version cannot be forked onto an older server (cannot happen on the same server, but restores and single-player must check).
 
-## 7. 分階段
+## 7. Phases
 
-1. **一台伺服器多個 repo（底層）**（已實作）：登記表、每個 repo 一個 `Workspace`、共用物件目錄。管理員指令建立一個新的建築世界，在裡面存檔、開草稿、併回、檢視、還原都正常；伺服器世界的行為與測試完全不變。
-   - 驗收：同時有伺服器世界與兩個建築世界時，各自存檔、併回互不影響；重啟後都恢復；1.21.11 建立的建築世界搬到 26.x 正常。
-   - 實作的範圍：
-     - 指令 `new <名稱>`、`open <世界>`、`home`、`worlds`，都需要 `buildgit.world.admin`（管理員權限集有）。成員、角色、可見性還沒有：能進去的人就能照自己的 `buildgit.*` 權限操作。
-     - 地形照伺服器主世界的生成設定（同一種類型、種子）；選類型、地形的建立選單是第二階段。
-     - 起點世界一開始是空的，chunk 第一次生成時記進去。
-     - 草稿世界叫 `<世界資料夾>-<草稿>`，檢視世界叫 `bgview_<世界資料夾>_<存檔>`。
-     - 世界資料夾不見時（例如只備份了版本庫），下次打開時從起點世界與版本重建。
-     - 沒人、沒有草稿、沒有檢視、沒有未存的變更時，經過 `worlds.unload-idle-seconds` 後卸載；有人上線回到這個世界時自動載入。
-     - 世界資料夾備份不帶建築世界的草稿（可以從版本重建）。異地備份在第三階段涵蓋了建築世界。
-2. **玩家建築世界**：`new`（建立選單、三種類型、三種地形、規則預設）、`open`、`home`、`worlds`、成員與角色、私人與公開、進出時切遊戲模式（與選用的背包分開）、訪客的旁觀者限制、傳送門關閉。
-   - 已實作：建立（`/bg new`）。
-     - 建立用原版的對話框（1.21.6 起有）：名稱、種子、超平坦的層、虛空腳下的方塊是輸入框，類型、地形、規則（有範本時還有範本）是選項，按「建立」由用戶端執行 `/bg new <名稱> type … seed … confirm`（留空的欄位是選項名後面直接接下一個選項名，當作沒給），所以權限與檢查和打指令相同。對話框不能依類型改地形的選項，地獄、終界選了大型生態域或巨型化時由指令拒絕。指令寫的選項（`/bg new castle type nether terrain flat layers bedrock,3*netherrack;minecraft:crimson_forest`）會先填進對話框。選項名和值是分開的兩個字（不用冒號或等號：用戶端的單字參數不收冒號，打了冒號補全就不出現），選項名不能當世界名稱。Tab 補全先列選項名稱（`type`、`terrain`…，寫過的不再列），打了選項名才列能填的值（`block` 列方塊，`layers` 列例子、補方塊與生態域）。
-     - 一般玩家要 `player-worlds.enabled: true` 加上 `buildgit.world.create`，每人最多 `player-worlds.max-per-player` 個（預設 3）；`buildgit.world.admin` 不受限制。
-     - Fabric 用原版的世界預設與超平坦設定；Paper 的一般地形用 `WorldCreator`，超平坦與虛空用 BuildGit 自己的產生器（Paper 只能讓主世界類型用原版超平坦）。超平坦不生成結構；範本在第三階段做了（見下面）。
-     - 建築用規則：遊戲規則每次載入都設定（Fabric 的世界不記），時間停在正午（26.x 是暫停的時鐘；地獄類型沒有時鐘）、和平。所有建築世界都關掉旁觀者生成地形與地獄門。終界類型沒有終界龍。
-     - 出生點在第一次有人進去時決定：(0, 0) 那一柱站得住的地方（地獄類型從下往上找），虛空在 (0, 63, 0) 放方塊並存成第一個存檔「建立」。
-   - 已實作：成員、角色、可見性。
-     - `/bg world members [list|add <玩家> [builder|manager]|remove <玩家>]`、`/bg world visibility public|private`，在那個世界裡執行。邀請時對方要在線上（名字記在 `repo.yml`，移除時照名字找）。
-     - 在建築世界裡，權限集（`buildgit.role.*`）包含的節點改由角色決定，不看伺服器給的節點；`buildgit.world.admin` 一律可以。`init`、`reload`、`backup` 這類伺服器管理照舊看節點。換世界、角色變了都重送指令清單。
-     - 訪客：`status`、`log`、`diff`、`inspect` 等只看的指令可以用；不能進草稿、不能檢視舊版本、不能改方塊（和檢視世界同一組掛點）。
-     - `open`、`worlds`、`home` 所有人都能用；私人世界對非成員當作不存在。成員被移除或改成私人時，裡面沒資格的人（含草稿、檢視世界）送回伺服器世界；上線時也檢查一次。
-     - LuckPerms 情境 `buildgit:world`（一律有）與 `buildgit:role`（建築世界裡，往下包含）。
-     - 選單版的成員管理與 `/bg worlds` 選單在第三階段做了（見下面）。
-   - 已實作：進出時的處理。
-     - 遊戲模式：在建築世界裡成員是創造、訪客是旁觀者（管理員當成員）；第一次從伺服器世界進來時記下原本的模式，回到伺服器世界時換回去。角色變了當場換。模式與 `home` 的位置記在 `buildgit/players/<uuid>.yml`（寫名稱，不隨版本變），所以重啟、當機、離線時被移出都照樣恢復。「進來的模式」可以改、背包隔離與起始物品要等第三階段的設定一起做。
-     - 世界邊界：每次載入設成以 (0, 0) 為中心、邊長 `player-worlds.border`（預設 1024）的正方形；每個世界自己的邊界，不影響伺服器世界。之後擁有者可以改（第三階段的設定）。
-     - 訪客超出邊界時每秒拉回邊界內側一格，提示一次。
-     - WorldEdit、Axiom：不能改世界的人（訪客、檢視世界裡的人）的 WorldEdit 編輯整個丟掉（換成空的 extent）；Axiom 在 Paper 取消 `AxiomModifyWorldEvent`，在 Fabric 丟掉會改世界的封包。
-     - 傳送門：地獄門靠遊戲規則；另外所有實體在建築世界裡（含草稿、檢視世界）都不能用任何傳送門：Paper 取消 `PlayerPortalEvent`、`EntityPortalEvent`，Fabric 在 `Entity.setAsInsidePortal` 擋下。
-3. **管理**：設定選單、改名、轉讓、刪除與回收區、上限、fork 與範本、提出併回、管理員下架、伺服器世界的成員與私人（含大廳）、持續載入、異地備份涵蓋所有建築世界。
-   - 已實作：世界設定（`/bg world settings`）。
-     - 設定：時間、天氣、難度、生成生物、自然變化、世界邊界（大小與中心）、出生點、成員與訪客的遊戲模式、訪客能不能按機關（`visitor-interact`）。不帶參數時開設定選單，每格一個設定，點一下換下一個值；也可以用指令直接設（`/bg world settings time 13000`）。擁有者與管理者能改，改了當場套用到這個世界已載入的世界（含草稿、檢視世界）。
-     - 存在 `repo.yml` 的 `settings:`，用 BuildGit 自己的寫法（時間是刻數或 `cycle`、天氣與遊戲模式寫名稱、難度寫 `peaceful` 或 `server`），每次載入時由各版本的程式轉成遊戲規則與世界狀態。第二階段建立的世界沒有 `settings:`，照建立時的規則預設（建築用／原版）。
-     - 規則預設只決定這些設定的初始值：建築用是固定正午與晴天、和平、不生成生物、沒有自然變化；原版是正常流動、照伺服器的難度、生成生物、有自然變化。
-     - 天氣：26.x 原版的天氣整台伺服器共用一份，Fabric 的建築世界原本會跟著伺服器世界下雨；改成每個 BuildGit 開的世界各自一份（Paper 本來就是每個世界各自的，Fabric 1.21.11 的 Fantasy 世界也是）。
-     - 邊界：`player-worlds.border` 是預設，`player-worlds.max-border`（預設 4096）是上限。
-     - 冒險模式的訪客：照擋建造的方式擋下右鍵方塊、踩踏、實體互動、攻擊，所以箱子也打不開（比 §4.1 原本的「看得到但拿不走」嚴格，但不用另外處理每種容器）。`visitor-interact` 打開時放行按鈕、拉桿、門、活板門、柵欄門、壓力板；造成的改變照一般的變更記成那個訪客改的。
-   - 已實作：背包隔離與起始物品（§2.2）。
-     - `/bg world settings inventory-member|inventory-visitor on|off`、`kit-member`／`kit-visitor [clear]`（編輯箱）、`kit-member-reset`／`kit-visitor-reset`、`kit-member-respawn`／`kit-visitor-respawn`；`player-worlds.separate-inventories`、`allow-inventory-isolation`。
-     - 舊版只有一個 `settings.inventory`（成員與訪客一起），成員的背包一直保留、訪客每次重設、死後不重給；讀舊的設定時照這個行為（`inventory-member`、`inventory-visitor` 沿用 `inventory`，`kit-member-reset` 關、`kit-*-respawn` 關）。存檔時照樣寫 `settings.inventory`（其中一個角色打開就是開）給舊版讀。
-     - 離開打開隔離的世界時一律把身上的收起來；進來時照「每次重設」決定換上自己上次的還是起始物品（每次重設時順便刪掉上次的）。
-     - 死後重給：平台決定重生地點時記下，下一刻重生完、還穿著這個世界的背包時換上起始物品。
-     - 換世界時（和換遊戲模式同一個地方）看身上穿的是哪一份：`players/<uuid>.yml` 的 `inventory` 記著是哪個建築世界的背包（沒有就是原本的）。要換時先把身上的寫進檔案、記下新的，再換上目標的；寫不進檔案就不換。在打開隔離的世界之間直接移動也是收起一份、換上另一份。設定改了（打開、關掉）時世界裡的人當場換。
-     - 存的內容：背包（含盔甲、副手）、終界箱、經驗、狀態效果。物品用原版 `ItemStack` 的寫法存成 NBT，連同資料版本；讀取時用 DataFixer（`ITEM_STACK`）升級，例如 1.20.4 的 `tag.Damage` 會變成 `minecraft:damage` 元件（已實測）。狀態效果用自己的寫法（效果 id、時間、等級），新版拿掉的效果略過。
-     - 起始物品只存背包；拿起始物品時終界箱、經驗、效果都是空的。
-     - 角色在世界裡變了（例如訪客被加成成員）不換背包，下次進來才照新的角色。
-   - 已實作：改名、轉讓、刪除與回收區、下架（§4、§5.2、§6.1）。
-     - `/bg world rename <新名稱>`、`transfer <玩家> confirm`（對方要在線上）、`delete confirm`、`undelete [名稱]`；管理員 `unlist`／`relist [世界]`。改名、轉讓、刪除只有擁有者（與管理員）能做。
-     - 改名、轉讓：先檢查名稱與算出來的資料夾，沒問題才把裡面的人（含草稿、檢視世界）立刻送回伺服器世界，卸載這個世界所有的世界、關閉版本庫，世界資料夾與草稿資料夾改名，再以新的登記開啟。轉讓時原本的擁有者留下來當管理者；收到的人也受 `max-per-player` 限制（管理員除外）。資料夾名稱沒變（範本沒有 `{owner-name}`）時不改資料夾，其他照舊。
-     - 刪除：世界資料夾、草稿資料夾（可能有還沒存的變更，所以不直接刪）、版本庫、起點世界原地改名為 `<名稱>.deleted-<時間>`，只改最外層的（版本庫在世界資料夾裡時跟著走）；共用的物件不動。回收區記在 `buildgit/trash.yml`（原本的登記與改名前後的路徑）。名稱與資料夾的衝突檢查也看回收區裡的，所以找回時不會撞名，不需要另給新名稱；原本的位置有東西時拒絕找回。
-     - `player-worlds.trash-days`（預設 7）：啟動時與每天檢查一次，過期的真正刪掉。
-     - 下架存在 `repo.yml` 的 `unlisted: true`：強制私人，擁有者改成公開時拒絕。
-     - 玩家各自的背包檔記世界 id，改名、轉讓後照樣對得上。
-     - 還沒做：擁有者在 Mojang 改名後跟著改資料夾。
-   - 已實作：清單與成員選單、顯示名稱與簡介與圖示、上限（§2.1、§3、§5.1）。
-     - `/bg worlds [mine|public|recent] [頁]`：玩家打開選單，最上面三排是世界（圖示、顯示名稱、名稱、簡介、擁有者與自己的角色、是否載入與人數、最後存檔），點一下進去；滿了翻頁。分頁：我的（自己的與受邀的，照名稱）、公開（照主世界最後存檔的時間，新的在前）、最近去過（最多 27 個）。最下排有建立、回收區、這個世界的設定。主控台照舊列出所有建築世界。伺服器世界不在清單裡；回伺服器世界交給伺服器原本的傳送指令（例如 `/spawn`），BuildGit 不提供。
-     - 最近去過記在 `players/<uuid>.yml` 的 `recent`（世界 id，改名、轉讓後照樣對得上；被刪掉或進不去的不列）。
-     - `/bg menu` 的分隔線右端多兩格：建築世界清單、這個世界的設定（擁有者與管理者，在建築世界裡）。
-     - 設定多三項：`display-name`、`description`（後面所有的字，保留大小寫；不給文字是清掉；最多 32／120 字，不能有 `§` 與控制字元）、`icon`（物品 id，不給是手上的物品）。存在 `repo.yml` 最上層。玩家寫的文字一律當純文字顯示，不當 MiniMessage。選單裡沒辦法打字，點顯示名稱、簡介會開一個輸入框的對話框，留空儲存是清掉。
-     - 圖示跨版本：物品 id 會改名（例如 1.20.3 的 `grass` → `short_grass`），讀取時照 `repo.yml` 的 `data-version` 用 DataFixer（`ITEM_NAME`）升級（已實測 3465 寫下的 `minecraft:grass`）；這個版本沒有那個物品（例如降版）時顯示草方塊。
-     - 成員選單（`/bg world members` 不帶參數，設定選單裡也有）：右上角是可見性，擁有者點一下切換；中間兩排是成員，點一下開那個人的選單（設成建造者、管理者，或移出）；下一排是線上還不是成員的人，點一下邀請成建造者。管理者只看得到、改得了建造者。已經是成員的人不在線上也能改角色。`/bg world members list` 照舊是聊天列表。頭像不帶皮膚。
-     - `player-worlds.allowed-types`、`allowed-terrain`：一般玩家的建立對話框只列開放的，預設的不開放時從第一個開放的開始；打指令選了不開放的拒絕。管理員不受限制。
-     - `player-worlds.max-loaded`（預設 20）：要再開一個建築世界的世界（主世界、草稿、檢視）時，所有建築世界已載入的世界加起來到上限就拒絕；伺服器世界與它的草稿不算。持續載入的世界要等第三階段後面一起做。
-   - 已實作：fork 與範本（§2.1、§3、§5.3、§6.4）。
-     - `/bg fork <擁有者/名稱> [新名稱]`：成員都可以；訪客要擁有者開著「允許複製」（設定 `allow-fork`，預設開；私人世界沒有訪客）；管理員都可以。受 `enabled`、`max-per-player` 限制（管理員除外）。不給新名稱時用來源的名稱，撞名時加 `_2`、`_3`…（不用連字號：`castle-2` 的資料夾會和 `castle` 的草稿撞在一起）。
-     - 新世界是私人的、沒有成員；`repo.yml` 照抄來源的（生成設定、規則、邊界、出生點、顯示名稱、圖示…），起始物品也一起複製，另外記下 `fork.source`（來源的 id）與 `fork.commit`（當時來源 main 的存檔），給提出併回用。只帶 main 最新的存檔：來源沒存檔的改動、草稿不帶。
-     - 複製在來源的起點世界寫入執行緒上做，和還在補進起點世界的 chunk 依序進行，主執行緒不等；完成前來源不能改名、轉讓、刪除，新世界的名稱、資料夾先佔住。失敗時刪掉已複製的部分。
-     - 起點世界複製一份（不能硬連結：起點世界的 region 檔之後還會補 chunk）；物件位置相同時不複製，不同時整個物件目錄用硬連結複製（不支援時才真的複製）。不另外算「用得到的物件」，簡單起見全部連結，硬連結幾乎不佔空間。
-     - 跨版本：`data-version` 直接複製，所以 `legacy` 照來源的；起點 chunk 與物件照原本的資料版本，讀取時升級。同一台伺服器上的來源一定不比伺服器新。
-     - 世界資料夾第一次載入時照起點世界＋main 的存檔合成（和刪掉世界資料夾後一樣）。
-     - 範本：`player-worlds.templates` 列出 `擁有者/名稱`，或管理員在遊戲裡 `/bg world template on|off [世界]`（記在 `repo.yml` 的 `template: true`；舊版沒有這個鍵，讀到時當作不是範本；fork 出來的不帶）。建立對話框多一個「範本」選項（預設「不用範本」），選了範本就照它，類型、地形、規則不看；指令是 `/bg new [名稱] template <擁有者/名稱> confirm`。從範本建立等於 fork（記 `fork.template: true`，清單上不顯示「複製自」），不受 `allowed-types`、`allowed-terrain` 限制，範本本身是私人的也可以；名稱照一般建立自動編號。
-     - 清單上 fork 的世界多一行「複製自 擁有者/名稱」（來源被刪掉後不顯示）。訪客的提示列在允許複製時顯示 `/bg fork 複製`。
-   - 已實作：提出併回（§5.4）。
-     - 分支叫 `submit-<玩家>-<編號>`（草稿名稱不能有 `/`）；玩家不能自己用 `submit-` 開頭命名草稿。提出的資料（fork 的 id、提出的人、說明、時間）記在來源 `branches.yml` 那個分支的 `submit` 底下。
-     - `/bg submit [說明]`：在 fork 的世界（不是從範本建立的），擁有者與管理者可以用；送的是所在分支（主世界或草稿）最後一次存檔。還有沒存的改動時先問：「先存檔再提出」（`--save`）或「只送最後一次存檔」（`--last`）。說明最多 120 字，當純文字顯示。
-     - 來源要允許複製（提出的人是訪客時）且開著「接受提出」（設定 `accept-submissions`，預設開）。同一個 fork 再提出就更新同一個分支（和上次一樣、或來源已經有這些存檔時拒絕）；同一個人對同一個世界已經有一個從別的 fork 來、還沒處理的提出時拒絕。來源有人正在看那個提出（世界開著、有沒存的改動、整合中）時不能更新，請他稍後再送。
-     - 物件位置不同時把 fork 的物件硬連結過去；fork 之後才生成的 chunk 補進來源的起點世界（已有的不動），否則那些地方的改動在來源會被當成新增。都在背景做，完成後才建立分支。
-     - 來源的擁有者與管理者收到通知。通知不在線時記在 `players/<uuid>.yml` 的 `notices`，下次上線送出（拒絕、併回的通知也一樣）。
-     - `/bg world submissions`（設定選單裡也有）：選單列出還沒處理的提出（提出的人、時間、從哪個 fork、說明），點一下進去看，和草稿一樣；在裡面 `/bg publish` 併回（有衝突時照現有的整合流程）。`list` 是聊天列表，`reject <分支> [理由]` 拒絕：刪掉分支、通知提出的人。
-     - 整份併回主世界後（併回或衝突整合完成時，看清單時也會檢查），提出的人收到「已併回」，分支自動刪掉；只併回一部分（`--selection`）時提出還在。
-   - 已實作：伺服器世界的成員與私人、大廳（§4.2）。
-     - 在伺服器世界（主世界、地獄、終界與它們的草稿、檢視）裡 `/bg world`、`/bg world members …`、`/bg world visibility …`；其他設定、改名等只有建築世界有。管理員當擁有者（能改可見性、邀管理者），成員名單上的管理者能邀、移除建造者。存在 `buildgit/server-world.yml`。
-     - 成員的角色**加在**伺服器給的權限節點之上（例如沒有任何節點的人當建造者就能存檔），不會拿掉原本的；遊戲模式、背包都不動。
-     - 私人時沒有 `buildgit.role.viewer` 以上的權限、也不是成員的人不能在伺服器世界：上線、被移出成員、改成私人、死掉重生、被傳送進來時（每秒檢查）都送到大廳。
-     - 大廳 `worlds.lobby`：寫「擁有者/名稱」是建築世界，必須是公開的（不能改成私人、不能下架），一律持續載入；寫名稱或維度 id 是普通世界（要先由多世界插件載入，不能是伺服器世界本身），送到它的出生點。沒設、找不到時拒絕改成私人；之後大廳不見了，玩家留在原地，主控台警告一次。
-   - 已實作：持續載入（§4.3）。
-     - `worlds.keep-loaded` 列出「擁有者/名稱」或「擁有者/名稱:草稿」（伺服器世界的草稿寫「世界名稱:草稿」）。啟動後、`/bg reload` 後、之後每 30 秒對應一次，沒載入的載入；不閒置卸載，不算進 `max-loaded`（載入時也不受限制）。
-     - 對到的世界 id 記在 `buildgit/keep-loaded.yml`（id → 設定裡寫的名稱）：改名、轉讓後照 id 找，30 秒內重新載入。
-     - 設定選單的標題說明多一行「持續載入：main」。
-   - 已實作：異地備份涵蓋所有建築世界（§6.3）。
-     - 版本紀錄的備份工作每次也走過所有開著的建築世界（正在改名、刪除等的跳過，下次再備），有變化的各自寫一份快照到 `<prefix>/worlds/<id>/snapshots/`，起點世界的檔案放在 `<prefix>/worlds/<id>/files/`。物件與「上傳過哪些存檔」的紀錄整個工作共用（`<prefix>/objects/`），fork 不會多傳。一個建築世界失敗不影響其他的，最後報錯。
-     - 建築世界的快照另外帶著登記（擁有者、名稱、資料夾、位置）、`repo.yml`（類型、地形、種子、規則等生成設定）、`players.yml`、起始物品；不帶 `level.dat`，世界資料夾照生成設定與起點世界重建。`players.yml` 一直在變，只在有其他變化時跟著帶上。
-     - 遠端的 `<prefix>/worlds.yml` 記 id → 「擁有者/名稱」，在新主機上照名稱找；刪掉的世界留在裡面，還能照 id 還原。
-     - `/bg backup list <工作> world=<世界>`、`/bg backup fetch <分支> [新名稱] world=<世界>`、`/bg backup restore <工作> [快照] world=<世界>`（只能在主控台）。沒給 `world=` 是伺服器世界。
-     - 建築世界的還原不必重新啟動：下載到版本庫旁邊的 `…-restore`，下載完卸載那個世界（裡面的人送走），原本的世界資料夾、草稿資料夾、版本庫、在外面的起點世界改名為 `….before-restore-<時間>` 留著，換上下載的再打開，世界資料夾從起點世界與存檔重建。這台伺服器沒有這個世界時照快照的登記放回去（名稱、資料夾被佔用時拒絕；在回收區時要先找回來）。版本庫放在世界資料夾裡的不能單獨還原。
-     - 新主機上不必先 `/bg init`：還沒有版本庫（或開不了）時，`/bg backup status`、`list`、`restore`（伺服器世界）照樣能用，其他還是要先 init。
-     - 伺服器世界的還原改成不碰建築世界：物件直接下載進共用的物件目錄（只增不減），版本庫資料夾裡不屬於伺服器世界的（`worlds/`、`worlds.yml`、回收區、玩家資料、其他備份工作的紀錄等）搬進新的版本庫。
-     - 跨版本：快照記著寫入時的 Minecraft 資料版本與 repo 的 `data-version`（含 `legacy`），較新版本寫的拒絕還原；起點 chunk 與物件照現有規則升級。
-   - 已實作：建築世界的 `pull`／`push`（§2.1）。
-     - 在建築世界（或它的草稿）裡 `/bg pull`，帶走的是那個世界那個分支的範圍；取出紀錄多記 `world: <id>`（紀錄仍放在 `buildgit/sync/<玩家>/`，範圍名稱每位玩家一份）。
-     - 權限照那個世界的角色：建造者以上能 `pull`、`push`；訪客只有在「允許複製」開著時能 `pull`，不能 `push`；`buildgit.world.admin` 都可以。
-     - `/bg push` 送回當初取出的世界，存成那裡的草稿，不看玩家現在在哪裡；送回時重新檢查角色，世界被刪除、正在改名或還原時拒絕。從伺服器世界取出的範圍仍要在伺服器世界、有 `buildgit.push` 才能送回。
-     - 不能用管理方塊的人送回的方塊實體（例如告示牌）清掉點擊事件：告示牌的點擊指令以管理員權限執行。取出時就有的（例如管理員做的）不動。
-     - 連上時的提示只列現在能送回的範圍；送回建築世界後，人不在那裡時按鈕改成「進入那個世界」。
-     - 跨版本：範圍檔記著寫入時的資料版本，送回時照現有規則用 DataFixer 升級；生態域不帶（和伺服器世界相同）。
-   - 已實作：把單人世界上傳成新的建築世界。
-     - `/bg new <名稱> from <存檔>`（`from` 寫在最後，存檔名稱可以有空格）：玩家要裝 BuildGit 用戶端，伺服器要設定 `player-worlds.upload.connection`（`s3.yml` 的連線）；只能是主世界類型，地形沒指定時是虛空，其他選項照 `/bg new`。用戶端會先在聊天欄問要不要上傳，按 [同意上傳] 才開始。
-     - 傳輸不走遊戲連線：伺服器請用戶端打包存檔的主世界（`region`、`entities`，26.1 起的 `dimensions/minecraft/overworld` 也認得；不壓縮），用戶端回報大小與 SHA-256；伺服器發 15 分鐘有效、綁定大小的預簽 PUT 網址（隨機的 `uploads/<UUID>/<id>`，主機是 `public-endpoint`），用戶端直接上傳；伺服器下載（有上限，預設 512 MB）、核對、刪掉。
-     - 上傳的內容不可信任：解開時只取符合檔名的 region 與 `.mcc`，總量有上限；逐個 chunk 讀（有大小、深度、節點數上限）、升級到目前的版本、檢查位置與生成狀態，不收的略過並計數。不能用管理方塊的人上傳的管理方塊換成空氣（調色盤換成還沒用到的空氣，不重複）、方塊實體拿掉，其他方塊實體的點擊事件清掉，指令方塊礦車（含乘客）拿掉；`ignored-entities` 列的實體不收。
-     - 檢查過的 chunk 直接當起點世界，第一個存檔是空的「建立」，不帶歷史。
-     - 跨版本：比伺服器新的版本存的整個拒絕；較舊的（1.13 起）照 DataFixer 升級後才寫進起點世界。
-     - 只有 Fabric 用戶端；Paper 伺服器照樣能接（同一個頻道）。
-   - 已實作：把伺服器上已有的世界匯入成建築世界（管理員）。
-     - `/bg new <名稱> import <世界資料夾> [owner <玩家>]`：資料夾相對於伺服器目錄（不能跑到外面），有 `region` 就讀它，沒有時讀 `dimensions/minecraft/overworld`。
-     - 世界還載入著時先存檔（和存檔時同一個方法，等寫進 region 檔），再把 `region`、`entities` 複製到暫存目錄，之後和上傳單人世界走同一段檢查與升級（管理方塊保留），回主執行緒建立。
-     - `owner` 指定擁有者（線上玩家）；給了 `owner` 時主控台也能執行，不會傳送誰。下指令的玩家建立後傳送進去。
-   - 已實作：回收沒人用的物件（`/bg disk clean`，見 02-admin）。所有共用物件目錄的版本庫一起當起點（回收區、fork 中、還原前留下的也算），只刪超過一天沒寫入或用到的；物件寫入時已存在、或確認存在要拿來用時更新修改時間。
-     - 跨版本：只讀提交與 tree 的結構，不解讀方塊內容，舊版本的物件照樣標記。
-4. **之後再看**：收藏。
+1. **Several repos on one server (underneath)** (implemented): the registry, one `Workspace` per repo, a shared object directory. An admin command creates a new build world, and saving, opening drafts, publishing, viewing and restoring in it all work; the server world's behavior and tests are completely unchanged.
+   - Acceptance: with the server world and two build worlds at once, saves and publishes in each do not affect the others; all come back after a restart; a build world made on 1.21.11 works after moving to 26.x.
+   - What was implemented:
+     - Commands `new <name>`, `open <world>`, `home`, `worlds`, all needing `buildgit.world.admin` (in the admin permission set). No members, roles or visibility yet: whoever can get in can act with their own `buildgit.*` permissions.
+     - Terrain follows the server overworld's generation settings (same type and seed); the create menu with type and terrain choices is phase 2.
+     - The genesis world starts empty, and chunks are recorded the first time they are generated.
+     - Draft worlds are called `<world folder>-<draft>`, view worlds `bgview_<world folder>_<save>`.
+     - When the world folder is missing (e.g. only the repository was backed up), it is rebuilt from the genesis world and versions the next time it opens.
+     - Unloaded after `worlds.unload-idle-seconds` with nobody inside, no drafts, no views and no unsaved changes; loaded automatically when someone rejoins into it.
+     - World folder backups do not include build worlds' drafts (they can be rebuilt from versions). Offsite backups covered build worlds in phase 3.
+2. **Player build worlds**: `new` (create menu, three types, three terrains, rule presets), `open`, `home`, `worlds`, members and roles, private and public, switching game mode on entering and leaving (with optional separate inventories), spectator limits for visitors, portals off.
+   - Implemented: creating (`/bg new`).
+     - Creating uses the vanilla dialog (available from 1.21.6): name, seed, superflat layers and the block under void spawn are text fields; type, terrain, rules (and template, when there are templates) are options. Pressing "Create" makes the client run `/bg new <name> type … seed … confirm` (an empty field means an option name followed directly by the next option name, treated as not given), so permissions and checks are the same as typing the command. The dialog cannot change terrain options by type, so large biomes or amplified with Nether or End are refused by the command. Options written in the command (`/bg new castle type nether terrain flat layers bedrock,3*netherrack;minecraft:crimson_forest`) are filled into the dialog first. Option names and values are two separate words (no colons or equals signs: the client's single-word arguments do not accept colons, and typing one stops completion), and option names cannot be world names. Tab completion first lists option names (`type`, `terrain`…, without ones already written), and only lists possible values once an option name is typed (`block` lists blocks, `layers` lists examples and completes blocks and biomes).
+     - Regular players need `player-worlds.enabled: true` plus `buildgit.world.create`, at most `player-worlds.max-per-player` each (3 by default); `buildgit.world.admin` has no limit.
+     - Fabric uses vanilla world presets and superflat settings; on Paper, normal terrain uses `WorldCreator`, and superflat and void use BuildGit's own generator (Paper only lets the overworld type use vanilla superflat). Superflat generates no structures; templates came in phase 3 (see below).
+     - Build rules: game rules are set on every load (Fabric worlds do not remember them), time stops at noon (a paused clock on 26.x; Nether types have no clock), peaceful. All build worlds turn off spectator chunk generation and Nether portals. End types have no ender dragon.
+     - The spawn point is decided when someone first goes in: a standable spot in the (0, 0) column (searched from the bottom up for Nether types); void places a block at (0, 63, 0) and saves it as the first save "Create".
+   - Implemented: members, roles, visibility.
+     - `/bg world members [list|add <player> [builder|manager]|remove <player>]`, `/bg world visibility public|private`, run inside that world. The player must be online to be invited (the name is recorded in `repo.yml`, and removal looks up by name).
+     - In build worlds, the nodes included in permission sets (`buildgit.role.*`) are decided by the role, not the nodes the server gave; `buildgit.world.admin` always can. Server administration like `init`, `reload` and `backup` still checks nodes. The command list is resent on changing worlds and when the role changes.
+     - Visitors: look-only commands such as `status`, `log`, `diff` and `inspect` work; they cannot enter drafts, view old versions or change blocks (the same set of hooks as view worlds).
+     - Everyone can use `open`, `worlds` and `home`; private worlds do not exist for non-members. When a member is removed or the world goes private, people inside (including drafts and view worlds) who no longer qualify are sent back to the server world; this is also checked on login.
+     - LuckPerms contexts `buildgit:world` (always present) and `buildgit:role` (in build worlds, inclusive downward).
+     - The menu version of member management and the `/bg worlds` menu came in phase 3 (see below).
+   - Implemented: handling on entering and leaving.
+     - Game mode: in build worlds, members are creative and visitors spectator (admins count as members); the original mode is recorded the first time they come from the server world and switched back when they return there. A role change switches immediately. The mode and the `home` position are recorded in `buildgit/players/<uuid>.yml` (as names, independent of version), so they are restored after restarts, crashes and being removed while offline. Changing "the mode on entering", inventory isolation and starting kits waited for the phase 3 settings.
+     - World border: set on every load to a square centered on (0, 0) with side `player-worlds.border` (1024 by default); each world has its own border, not affecting the server world. Owners can change it later (phase 3 settings).
+     - Visitors outside the border are pulled one block inside it every second, with one notice.
+     - WorldEdit and Axiom: WorldEdit edits by people who cannot change the world (visitors, people in view worlds) are dropped entirely (replaced with an empty extent); Axiom cancels `AxiomModifyWorldEvent` on Paper, and drops world-changing packets on Fabric.
+     - Portals: Nether portals rely on the game rule; in addition, no entity can use any portal in build worlds (including drafts and view worlds): Paper cancels `PlayerPortalEvent` and `EntityPortalEvent`, Fabric blocks it in `Entity.setAsInsidePortal`.
+3. **Administration**: the settings menu, renaming, transferring, deleting and the trash, limits, forks and templates, submissions, admin unlisting, server world members and private mode (with the lobby), keeping loaded, offsite backups covering all build worlds.
+   - Implemented: world settings (`/bg world settings`).
+     - Settings: time, weather, difficulty, mob spawning, natural changes, world border (size and center), spawn point, members' and visitors' game modes, whether visitors can use mechanisms (`visitor-interact`). Without arguments it opens the settings menu, one slot per setting, clicking moves to the next value; they can also be set directly by command (`/bg world settings time 13000`). Owners and managers can change them, and changes apply at once to this world's loaded worlds (including drafts and view worlds).
+     - Stored under `settings:` in `repo.yml`, in BuildGit's own format (time as ticks or `cycle`, weather and game modes by name, difficulty as `peaceful` or `server`), converted to game rules and world state by each version's code on every load. Worlds made in phase 2 have no `settings:` and follow the rule preset from creation (build/vanilla).
+     - Rule presets only decide these settings' initial values: build is always noon and clear, peaceful, no mob spawning, no natural changes; vanilla is time passing normally, the server's difficulty, mob spawning, natural changes.
+     - Weather: in 26.x vanilla, weather is one copy for the whole server, so Fabric build worlds used to rain along with the server world; now each world BuildGit opens has its own (Paper has always been per world, and so were Fabric 1.21.11's Fantasy worlds).
+     - Border: `player-worlds.border` is the default, `player-worlds.max-border` (4096 by default) the limit.
+     - Adventure-mode visitors: right-clicking blocks, trampling, entity interaction and attacks are blocked the same way building is, so chests cannot be opened either (stricter than §4.1's original "can see but not take", but no need to handle each container type). With `visitor-interact` on, buttons, levers, doors, trapdoors, fence gates and pressure plates are allowed; the changes they cause are recorded as made by that visitor, like any change.
+   - Implemented: inventory isolation and starting kits (§2.2).
+     - `/bg world settings inventory-member|inventory-visitor on|off`, `kit-member`/`kit-visitor [clear]` (the edit chest), `kit-member-reset`/`kit-visitor-reset`, `kit-member-respawn`/`kit-visitor-respawn`; `player-worlds.separate-inventories`, `allow-inventory-isolation`.
+     - Older versions had a single `settings.inventory` (members and visitors together): members' inventories were always kept, visitors' reset every time, nothing given after death; reading old settings keeps that behavior (`inventory-member` and `inventory-visitor` take `inventory`, `kit-member-reset` off, `kit-*-respawn` off). Saving still writes `settings.inventory` (on when either role is on) for older versions to read.
+     - Leaving a world with isolation on always stores what you are wearing; entering decides by "reset every time" whether to put on your last one or the starting kit (resetting also deletes the last one).
+     - Giving again after death: recorded when the platform decides the respawn location, and the starting kit is put on the next tick once respawned, while still wearing this world's inventory.
+     - On changing worlds (the same place game modes are switched) it checks which copy is being worn: `inventory` in `players/<uuid>.yml` records which build world's inventory it is (none means the original). To swap, it first writes what is worn to a file, records the new one, then puts on the target's; if the file cannot be written, nothing is swapped. Moving directly between worlds with isolation on also stores one and puts on the other. When settings change (turned on or off), people in the world are swapped at once.
+     - What is stored: the inventory (including armor and offhand), ender chest, experience, status effects. Items are stored as NBT in vanilla `ItemStack` form with the data version, and upgraded on read with DataFixer (`ITEM_STACK`), e.g. 1.20.4's `tag.Damage` becomes the `minecraft:damage` component (tested). Status effects use our own format (effect id, duration, level); effects removed in newer versions are skipped.
+     - Starting kits only store the inventory; when taking a starting kit, the ender chest, experience and effects are empty.
+     - A role change inside the world (e.g. a visitor made a member) does not swap inventories; the new role applies the next time they come in.
+   - Implemented: renaming, transferring, deleting and the trash, unlisting (§4, §5.2, §6.1).
+     - `/bg world rename <new name>`, `transfer <player> confirm` (the player must be online), `delete confirm`, `undelete [name]`; admins `unlist`/`relist [world]`. Only the owner (and admins) can rename, transfer and delete.
+     - Renaming, transferring: the name and worked-out folders are checked first; only then are people inside (including drafts and view worlds) sent straight back to the server world, all of this world's worlds unloaded, the repository closed, the world folder and draft folders renamed, and it opens again with the new registration. On a transfer the original owner stays as a manager; the receiver is limited by `max-per-player` too (except admins). When the folder name does not change (the template has no `{owner-name}`), folders are left alone and the rest proceeds as usual.
+     - Deleting: the world folder, draft folders (which may have unsaved changes, so they are not deleted directly), repository and genesis world are renamed in place to `<name>.deleted-<time>`, only the outermost ones (a repository inside the world folder goes along); shared objects are untouched. The trash is recorded in `buildgit/trash.yml` (the original registration and the paths before and after renaming). Name and folder clash checks include the trash, so undeleting cannot clash and no new name is needed; undeleting is refused when something is already at the original location.
+     - `player-worlds.trash-days` (7 by default): checked at startup and once a day, expired ones really deleted.
+     - Unlisting is stored as `unlisted: true` in `repo.yml`: forced private, and the owner making it public is refused.
+     - Players' per-world inventory files record the world id, so they still match after renames and transfers.
+     - Not done yet: renaming folders after the owner changes their name with Mojang.
+   - Implemented: the list and members menus, display name, description and icon, limits (§2.1, §3, §5.1).
+     - `/bg worlds [mine|public|recent] [page]`: players get a menu whose top three rows are worlds (icon, display name, name, description, owner and your role, whether loaded and how many players, last save); click to go in; pages when full. Tabs: mine (own and invited, by name), public (by the time of main's last save, newest first), recently visited (at most 27). The bottom row has create, the trash, and this world's settings. The console still lists all build worlds. The server world is not in the list; going back to the server world is left to the server's own teleport commands (e.g. `/spawn`); BuildGit provides none.
+     - Recently visited is recorded as `recent` in `players/<uuid>.yml` (world ids, so still matching after renames and transfers; deleted or inaccessible ones are not listed).
+     - `/bg menu` gets two slots at the right end of the divider: the build world list, and this world's settings (owners and managers, inside a build world).
+     - Three more settings: `display-name`, `description` (all the following words, keeping case; no text clears it; at most 32/120 characters, no `§` or control characters), `icon` (an item id; none uses the item in hand). Stored at the top level of `repo.yml`. Text written by players is always shown as plain text, never as MiniMessage. Menus cannot take typing, so clicking the display name or description opens a dialog with a text field; saving it empty clears it.
+     - Icons across versions: item ids get renamed (e.g. 1.20.3's `grass` → `short_grass`), so they are upgraded on read with DataFixer (`ITEM_NAME`) based on `repo.yml`'s `data-version` (tested with `minecraft:grass` written at 3465); when this version has no such item (e.g. a downgrade), a grass block is shown.
+     - The members menu (`/bg world members` without arguments, also in the settings menu): the top right is visibility, which the owner clicks to toggle; the middle two rows are members, click to open that person's menu (make builder, manager, or remove); the next row is online players who are not members, click to invite as builder. Managers only see and change builders. Members' roles can be changed while they are offline. `/bg world members list` is still the chat list. Heads have no skins.
+     - `player-worlds.allowed-types`, `allowed-terrain`: regular players' create dialog only lists allowed ones, starting from the first allowed one when the default is not allowed; picking a disallowed one by command is refused. Admins are not limited.
+     - `player-worlds.max-loaded` (20 by default): opening another build world's world (main, draft, view) is refused when the loaded worlds of all build worlds together reach the limit; the server world and its drafts do not count. Keeping worlds loaded came later in phase 3.
+   - Implemented: forks and templates (§2.1, §3, §5.3, §6.4).
+     - `/bg fork <owner/name> [new name]`: members always can; visitors need the owner to have "allow copies" on (setting `allow-fork`, on by default; private worlds have no visitors); admins always can. Limited by `enabled` and `max-per-player` (except admins). Without a new name, the source's name is used, adding `_2`, `_3`… on a clash (not a hyphen: the folder of `castle-2` would clash with `castle`'s draft).
+     - The new world is private with no members; `repo.yml` copies the source's (generation settings, rules, border, spawn point, display name, icon…), starting kits are copied too, and it also records `fork.source` (the source's id) and `fork.commit` (the source main's save at the time) for submissions. Only main's latest save is taken: the source's unsaved changes and drafts are not.
+     - Copying runs on the source genesis world's writer thread, in order with chunks still being added to the genesis world, without the main thread waiting; until it finishes the source cannot be renamed, transferred or deleted, and the new world's name and folder are reserved. On failure, what was copied is deleted.
+     - The genesis world is copied (not hard-linked: the genesis world's region files still get chunks added later); with the same object location nothing is copied, otherwise the whole object directory is copied with hard links (really copied only when unsupported). No working out of "objects actually used": for simplicity everything is linked, and hard links take almost no space.
+     - Cross-version: `data-version` is copied as is, so `legacy` follows the source; genesis chunks and objects keep their original data versions and are upgraded on read. A source on the same server is never newer than the server.
+     - The world folder is synthesized from the genesis world + main's save the first time it loads (the same as after the world folder is deleted).
+     - Templates: `player-worlds.templates` lists `owner/name`, or admins use `/bg world template on|off [world]` in game (recorded as `template: true` in `repo.yml`; older versions have no such key and read as not a template; forks do not carry it). The create dialog gets a "Template" option (default "No template"); picking a template follows it, ignoring type, terrain and rules; the command is `/bg new [name] template <owner/name> confirm`. Creating from a template is a fork (recorded as `fork.template: true`, so the list does not show "Forked from"), not limited by `allowed-types` or `allowed-terrain`, and the template itself may be private; the name is numbered automatically as in normal creation.
+     - Forked worlds have an extra line "Forked from owner/name" in the list (not shown once the source is deleted). Visitors' bossbar shows `/bg fork to copy` when copies are allowed.
+   - Implemented: submissions (§5.4).
+     - The branch is called `submit-<player>-<number>` (draft names cannot contain `/`); players cannot name their own drafts starting with `submit-`. Submission data (the fork's id, the submitter, message, time) is recorded under `submit` of that branch in the source's `branches.yml`.
+     - `/bg submit [message]`: in a forked world (not one created from a template), owners and managers can use it; it sends the last save of the current branch (main or a draft). When there are unsaved changes, it asks first: "Save first, then submit" (`--save`) or "Only send the last save" (`--last`). Messages are at most 120 characters, shown as plain text.
+     - The source must allow copies (when the submitter is a visitor) and have "accept submissions" on (setting `accept-submissions`, on by default). Submitting again from the same fork updates the same branch (refused when it is the same as last time or the source already has these saves); refused when the same person already has an open submission to the same world from another fork. While someone at the source is looking at the submission (its world open, unsaved changes, resolving), it cannot be updated, and the submitter is asked to send it later.
+     - When object locations differ, the fork's objects are hard-linked across; chunks generated after the fork are added to the source's genesis world (existing ones untouched), otherwise changes there would look like additions at the source. All of this runs in the background, and the branch is only created afterwards.
+     - The source's owner and managers are notified. Notices for offline people are recorded as `notices` in `players/<uuid>.yml` and sent on their next login (rejection and merge notices too).
+     - `/bg world submissions` (also in the settings menu): the menu lists open submissions (submitter, time, which fork, message); click to go in and look, like a draft; `/bg publish` inside to merge (conflicts go through the existing resolution flow). `list` is the chat list, and `reject <branch> [reason]` rejects: the branch is deleted and the submitter notified.
+     - After it is fully merged into main (when publishing or conflict resolution finishes; also checked when viewing the list), the submitter gets "Merged" and the branch is deleted automatically; with only part merged (`--selection`) the submission stays.
+   - Implemented: server world members and private mode, the lobby (§4.2).
+     - In the server world (overworld, Nether, End and their drafts and views): `/bg world`, `/bg world members …`, `/bg world visibility …`; other settings, renaming and so on only exist for build worlds. Admins count as owners (can change visibility, invite managers), and managers on the member list can invite and remove builders. Stored in `buildgit/server-world.yml`.
+     - Members' roles are **added on top of** the permission nodes the server gave (e.g. someone with no nodes can save as a builder), never taking away existing ones; game modes and inventories are untouched.
+     - When private, people without `buildgit.role.viewer` or higher who are not members cannot be in the server world: on login, removal from members, the world going private, respawning after death, and being teleported in (checked every second), they are sent to the lobby.
+     - The lobby `worlds.lobby`: "owner/name" is a build world, which must be public (cannot be made private or unlisted) and always stays loaded; a name or dimension id is a normal world (loaded by a multiworld plugin first, not the server world itself), and people are sent to its spawn. When unset or not found, making it private is refused; if the lobby disappears later, players stay where they are and the console warns once.
+   - Implemented: keeping loaded (§4.3).
+     - `worlds.keep-loaded` lists "owner/name" or "owner/name:draft" (server world drafts as "world name:draft"). After startup, after `/bg reload`, and every 30 seconds after that, they are matched and unloaded ones loaded; they are not unloaded when idle and do not count towards `max-loaded` (nor are they limited by it when loading).
+     - Matched world ids are recorded in `buildgit/keep-loaded.yml` (id → the name written in the setting): after renames and transfers they are found by id and reloaded within 30 seconds.
+     - The settings menu's title description gets an extra line "Kept loaded: main".
+   - Implemented: offsite backups covering all build worlds (§6.3).
+     - Each run of a history backup job also goes through all open build worlds (skipping ones being renamed, deleted and so on, until next time); those with changes each write a snapshot to `<prefix>/worlds/<id>/snapshots/`, and genesis world files go to `<prefix>/worlds/<id>/files/`. Objects and the record of "which saves were uploaded" are shared by the whole job (`<prefix>/objects/`), so forks send nothing extra. One build world failing does not affect the others; errors are reported at the end.
+     - Build world snapshots also carry the registration (owner, name, folder, locations), `repo.yml` (type, terrain, seed, rules and other generation settings), `players.yml` and starting kits; no `level.dat`, since the world folder is rebuilt from the generation settings and genesis world. `players.yml` changes all the time, so it is only included when something else changed.
+     - The remote `<prefix>/worlds.yml` records id → "owner/name", to find worlds by name on a new host; deleted worlds stay in it and can still be restored by id.
+     - `/bg backup list <job> world=<world>`, `/bg backup fetch <branch> [new name] world=<world>`, `/bg backup restore <job> [snapshot] world=<world>` (console only). Without `world=`, the server world.
+     - Restoring a build world needs no restart: it downloads to `…-restore` next to the repository, then unloads that world (people inside are sent away), renames the original world folder, draft folders, repository and an external genesis world to `….before-restore-<time>`, swaps in the downloaded ones and opens it again, rebuilding the world folder from the genesis world and saves. When this server does not have the world, it is put back with the snapshot's registration (refused when the name or folder is taken; when it is in the trash, undelete it first). A repository inside the world folder cannot be restored on its own.
+     - No `/bg init` needed first on a new host: without a repository (or when it cannot be opened), `/bg backup status`, `list` and `restore` (server world) still work; everything else still needs init first.
+     - Restoring the server world no longer touches build worlds: objects are downloaded straight into the shared object directory (only adding), and what in the repository folder does not belong to the server world (`worlds/`, `worlds.yml`, the trash, player data, other backup jobs' records and so on) is moved into the new repository.
+     - Cross-version: snapshots record the Minecraft data version at write time and the repo's `data-version` (including `legacy`); ones written by a newer version are refused; genesis chunks and objects are upgraded by the existing rules.
+   - Implemented: `pull`/`push` for build worlds (§2.1).
+     - `/bg pull` in a build world (or its draft) takes an area of that branch of that world; the pull record also records `world: <id>` (records still live in `buildgit/sync/<player>/`, with one area name per player).
+     - Permissions follow the role in that world: builders and above can `pull` and `push`; visitors can only `pull`, when "allow copies" is on, and cannot `push`; `buildgit.world.admin` can do both.
+     - `/bg push` sends it back to the world it was taken from, saved there as a draft, regardless of where the player is now; the role is checked again on sending back, and it is refused when the world is deleted or being renamed or restored. Areas taken from the server world still need the server world and `buildgit.push` to send back.
+     - For people who cannot use operator blocks, block entities they send back (e.g. signs) have click events cleared: sign click commands run with operator permissions. Ones already there when taken (e.g. made by an admin) are untouched.
+     - The notice on connecting only lists areas that can be sent back now; after sending back to a build world, the button changes to "Go to that world" when the player is not there.
+     - Cross-version: area files record the data version at write time and are upgraded with DataFixer by the existing rules on sending back; biomes are not carried (same as the server world).
+   - Implemented: uploading single-player worlds as new build worlds.
+     - `/bg new <name> from <save>` (`from` goes last, and the save name may contain spaces): the player needs the BuildGit client, and the server needs `player-worlds.upload.connection` (a connection in `s3.yml`); only the overworld type, void terrain when not given, other options as `/bg new`. The client first asks in chat whether to upload, and only starts after **[Upload]** is clicked.
+     - The transfer does not go over the game connection: the server asks the client to pack the save's overworld (`region`, `entities`; 26.1's `dimensions/minecraft/overworld` is recognized too; uncompressed), and the client reports the size and SHA-256; the server issues a presigned PUT URL valid for 15 minutes and bound to the size (a random `uploads/<UUID>/<id>`, host `public-endpoint`), the client uploads directly, and the server downloads (with a limit, 512 MB by default), checks and deletes it.
+     - Uploaded content is not trusted: unpacking only takes region and `.mcc` files with matching names, with a total limit; each chunk is read (with limits on size, depth and node count), upgraded to the current version, and checked for position and generation status, skipping and counting rejected ones. For people who cannot use operator blocks, uploaded operator blocks become air (the palette entry becomes an air not used yet, without duplicates) and their block entities are removed, other block entities have click events cleared, and command block minecarts (with passengers) are removed; entities listed in `ignored-entities` are dropped.
+     - The checked chunks become the genesis world directly, and the first save is an empty "Create", with no history.
+     - Cross-version: saves from a version newer than the server are refused entirely; older ones (from 1.13) are upgraded with DataFixer before being written into the genesis world.
+     - Only the Fabric client; Paper servers can receive it too (same channel).
+   - Implemented: importing a world already on the server as a build world (admins).
+     - `/bg new <name> import <world folder> [owner <player>]`: the folder is relative to the server directory (cannot go outside it); it reads `region` when there is one, otherwise `dimensions/minecraft/overworld`.
+     - When the world is still loaded it is saved first (the same method as saving, waiting for it to reach the region files), then `region` and `entities` are copied to a staging directory, and it goes through the same checks and upgrades as uploaded single-player worlds (operator blocks kept), creating it back on the main thread.
+     - `owner` sets the owner (an online player); with `owner` the console can run it too, and nobody is teleported. A player running the command is teleported in once it is created.
+   - Implemented: removing unused objects (`/bg disk clean`, see 02-admin). All repositories sharing the object directory are used as roots together (including the trash, forks in progress and what was left before restores), and only objects not written or used for more than a day are deleted; an object's modification time is updated when it already exists on write, or when it is confirmed to exist for use.
+     - Cross-version: only the structure of commits and trees is read, block contents are not interpreted, so objects of old versions are marked as usual.
+4. **Later**: favorites.
 
-## 8. 決策
+## 8. Decisions
 
-| 項目 | 決定 |
+| Item | Decision |
 |---|---|
-| 公開 | 所有人能進來看、能 fork；只有成員能改 |
-| 訪客 | 預設旁觀者，擁有者可改冒險；不生成新地形、不能離開世界邊界、擋下 WorldEdit／Axiom 與對世界的改動 |
-| 伺服器世界 | 也是一個建築世界，可以設成員與私人（私人要先有大廳） |
-| 建立設定 | 類型（主世界／地獄／終界）、地形（一般／超平坦可自訂／虛空，建立時腳下一格／範本）、規則預設（建築用／原版） |
-| 刪除 | 原地改名保留 7 天 |
-| 管理 | 管理員可以下架（強制私人）、對任何世界轉讓與刪除；不做檢舉、名稱過濾、自動清理 |
-| 檢視舊版本 | 預設只有成員；擁有者可以開放給訪客 |
-| 大廳 | 普通世界或公開的建築世界；`worlds.keep-loaded` 列出持續載入的世界 |
-| 提出併回 | 第 3 階段做：fork 的世界 `/bg submit`，來源多一個 `submit-` 分支，審查後用現有的併回流程 |
-| 世界資料夾名稱 | 照玩家取的名稱，格式 `world-name` 可設定（預設 `bw_{owner-name}_{name}`，可以沒有前綴）；改名、轉讓時資料夾跟著改，內部以 id 識別 |
-| 背包 | 預設所有世界共通；擁有者可以為自己的世界打開背包隔離，隔離後才能設定成員、訪客的起始物品；管理員可以強制隔離或不允許 |
-| 存放位置 | 版本庫、物件、起點世界各自用路徑範本設定；預設版本庫在 `buildgit/worlds/<id>`、物件共用，生成設定在版本庫的 `repo.yml`；改成 `{world-folder}/buildgit` 就是整個建築世界都在世界資料夾裡 |
+| Public | Everyone can come in to look and fork; only members can change it |
+| Visitors | Spectator by default, owners can change to adventure; no new terrain, cannot leave the world border, WorldEdit/Axiom and changes to the world blocked |
+| Server world | Also a build world, can have members and be private (private needs a lobby first) |
+| Creation settings | Type (overworld/Nether/End), terrain (normal/customizable superflat/void with one block underfoot at creation/template), rule preset (build/vanilla) |
+| Deleting | Renamed in place and kept for 7 days |
+| Administration | Admins can unlist (force private), transfer and delete any world; no reporting, name filtering or automatic cleanup |
+| Viewing old versions | Members only by default; owners can open it to visitors |
+| Lobby | A normal world or a public build world; `worlds.keep-loaded` lists worlds that stay loaded |
+| Submissions | Done in phase 3: `/bg submit` in a forked world, the source gets a `submit-` branch, merged after review with the existing publish flow |
+| World folder names | Follow the name the player gave, format `world-name` configurable (default `bw_{owner-name}_{name}`, prefix optional); folders change on renames and transfers, identified internally by id |
+| Inventories | Shared across all worlds by default; owners can turn on inventory isolation for their own worlds, and only then set starting kits for members and visitors; admins can force or forbid isolation |
+| Storage locations | Repository, objects and genesis world each set with a path template; by default the repository is in `buildgit/worlds/<id>` with shared objects, and generation settings in the repository's `repo.yml`; `{world-folder}/buildgit` puts the whole build world inside its world folder |
