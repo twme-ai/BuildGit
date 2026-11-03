@@ -1,93 +1,93 @@
-# BuildGit 需求（2026-10-14 草案）
+# BuildGit requirements (draft of 2026-10-14)
 
-## 1. 目標與定位
+## 1. Goal and positioning
 
-給**創造模式建築玩家**用的多人協作與版本控制工具。
+A multiplayer collaboration and version control tool for **creative-mode builders**.
 
-與 WorldGit 的差異：WorldGit 比對整個世界的存檔，會收進大量非玩家造成的變化（tick、生物、自然生長等），流程也偏重。BuildGit 參考 CoreProtect 的作法，**只追蹤由玩家造成的變更**，版本內容就是「玩家建造了什麼」。
+How it differs from WorldGit: WorldGit diffs whole world saves, which picks up lots of changes not made by players (ticks, mobs, natural growth and so on), and its workflow is heavy. BuildGit follows CoreProtect's approach and **tracks only changes caused by players**, so a version's content is exactly "what the players built".
 
-BuildGit 是全新專案，可以參考或複製 WorldGit 的程式（物件儲存、NBT、合併），但不共用程式庫。
+BuildGit is a new project. It may refer to or copy WorldGit's code (object storage, NBT, merging), but does not share a library with it.
 
-## 2. 平台與版本
+## 2. Platforms and versions
 
-| 平台 | 版本 |
+| Platform | Versions |
 |---|---|
-| Paper 插件 | 26.3、26.2、1.21.11 |
-| Fabric mod | 26.3、26.2、1.21.11；dedicated 伺服器與單人模式都支援（單人存檔有自己的版本庫；選取範圍可以帶到單人世界改再送回伺服器，見設計 §6.7） |
+| Paper plugin | 26.3, 26.2, 1.21.11 |
+| Fabric mod | 26.3, 26.2, 1.21.11; both dedicated servers and single-player (single-player saves have their own repository; a selection can be taken to a single-player world, changed there and sent back to the server, see design §6.7) |
 
-## 3. 變更追蹤
+## 3. Change tracking
 
-### 3.1 直接操作來源
+### 3.1 Direct sources
 
-- 原版：放置、破壞、與方塊互動（桶子、告示牌、容器內容、物品展示框等）。
-- WorldEdit／FAWE。
-- Axiom。
-- 玩家執行的指令：`/fill`、`/clone`、`/setblock` 等。
+- Vanilla: placing, breaking, interacting with blocks (buckets, signs, container contents, item frames and so on).
+- WorldEdit/FAWE.
+- Axiom.
+- Commands run by players: `/fill`, `/clone`, `/setblock` and so on.
 
-### 3.2 連帶變化：因果追蹤
+### 3.2 Knock-on changes: causal tracking
 
-由玩家操作引發的後續變化，也歸給該玩家：
+Later changes caused by a player's action are also attributed to that player:
 
-- 鄰居形狀更新：樓梯、柵欄、牆、玻璃片、紅石線等。
-- 排程 tick：水流、岩漿、沙子／礫石落下、紅石。
-- 玩家生成的實體，以及這些實體之後的變化。
+- Neighbor shape updates: stairs, fences, walls, glass panes, redstone wire and so on.
+- Scheduled ticks: water flow, lava, falling sand/gravel, redstone.
+- Entities spawned by players, and what those entities change later.
 
-作法：被玩家動過的座標會被標記；從被標記座標引發的鄰居更新、排程 tick 與實體生成，沿著因果鏈繼續標記。
+How: positions touched by a player are marked; neighbor updates, scheduled ticks and entity spawns caused from marked positions keep marking along the causal chain.
 
-非玩家引發的變化不追蹤，例如自然生長、生物行為、天氣、未被標記的紅石時鐘。
+Changes not caused by players are not tracked, e.g. natural growth, mob behavior, weather, unmarked redstone clocks.
 
-**終點**：追到變化停下來為止。紅石時鐘這類會一直重複的狀態，提交時只存當下狀態。另設安全上限，例如離來源最遠 256 格，數值可在 YAML 設定。
+**Where it ends**: tracking continues until the changes stop. For states that keep repeating, such as redstone clocks, a commit stores only the current state. There is also a safety limit, e.g. at most 256 blocks from the source, configurable in YAML.
 
-**範圍**：整個分支世界都追蹤，不需要事先劃定區域；所有遊戲模式的玩家操作都追蹤。
+**Scope**: the whole branch world is tracked, with no area to mark out in advance; actions by players in every game mode are tracked.
 
-### 3.3 記錄方式
+### 3.3 How it is recorded
 
-- 玩家操作只用來標記「哪些座標或實體被動過」，並記下作者是誰。
-- 提交時，儲存這些位置**當下的最終狀態**：方塊狀態、方塊實體（容器、告示牌）、實體。
-- 不靠重播事件來還原，所以漏掉某筆事件的中間過程，也不會讓還原出錯。
+- Player actions are only used to mark "which positions or entities were touched", and who the author is.
+- On commit, the **current final state** of these places is stored: block states, block entities (containers, signs), entities.
+- Restoring does not rely on replaying events, so missing the intermediate steps of some event does not make a restore wrong.
 
-## 4. 版本控制模型
+## 4. Version control model
 
-完整的 git 模型：提交、歷史、差異、還原、分支、合併、衝突處理。
+The full git model: commits, history, diffs, reverts, branches, merges, conflict handling.
 
-| 項目 | 需求 |
+| Item | Requirement |
 |---|---|
-| 提交範圍 | 收進該分支世界自上次提交以來所有被標記的變更；每筆變更保留作者 |
-| 分支 | **每個分支是一個獨立的世界**。玩家自行傳送進出，多人可以同時在不同分支工作，互不干擾 |
-| 分支世界建立 | **延遲複製**：分支世界一開始是空的，chunk 第一次被讀取時，才從父分支的提交狀態產生 |
-| 權限 | 預設只有 OP。提交、建分支、合併、還原各有權限節點：Paper 用 LuckPerms 等插件分配，Fabric 用 Fabric Permissions API |
-| 合併 | 把分支的變更合併回目標分支的世界 |
-| 衝突 | 兩邊改到同一格時，建立**兩個唯讀對照世界**（我的、對方的）與**一個整合世界**，三者座標相同，可用指令在同一座標快速來回傳送；玩家在整合世界手動整合後提交 |
-| 作者歸屬 | 查詢某格或某範圍由誰、在哪次提交改的 |
-| 遠端 | 不做伺服器之間的版本庫同步；只有「選取範圍帶到單人世界改再送回成草稿」（設計 §6.7）。儲存格式保留之後加入 push／pull 的空間 |
-| 備份 | 版本庫與世界資料夾可以增量備份到 S3 相容的物件儲存或本機資料夾，每個目的地各自的排程（cron、伺服器閒置）與保留份數；主機壞掉時在新主機上還原所有分支與歷史，世界資料夾可以回到某個時間點（設計 §2.5～§2.7） |
-| 建築世界（第一階段：管理員建立） | 玩家可以建立自己的建築世界，每個是獨立的 repo，可設成私人或公開、邀請成員、fork 別人的公開作品（[03-worlds.md](03-worlds.md)） |
+| Commit scope | Takes all marked changes in that branch world since the last commit; each change keeps its author |
+| Branches | **Each branch is a separate world**. Players teleport in and out themselves, and several people can work on different branches at once without disturbing each other |
+| Creating branch worlds | **Lazy copy**: a branch world starts empty, and a chunk is produced from the parent branch's committed state only when it is first read |
+| Permissions | OP only by default. Committing, branching, merging and restoring each have a permission node: assigned with plugins such as LuckPerms on Paper, with the Fabric Permissions API on Fabric |
+| Merging | Merges a branch's changes back into the target branch's world |
+| Conflicts | When both sides changed the same block, **two read-only comparison worlds** (mine, theirs) and **one resolution world** are created, all with the same coordinates, with commands to teleport quickly between them at the same position; the player resolves by hand in the resolution world, then commits |
+| Attribution | Look up who changed a block or area, and in which commit |
+| Remotes | No repository sync between servers; only "take a selection to a single-player world, change it there and send it back as a draft" (design §6.7). The storage format leaves room to add push/pull later |
+| Backups | The repository and world folders can be backed up incrementally to S3-compatible object storage or a local folder, with each destination's own schedule (cron, server idle) and retention count; when the host fails, all branches and history are restored on a new host, and world folders can go back to a point in time (design §2.5–§2.7) |
+| Build worlds (phase 1: created by admins) | Players can create their own build worlds, each a separate repo, which can be private or public, invite members, and fork others' public work ([03-worlds.md](03-worlds.md)) |
 
-## 4.1 操作體驗（建築師導向）
+## 4.1 Experience (for builders)
 
-| 項目 | 需求 |
+| Item | Requirement |
 |---|---|
-| 三步流程 | `try <名稱>` 開草稿並傳送進去；`publish` 先預覽，確認後存檔、併回再傳送回來；`back` 不併回直接回去 |
-| 自動存檔 | 有變更、且所有人停手一段時間（預設 5 分鐘）後自動存檔；手動存檔是里程碑，歷史預設只顯示里程碑 |
-| 選取範圍 | `publish`、`restore`、衝突的 `take` 都可以只作用在 WorldEdit／Axiom 的選取範圍 |
-| 回到過去看 | `view <版本>` 開唯讀世界看舊版本，可以用 WorldEdit 複製回來 |
-| 草稿提示 | 在草稿裡時，bossbar 一直顯示草稿名稱與未存格數 |
-| 檢查工具 | 拿著它點方塊，顯示誰、在哪次存檔、什麼時候改的 |
-| 箱子介面 | 用箱子介面瀏覽歷史與草稿，點一下就能預覽、傳送或還原；不需要客戶端模組 |
-| 用語 | 畫面上用「草稿／存檔／併回／里程碑」；英文指令另保留 git 名稱給熟手 |
+| Three-step flow | `try <name>` opens a draft and teleports you in; `publish` previews first, then after confirming saves, merges and teleports you back; `back` goes back without merging |
+| Autosave | When there are changes and everyone has stopped for a while (5 minutes by default), save automatically; manual saves are milestones, and history shows only milestones by default |
+| Selections | `publish`, `restore` and conflict `take` can all act on just the WorldEdit/Axiom selection |
+| Looking into the past | `view <version>` opens a read-only world with an old version, which can be copied back with WorldEdit |
+| Draft indicator | While in a draft, the bossbar always shows the draft name and the number of unsaved blocks |
+| Inspect tool | Hold it and click a block to show who changed it, in which save, and when |
+| Chest menus | Browse history and drafts in chest menus, and preview, teleport or restore with one click; no client mod needed |
+| Wording | The UI says "draft/save/publish/milestone"; English commands also keep the git names for experienced users |
 
-## 5. 開發約定
+## 5. Development conventions
 
-- 程式由 Claude 直接撰寫，本專案**不使用 Codex 編輯**。
-- 文件使用正體中文；設定檔使用 YAML；訊息使用 MiniMessage。
-- commit 使用 twme-ai 身分並簽章。
+- The code is written directly by Claude; this project **does not use Codex for editing**.
+- Documents are in English (originally Traditional Chinese); settings files use YAML; messages use MiniMessage.
+- Commits use the twme-ai identity and are signed.
 
-## 6. 下一步
+## 6. Next steps
 
-需求面已全部定案。接下來的設計文件要決定：
+The requirements are all settled. The design document then needs to decide:
 
-- 儲存格式與物件模型；
-- 因果追蹤在 Paper（NMS）與 Fabric（mixin）的掛點；
-- 延遲複製世界的 chunk 載入機制；
-- 合併演算法；
-- 指令與權限節點清單。
+- the storage format and object model;
+- the hooks for causal tracking on Paper (NMS) and Fabric (mixins);
+- the chunk loading mechanism for lazily copied worlds;
+- the merge algorithm;
+- the list of commands and permission nodes.
