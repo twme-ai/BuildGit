@@ -1,8 +1,10 @@
 # BuildGit 設定。修改後執行 /bg reload（少數標明的要重新啟動）。
 # 前半是一般會調整的設定；「進階」以下通常不用動。寫錯字的設定會在主控台警告。
 
-# 訊息語言：zh_tw 或 en_us
-language: zh_tw
+# Message language for the console, and for players whose game language has no lang file (en_us, zh_tw, or your own lang/<code>.yml)
+language: en_us
+# true: each player sees BuildGit in the language set in their game (when there is a lang file for it); false: everyone sees `language`
+language-per-player: true
 
 # 建築世界：一個世界一個版本庫（docs/03-worlds.md）。玩家用 /bg new 建立自己的；
 # 管理員（buildgit.world.admin）另外可以替別人建立、匯入伺服器上的世界（/bg new <名稱> import <資料夾> owner <玩家>）。

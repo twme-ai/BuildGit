@@ -87,7 +87,7 @@ final class KitEditor {
 
   /** 打開成員或訪客的起始物品；{@code menu} 是從設定選單點進來的，關上後回到設定選單。 */
   static void open(BuildGit bg, ServerPlayer p, Workspace ws, boolean visitor, boolean menu) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var key = visitor ? "kit-visitor" : "kit-member";
     var file = ws.kitFile(visitor).toAbsolutePath().normalize();
     var other = EDITING.get(file);
@@ -144,7 +144,7 @@ final class KitEditor {
         if (menu) bg.platform().later(1, () -> {
           if (!p.hasDisconnected() && bg.workspace(p.level()) == ws) bg.menu().openSettings(p, ws);
         });
-        else msg.send(bg.platform().sender(p), "settings-changed", "setting", msg.get("setting-" + key), "value", bg.menu().settingValue(ws, key));
+        else msg.send(bg.platform().sender(p), "settings-changed", "setting", msg.get("setting-" + key), "value", bg.menu().settingValue(p, ws, key));
       }
     }, vanilla(p, msg.get("kit-editor-title", "setting", msg.get("setting-" + key), "world", ws.label()))));
   }

@@ -165,12 +165,12 @@ public final class BgCommand {
       int space = k.indexOf(' ');
       String path = k.substring(space + 1);
       if (path.contains("secret") || path.contains("access-key")) msg().send(sender, "reload-change-hidden", "file", k.substring(0, space), "key", path);
-      else msg().send(sender, "reload-change", "file", k.substring(0, space), "key", path, "old", value(before.get(k)), "new", value(after.get(k)));
+      else msg().send(sender, "reload-change", "file", k.substring(0, space), "key", path, "old", value(sender, before.get(k)), "new", value(sender, after.get(k)));
     }
   }
 
-  private Component value(String v) {
-    return v == null ? msg().get("reload-unset") : Component.text(v);
+  private Component value(Sender sender, String v) {
+    return v == null ? msg(sender).get("reload-unset") : Component.text(v);
   }
 
   /** {@code permissions}：以 {@code |} 分隔，有其中一個就能用（子指令各有權限時）。 */
@@ -222,16 +222,16 @@ public final class BgCommand {
     var sections = new ArrayList<>(admin ? List.of(ADMIN_HELP) : HELP);
     sections.sort(java.util.Comparator.comparing(s -> !s.key().equals(front)));
     var out = new ArrayList<Component>();
-    if (p != null && sender.hasPermission("buildgit.menu") && !admin) out.add(msg().get("help-menu"));
+    if (p != null && sender.hasPermission("buildgit.menu") && !admin) out.add(msg(sender).get("help-menu"));
     for (var section : sections) {
       var lines = section.lines().stream().filter(l -> l.stream().anyMatch(name -> canUse(sender, ws, name))).toList();
       if (lines.isEmpty()) continue;
-      out.add(msg().get("help-section-" + section.key()));
-      for (var l : lines) out.add(msg().get("help-" + l.getFirst()));
+      out.add(msg(sender).get("help-section-" + section.key()));
+      for (var l : lines) out.add(msg(sender).get("help-" + l.getFirst()));
     }
     if (!admin && ADMIN_HELP.lines().stream().flatMap(List::stream).anyMatch(name -> canUse(sender, ws, name)))
-      out.add(msg().get("help-admin-hint"));
-    sender.send(msg().prefixed(Component.join(net.kyori.adventure.text.JoinConfiguration.newlines(), out)));
+      out.add(msg(sender).get("help-admin-hint"));
+    sender.send(msg(sender).prefixed(Component.join(net.kyori.adventure.text.JoinConfiguration.newlines(), out)));
   }
 
   /** 說明裡列不列這個子指令：有權限；世界設定只給這個建築世界的擁有者、管理者與管理員。 */
@@ -247,6 +247,11 @@ public final class BgCommand {
 
   private Messages msg() {
     return bg.messages();
+  }
+
+  /** 照這位發送者的語言。 */
+  private Messages.To msg(Sender sender) {
+    return bg.messages().to(sender);
   }
 
   /** 指令作用的版本庫：玩家所在世界的（建築世界或伺服器世界）；主控台是伺服器世界的。 */
@@ -364,7 +369,7 @@ public final class BgCommand {
 
   /** 花時間的動作：在執行的玩家的 bossbar 上顯示進度（{@code progress} 為 null 時只顯示秒數），直到 {@link #done}。 */
   private void progress(Sender sender, Progress progress, String key, Object... placeholders) {
-    bg.hud().start(sender, msg().get(key, placeholders), progress);
+    bg.hud().start(sender, msg(sender).get(key, placeholders), progress);
   }
 
   private void done(Sender sender) {
@@ -417,10 +422,10 @@ public final class BgCommand {
     return wt != null ? wt : ws.main();
   }
 
-  private Component branchLabel(String branch) {
-    if (branch.equals(Repository.MAIN)) return msg().get("branch-main");
-    if (Workspace.isScratch(branch)) return msg().get("branch-merge", "name", branch);
-    return msg().get("branch-draft", "name", branch);
+  private Component branchLabel(Sender sender, String branch) {
+    if (branch.equals(Repository.MAIN)) return msg(sender).get("branch-main");
+    if (Workspace.isScratch(branch)) return msg(sender).get("branch-merge", "name", branch);
+    return msg(sender).get("branch-draft", "name", branch);
   }
 
   private Author author(Sender sender) {
@@ -513,7 +518,7 @@ public final class BgCommand {
     for (int i = 0; i < Math.min(10, areas.size()); i++) {
       var a = areas.get(i);
       var b = a.box();
-      var line = msg().get("areas-entry", "n", i + 1, "cells", a.cells(), "chunks", a.chunks(), "dimension", a.dimension(), "from",
+      var line = msg(sender).get("areas-entry", "n", i + 1, "cells", a.cells(), "chunks", a.chunks(), "dimension", a.dimension(), "from",
           b.minX() + " " + b.minY() + " " + b.minZ(), "to", b.maxX() + " " + b.maxY() + " " + b.maxZ());
       sender.send(sender.isPlayer() ? line.clickEvent(ClickEvent.runCommand(command + " " + (i + 1))) : line);
     }
@@ -542,17 +547,17 @@ public final class BgCommand {
 
   /** diff 的結果；玩家的後面接著關閉外框的按鈕。 */
   private void sendDiff(Sender sender, Component text) {
-    sender.send(msg().prefixed(sender.isPlayer()
-        ? text.append(Component.text(" ")).append(button("diff-flip-button", "/bg diff flip")).append(Component.text(" ")).append(button("diff-off-button", "/bg diff off"))
+    sender.send(msg(sender).prefixed(sender.isPlayer()
+        ? text.append(Component.text(" ")).append(button(sender, "diff-flip-button", "/bg diff flip")).append(Component.text(" ")).append(button(sender, "diff-off-button", "/bg diff off"))
         : text));
   }
 
-  private Component button(String key, String command) {
-    return msg().get(key).clickEvent(ClickEvent.runCommand(command));
+  private Component button(Sender sender, String key, String command) {
+    return msg(sender).get(key).clickEvent(ClickEvent.runCommand(command));
   }
 
   private void sendButton(Sender sender, String key, String command) {
-    if (sender.isPlayer()) sender.send(button(key, command));
+    if (sender.isPlayer()) sender.send(button(sender, key, command));
     else msg().send(sender, "console-confirm", "command", command);
   }
 
@@ -599,7 +604,7 @@ public final class BgCommand {
     var ws = ws(sender);
     var repo = ws.repo();
     var wt = current(sender);
-    msg().send(sender, "status-header", "branch", branchLabel(wt.branch()), "head", repo.head(wt.branch()).abbrev());
+    msg().send(sender, "status-header", "branch", branchLabel(sender, wt.branch()), "head", repo.head(wt.branch()).abbrev());
     var table = wt.table();
     if (table.isEmpty()) msg().send(sender, "status-clean");
     else {
@@ -679,12 +684,12 @@ public final class BgCommand {
             folded++;
             continue;
           }
-          if (folded > 0) lines.add(msg().get("log-folded", "count", folded));
+          if (folded > 0) lines.add(msg(sender).get("log-folded", "count", folded));
           folded = 0;
-          lines.add(msg().get("log-entry", "id", commitLink(id), "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
-              "message", c.auto() ? msg().get("log-auto") : Component.text(c.message()), "coauthors", coauthors(repo, c)));
+          lines.add(msg(sender).get("log-entry", "id", commitLink(sender, id), "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
+              "message", c.auto() ? msg(sender).get("log-auto") : Component.text(c.message()), "coauthors", coauthors(sender, repo, c)));
         }
-        if (folded > 0 && lines.size() < want) lines.add(msg().get("log-folded", "count", folded));
+        if (folded > 0 && lines.size() < want) lines.add(msg(sender).get("log-folded", "count", folded));
       } catch (IOException | RuntimeException e) {
         failed(sender, e);
         return;
@@ -697,8 +702,8 @@ public final class BgCommand {
   private static final int PAGE = 8;
 
   /** 可點的存檔編號：點了就是 /bg diff。 */
-  private Component commitLink(ObjectId id) {
-    return msg().get("commit-link", "id", id.abbrev()).clickEvent(ClickEvent.runCommand("/bg diff " + id.abbrev()));
+  private Component commitLink(Sender sender, ObjectId id) {
+    return msg(sender).get("commit-link", "id", id.abbrev()).clickEvent(ClickEvent.runCommand("/bg diff " + id.abbrev()));
   }
 
   /**
@@ -713,12 +718,12 @@ public final class BgCommand {
       else msg().send(sender, "page-none", "page", page);
       return;
     }
-    var prefix = msg().get("prefix");
+    var prefix = msg(sender).get("prefix");
     for (var line : lines.subList(from, Math.min(lines.size(), page * PAGE))) sender.send(prefix.append(line));
     boolean more = lines.size() > page * PAGE;
     if (page == 1 && !more) return;
-    var prev = page > 1 ? msg().get("page-prev").clickEvent(ClickEvent.runCommand(command.formatted(" " + (page - 1)))) : Component.empty();
-    var next = more ? msg().get("page-next").clickEvent(ClickEvent.runCommand(command.formatted(" " + (page + 1)))) : Component.empty();
+    var prev = page > 1 ? msg(sender).get("page-prev").clickEvent(ClickEvent.runCommand(command.formatted(" " + (page - 1)))) : Component.empty();
+    var next = more ? msg(sender).get("page-next").clickEvent(ClickEvent.runCommand(command.formatted(" " + (page + 1)))) : Component.empty();
     msg().send(sender, "page-footer", "page", page, "prev", prev, "next", next);
   }
 
@@ -751,27 +756,27 @@ public final class BgCommand {
       var lines = new ArrayList<Component>();
       for (var r : rows) {
         var refs = Component.text();
-        for (var name : heads.getOrDefault(r.id(), List.of())) refs.append(Component.space()).append(msg().get("graph-ref", "branch", branchLabel(name)));
+        for (var name : heads.getOrDefault(r.id(), List.of())) refs.append(Component.space()).append(msg(sender).get("graph-ref", "branch", branchLabel(sender, name)));
         var c = r.commit();
-        lines.add(msg().get("graph-entry", "graph", Component.text(r.graph()).font(MONO), "id", commitLink(r.id()), "refs", refs.build(),
+        lines.add(msg(sender).get("graph-entry", "graph", Component.text(r.graph()).font(MONO), "id", commitLink(sender, r.id()), "refs", refs.build(),
             "time", TIME.format(Instant.ofEpochMilli(c.time())), "author", c.author().name(),
-            "message", c.auto() ? msg().get("log-auto") : Component.text(c.message())));
+            "message", c.auto() ? msg(sender).get("log-auto") : Component.text(c.message())));
       }
       showPage(sender, lines, page, "/bg log --graph%s" + (all ? " --all" : "") + (author != null ? " --author " + author : ""));
     });
   }
 
   /** 存檔裡改過東西、但不是存檔者的玩家（最多列 3 位）；沒有時是空的。 */
-  private Component coauthors(Repository repo, Commit c) throws IOException {
+  private Component coauthors(Sender sender, Repository repo, Commit c) throws IOException {
     var names = new LinkedHashSet<String>();
     for (var a : repo.changeset(c.changeset()).authors())
       if (!a.uuid().equals(c.author().uuid()) && !a.equals(Author.MERGE) && !a.equals(Author.SYSTEM)) names.add(a.name());
     if (names.isEmpty()) return Component.empty();
-    var shown = Component.join(net.kyori.adventure.text.JoinConfiguration.separator(msg().get("log-coauthors-separator")),
+    var shown = Component.join(net.kyori.adventure.text.JoinConfiguration.separator(msg(sender).get("log-coauthors-separator")),
         names.stream().limit(3).map(Component::text).toList());
     return names.size() > 3
-        ? msg().get("log-coauthors-more", "names", shown, "count", names.size())
-        : msg().get("log-coauthors", "names", shown);
+        ? msg(sender).get("log-coauthors-more", "names", shown, "count", names.size())
+        : msg(sender).get("log-coauthors", "names", shown);
   }
 
   private boolean wrote(Repository repo, Commit c, String name) throws IOException {
@@ -793,7 +798,7 @@ public final class BgCommand {
           break;
         }
         msg().send(sender, "show-cell", "pos", pos(cell.pos()), "dimension", cell.dimension(), "author", cs.author(cell.author()).name(),
-            "kind", msg().get(kind(cell.kind())));
+            "kind", msg(sender).get(kind(cell.kind())));
       }
     }
   }
@@ -858,7 +863,7 @@ public final class BgCommand {
         }
         var flip = before;
         ws.sync(() -> {
-          sendDiff(sender, msg().get("diff-unsaved", "cells", changed.size()));
+          sendDiff(sender, msg(sender).get("diff-unsaved", "cells", changed.size()));
           outline(sender, changed);
           if (level != null && sender.player() instanceof ServerPlayer p) flips.set(p, level, flip);
           listAreas(sender, ws, here.branch(), changed, "/bg diff goto");
@@ -911,7 +916,7 @@ public final class BgCommand {
         return;
       }
       if (single != null) show(sender, a, single, r.changeset(), listCells);
-      sendDiff(sender, msg().get("diff-summary", "added", r.counts()[0], "removed", r.counts()[1], "modified", r.counts()[2], "entities", r.entities()));
+      sendDiff(sender, msg(sender).get("diff-summary", "added", r.counts()[0], "removed", r.counts()[1], "modified", r.counts()[2], "entities", r.entities()));
       if (r.biomes() > 0) msg().send(sender, "biomes-outlined", "count", r.biomes());
       outline(sender, r.changed());
       if (level != null && sender.player() instanceof ServerPlayer p) flips.set(p, level, r.before());
@@ -1092,7 +1097,7 @@ public final class BgCommand {
           }
           var b = blame.get();
           msg().send(s(player), "inspect-blame", "pos", pos, "author", b.author().name(), "id", b.commit().abbrev(), "time", time,
-              "kind", msg().get(kind(b.kind())));
+              "kind", msg(s(player)).get(kind(b.kind())));
         });
       } catch (IOException ex) {
         bg.platform().log().log(Level.WARNING, "blame 失敗", ex);
@@ -1281,7 +1286,7 @@ public final class BgCommand {
       return;
     }
     ws.teleport(p, ws.openBranch(name));
-    msg().send(s(p), "go-done", "branch", branchLabel(name));
+    msg().send(s(p), "go-done", "branch", branchLabel(sender, name));
   }
 
   private void back(Sender sender) throws IOException {
@@ -1305,7 +1310,7 @@ public final class BgCommand {
     }
     String source = ws.source(wt.branch());
     ws.teleport(p, ws.openBranch(source));
-    msg().send(s(p), "go-done", "branch", branchLabel(source));
+    msg().send(s(p), "go-done", "branch", branchLabel(sender, source));
   }
 
   /** {@code view <版本>}：唯讀地看某個版本（設計 §6.5）。 */
@@ -1431,9 +1436,9 @@ public final class BgCommand {
         playback.start(p, ws, dimension, steps);
         msg().send(sender, "play-started", "count", steps.size() - 1, "seconds", Playback.DEFAULT_SECONDS,
             "from", TIME.format(Instant.ofEpochMilli(steps.getFirst().time())), "to", TIME.format(Instant.ofEpochMilli(steps.getLast().time())));
-        sender.send(msg().prefixed(Component.join(net.kyori.adventure.text.JoinConfiguration.separator(Component.space()),
-            button("play-button-prev", "/bg play prev"), button("play-button-pause", "/bg play pause"), button("play-button-resume", "/bg play resume"),
-            button("play-button-next", "/bg play next"), button("play-button-stop", "/bg play stop"))));
+        sender.send(msg(sender).prefixed(Component.join(net.kyori.adventure.text.JoinConfiguration.separator(Component.space()),
+            button(sender, "play-button-prev", "/bg play prev"), button(sender, "play-button-pause", "/bg play pause"), button(sender, "play-button-resume", "/bg play resume"),
+            button(sender, "play-button-next", "/bg play next"), button(sender, "play-button-stop", "/bg play stop"))));
       } catch (IOException | RuntimeException e) {
         failed(sender, e);
       }
@@ -1491,7 +1496,7 @@ public final class BgCommand {
     var finalScope = scope;
     var d = draft;
     boolean confirm = flags.contains("confirm");
-    msg().send(sender, confirm ? "publish-start" : "publish-preview-start", "name", draft.branch(), "target", branchLabel(targetBranch));
+    msg().send(sender, confirm ? "publish-start" : "publish-preview-start", "name", draft.branch(), "target", branchLabel(sender, targetBranch));
     progress(sender, confirm ? target.progress() : null, confirm ? "progress-publish" : "progress-preview", "name", draft.branch());
     autosaveThen(sender, draft, () -> autosaveThen(sender, target, () -> {
       if (confirm) merge(sender, target, d.branch(), finalScope, d);
@@ -1523,19 +1528,19 @@ public final class BgCommand {
             }
       int conflicts = preview.result().cellConflicts().size() + preview.result().entityConflicts().size();
       for (var viewer : viewers) {
-        msg().send(viewer, "publish-preview", "cells", preview.cells(), "entities", preview.entities(), "target", branchLabel(target.branch()));
+        msg().send(viewer, "publish-preview", "cells", preview.cells(), "entities", preview.entities(), "target", branchLabel(sender, target.branch()));
         preview.authors().entrySet().stream().sorted(Map.Entry.<String, Integer>comparingByValue().reversed()).limit(10)
             .forEach(e -> msg().send(viewer, "publish-preview-author", "author", e.getKey(), "cells", e.getValue()));
         if (preview.biomes() > 0) msg().send(viewer, "biomes-outlined", "count", preview.biomes());
         if (conflicts > 0) msg().send(viewer, "publish-preview-conflicts", "count", conflicts);
         if (!preview.result().biomeConflicts().isEmpty())
-          msg().send(viewer, "publish-preview-biome-conflicts", "count", preview.result().biomeConflicts().size(), "target", branchLabel(target.branch()));
+          msg().send(viewer, "publish-preview-biome-conflicts", "count", preview.result().biomeConflicts().size(), "target", branchLabel(sender, target.branch()));
         outline(viewer, preview.changed());
         listAreas(viewer, ws, source, preview.changed(), "/bg publish goto");
       }
       String command = "/bg publish " + (sender.isPlayer() ? "" : source + " ") + (selection ? "--selection " : "") + "confirm";
       if (sender.isPlayer())
-        sender.send(button("publish-confirm-button", command).append(Component.text(" ")).append(button("publish-cancel-button", "/bg publish cancel")));
+        sender.send(button(sender, "publish-confirm-button", command).append(Component.text(" ")).append(button(sender, "publish-cancel-button", "/bg publish cancel")));
       else sendButton(sender, "publish-confirm-button", command);
     }));
   }
@@ -1551,7 +1556,7 @@ public final class BgCommand {
       }
       var a = applied.get();
       msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
-          branchLabel(target.branch()));
+          branchLabel(sender, target.branch()));
       if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
       if (draft != null && sender.player() instanceof ServerPlayer p && !p.hasDisconnected() && ws.worktree(p.level()) == draft) {
         ws.teleport(p, target);
@@ -1821,20 +1826,20 @@ public final class BgCommand {
         long total = folderSize(dir) + (genesisRoot.toAbsolutePath().normalize().startsWith(root) ? 0 : genesis)
             + (objectsDir.toAbsolutePath().normalize().startsWith(root) ? 0 : objects);
         var lines = new ArrayList<Component>();
-        lines.add(msg().get("disk-entry", "name", msg().get("disk-objects"), "size", megabytes(objects)));
-        lines.add(msg().get("disk-entry", "name", msg().get("disk-genesis"), "size", megabytes(genesis)));
-        lines.add(msg().get("disk-entry", "name", msg().get("disk-other"), "size", megabytes(total - objects - genesis)));
+        lines.add(msg(sender).get("disk-entry", "name", msg(sender).get("disk-objects"), "size", megabytes(objects)));
+        lines.add(msg(sender).get("disk-entry", "name", msg(sender).get("disk-genesis"), "size", megabytes(genesis)));
+        lines.add(msg(sender).get("disk-entry", "name", msg(sender).get("disk-other"), "size", megabytes(total - objects - genesis)));
         for (var branch : branches) {
           long size = 0;
           for (var dim : dims) size += folderSize(platform.levelFolder(ws.worldName(branch, dim)));
           total += size;
-          lines.add(msg().get("disk-entry", "name", branchLabel(branch), "size", megabytes(size)));
+          lines.add(msg(sender).get("disk-entry", "name", branchLabel(sender, branch), "size", megabytes(size)));
         }
         long views = 0;
         for (var name : platform.levelFolders())
           if (ws.isViewFolder(name)) views += folderSize(platform.levelFolder(name));
         total += views;
-        if (views > 0) lines.add(msg().get("disk-entry", "name", msg().get("disk-views"), "size", megabytes(views)));
+        if (views > 0) lines.add(msg(sender).get("disk-entry", "name", msg(sender).get("disk-views"), "size", megabytes(views)));
         msg().send(sender, "disk-header", "size", megabytes(total));
         lines.forEach(sender::send);
       } catch (IOException | RuntimeException e) {
@@ -1911,9 +1916,9 @@ public final class BgCommand {
           var wt = ws.worktree(e.getKey());
           var players = new ArrayList<String>();
           if (wt != null) for (var world : wt.worlds().values()) for (var p : world.players()) players.add(p.getScoreboardName());
-          msg().send(sender, "branch-entry", "branch", branchLabel(e.getKey()), "head", e.getValue().abbrev(),
+          msg().send(sender, "branch-entry", "branch", branchLabel(sender, e.getKey()), "head", e.getValue().abbrev(),
               "time", TIME.format(Instant.ofEpochMilli(ws.repo().commit(e.getValue()).time())),
-              "players", players.isEmpty() ? Component.empty() : msg().get("branch-players", "names", String.join("、", players)));
+              "players", players.isEmpty() ? Component.empty() : msg(sender).get("branch-players", "names", String.join("、", players)));
         }
         for (var s : ws.merges().all())
           msg().send(sender, "merge-entry", "id", s.id(), "source", s.source() == null ? s.base().abbrev() : s.source(), "target", s.target());
@@ -1953,11 +1958,11 @@ public final class BgCommand {
     progress(sender, ws.openBranch(s.target()).progress(), "progress-merge-finish");
     ws.merges().finish(s, author(sender), applied -> {
       done(sender);
-      if (applied.isEmpty()) msg().send(sender, "merge-finished-empty", "target", branchLabel(s.target()));
+      if (applied.isEmpty()) msg().send(sender, "merge-finished-empty", "target", branchLabel(sender, s.target()));
       else {
         var a = applied.get();
         msg().send(sender, "publish-done", "id", a.commit().abbrev(), "cells", a.cells(), "entities", a.entities(), "target",
-            branchLabel(s.target()));
+            branchLabel(sender, s.target()));
         if (a.biomes() > 0) msg().send(sender, "biomes-changed", "count", a.biomes());
         if (s.source() != null && s.source().startsWith(Workspace.SUBMIT_PREFIX)) bg.platform().later(40, () -> bg.submissions().settle(ws));
       }
@@ -2113,7 +2118,7 @@ public final class BgCommand {
           return;
         }
         var source = ws.worktree(what);
-        msg().send(sender, "publish-start", "name", what, "target", branchLabel(target.branch()));
+        msg().send(sender, "publish-start", "name", what, "target", branchLabel(sender, target.branch()));
         Runnable go = () -> autosaveThen(sender, target, () -> merge(sender, target, what, null, null));
         if (source != null) autosaveThen(sender, source, go);
         else go.run();
@@ -2137,7 +2142,7 @@ public final class BgCommand {
       for (int i = 0; i < Math.min(10, clusters.size()); i++) {
         var c = clusters.get(i);
         var b = c.box();
-        var line = msg().get("merge-cluster", "n", i + 1, "cells", c.cells(), "dimension", c.dimension(), "from",
+        var line = msg(sender).get("merge-cluster", "n", i + 1, "cells", c.cells(), "dimension", c.dimension(), "from",
             b.minX() + " " + b.minY() + " " + b.minZ(), "to", b.maxX() + " " + b.maxY() + " " + b.maxZ());
         if (sender.isPlayer()) sender.send(line.clickEvent(ClickEvent.runCommand("/bg merge goto " + (i + 1))));
         else sender.send(line);
@@ -2219,7 +2224,7 @@ public final class BgCommand {
       if (p == null || (scope = selection(p)) == null) return;
     }
     if (!flags.contains("confirm")) {
-      msg().send(sender, scope == null ? "restore-confirm" : "restore-confirm-selection", "branch", branchLabel(wt.branch()), "id", id.abbrev());
+      msg().send(sender, scope == null ? "restore-confirm" : "restore-confirm-selection", "branch", branchLabel(sender, wt.branch()), "id", id.abbrev());
       sendButton(sender, "restore-confirm-button", "/bg restore " + id.abbrev() + (scope == null ? "" : " --selection") + " confirm");
       return;
     }
@@ -2396,7 +2401,7 @@ public final class BgCommand {
     if (!wt.table().isEmpty() && !saveFirst && !lastSave) {
       var rest = message.isEmpty() ? "" : " " + message;
       msg().send(sender, "submit-unsaved");
-      sender.send(button("submit-save-first", "/bg submit --save" + rest).append(Component.text(" ")).append(button("submit-last-save", "/bg submit --last" + rest)));
+      sender.send(button(sender, "submit-save-first", "/bg submit --save" + rest).append(Component.text(" ")).append(button(sender, "submit-last-save", "/bg submit --last" + rest)));
       return;
     }
     Runnable send = () -> {
@@ -2833,9 +2838,9 @@ public final class BgCommand {
         bg.menu().openMember(p, ws, entry.getKey());
       }
       case "list" -> {
-        msg().send(sender, "members-header", "world", ws.label(), "owner", server ? msg().raw("members-server-owner") : ws.buildWorld().ownerName(),
-            "visibility", msg().get(config.open ? "visibility-public" : "visibility-private"));
-        for (var m : config.members.values()) msg().send(sender, "members-entry", "name", m.name(), "role", roleName(m.role()));
+        msg().send(sender, "members-header", "world", ws.label(), "owner", server ? msg(sender).raw("members-server-owner") : ws.buildWorld().ownerName(),
+            "visibility", msg(sender).get(config.open ? "visibility-public" : "visibility-private"));
+        for (var m : config.members.values()) msg().send(sender, "members-entry", "name", m.name(), "role", roleName(sender, m.role()));
       }
       case "add" -> {
         var newRole = w.size() == 4 ? WorldConfig.parse(WorldConfig.Role.class, w.get(3)) : WorldConfig.Role.BUILDER;
@@ -2856,8 +2861,8 @@ public final class BgCommand {
           throw new Workspace.Refused("管理者只能邀請或移除建造者");
         config.members.put(uuid, new WorldConfig.Member(name, newRole));
         ws.saveConfig();
-        msg().send(sender, "members-added", "name", name, "role", roleName(newRole));
-        if (target != null && target != p) msg().send(bg.platform().sender(target), server ? "server-members-invited" : "members-invited", "world", ws.label(), "role", roleName(newRole));
+        msg().send(sender, "members-added", "name", name, "role", roleName(sender, newRole));
+        if (target != null && target != p) msg().send(bg.platform().sender(target), server ? "server-members-invited" : "members-invited", "world", ws.label(), "role", roleName(sender, newRole));
         roleChanged(ws);
         if (menu) bg.menu().openMembers(p, ws);
       }
@@ -2986,7 +2991,7 @@ public final class BgCommand {
     ws.applySettings();
     if (modes) bg.realms().roleChanged(ws);
     if (menu) bg.menu().openSettings(p, ws);
-    else msg().send(sender, "settings-changed", "setting", msg().get("setting-" + key), "value", bg.menu().settingValue(ws, key));
+    else msg().send(sender, "settings-changed", "setting", msg(sender).get("setting-" + key), "value", bg.menu().settingValue(sender.player(), ws, key));
   }
 
   /**
@@ -3012,9 +3017,9 @@ public final class BgCommand {
       // 選單裡沒辦法打字：開對話框，填好執行不帶 menu 的指令（留空是清掉）
       var current = key.equals("display-name") ? c.displayName : c.description;
       p.closeContainer(); // 從設定選單點進來時選單還開著（見各平台的 openMenu）
-    Dialogs.open(bg, p, msg().get("setting-" + key), msg().get("setting-" + key + "-lore"),
-          List.of(Dialogs.text("value", msg().get("setting-" + key), current, key.equals("display-name") ? DISPLAY_NAME_MAX : DESCRIPTION_MAX)),
-          msg().get("dialog-save"), msg().get("dialog-cancel"), "bg world settings " + key + " $(value)");
+    Dialogs.open(bg, p, msg(sender).get("setting-" + key), msg(sender).get("setting-" + key + "-lore"),
+          List.of(Dialogs.text("value", msg(sender).get("setting-" + key), current, key.equals("display-name") ? DISPLAY_NAME_MAX : DESCRIPTION_MAX)),
+          msg(sender).get("dialog-save"), msg(sender).get("dialog-cancel"), "bg world settings " + key + " $(value)");
       return;
     } else {
       int max = key.equals("display-name") ? DISPLAY_NAME_MAX : DESCRIPTION_MAX;
@@ -3026,7 +3031,7 @@ public final class BgCommand {
     }
     ws.saveConfig();
     if (menu) bg.menu().openSettings(p, ws);
-    else msg().send(sender, "settings-changed", "setting", msg().get("setting-" + key), "value", bg.menu().settingValue(ws, key));
+    else msg().send(sender, "settings-changed", "setting", msg(sender).get("setting-" + key), "value", bg.menu().settingValue(sender.player(), ws, key));
   }
 
   /** 不是數字時為 -1。 */
@@ -3054,8 +3059,8 @@ public final class BgCommand {
     return new Workspace.Refused(key + " 可以是 " + String.join("、", Menu.SETTINGS.get(key)));
   }
 
-  private net.kyori.adventure.text.Component roleName(WorldConfig.Role role) {
-    return msg().get("role-" + WorldConfig.key(role));
+  private net.kyori.adventure.text.Component roleName(Sender sender, WorldConfig.Role role) {
+    return msg(sender).get("role-" + WorldConfig.key(role));
   }
 
   /** 成員或可見性變了：沒資格的人送回去，留下的人換遊戲模式、重送指令清單（權限跟著角色變）。 */
@@ -3078,7 +3083,7 @@ public final class BgCommand {
       for (var d : mine) {
         long left = Math.max(0, Math.ceilDiv(d.time() + days * 86_400_000L - System.currentTimeMillis(), 86_400_000L));
         var spec = admin ? d.entry().label() : d.entry().name();
-        var line = msg().prefixed(msg().get("trash-entry", "world", d.entry().label(), "days", left));
+        var line = msg(sender).prefixed(msg(sender).get("trash-entry", "world", d.entry().label(), "days", left));
         sender.send(line.clickEvent(ClickEvent.runCommand("/bg world undelete " + spec)));
       }
       return;
@@ -3157,8 +3162,8 @@ public final class BgCommand {
           loaded = true;
           players += level.players().size();
         }
-      var line = msg().prefixed(msg().get("worlds-entry", "world", ws.label(), "folder", ws.buildWorld().folder(), "state",
-          msg().get(!ws.isOpen() ? "worlds-broken" : loaded ? "worlds-loaded" : "worlds-unloaded"), "players", players));
+      var line = msg(sender).prefixed(msg(sender).get("worlds-entry", "world", ws.label(), "folder", ws.buildWorld().folder(), "state",
+          msg(sender).get(!ws.isOpen() ? "worlds-broken" : loaded ? "worlds-loaded" : "worlds-unloaded"), "players", players));
       sender.send(sender.isPlayer() ? line.clickEvent(ClickEvent.runCommand("/bg open " + ws.label())) : line);
     }
   }

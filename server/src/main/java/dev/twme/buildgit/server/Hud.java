@@ -46,7 +46,7 @@ public final class Hud {
   }
 
   void update(ServerPlayer p) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var task = tasks.get(p.getUUID());
     if (task != null) {
       float f = task.progress() == null ? -1 : task.progress().fraction();

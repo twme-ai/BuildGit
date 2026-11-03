@@ -42,7 +42,7 @@ public final class BuildGit {
   public BuildGit(Platform platform) {
     this.platform = platform;
     settings = Settings.load(platform.configDir(), platform.log());
-    messages = new Messages(platform.configDir(), settings.language(), platform.log());
+    messages = new Messages(platform.configDir(), settings.language(), settings.languagePerPlayer(), platform.log());
     tracker = new Tracker(settings, platform::tick);
     worlds = new BuildWorlds(platform, tracker, () -> settings);
     outlines = new Outlines(platform);
@@ -224,7 +224,7 @@ public final class BuildGit {
   Map<String, String> reload() {
     var before = loadedConfig;
     settings = Settings.load(platform.configDir(), platform.log());
-    messages = new Messages(platform.configDir(), settings.language(), platform.log());
+    messages = new Messages(platform.configDir(), settings.language(), settings.languagePerPlayer(), platform.log());
     tracker.settings(settings);
     backup.start();
     worlds.keepLoaded();

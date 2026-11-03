@@ -7,26 +7,64 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.logging.Logger;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import net.minecraft.server.level.ServerPlayer;
 
 /**
  * MiniMessage 訊息。內建 {@code lang/zh_tw.yml} 與 {@code lang/en_us.yml}，寫到設定目錄的 {@code lang/} 給伺服器修改；
- * 那裡缺的訊息用內建的。其他語言可以在那裡放自己的檔案。
+ * 那裡缺的訊息用內建的，再缺的用英文。其他語言可以在那裡放自己的檔案。
+ * 玩家看到的是他遊戲裡設定的語言（有那個語言檔時；同一種語言的其他地區也算，例如 zh_cn 用 zh_tw），
+ * 其餘（主控台、沒有的語言、{@code language-per-player: false}）用 {@code language}。
  */
 public final class Messages {
   private static final MiniMessage MINI = MiniMessage.miniMessage();
   private static final List<String> BUNDLED = List.of("zh_tw", "en_us");
-  private final Map<String, String> messages = new HashMap<>();
+  /** 語言 → 訊息（已經補上英文）。 */
+  private final Map<String, Map<String, String>> languages = new HashMap<>();
+  private final String language;
+  private final boolean perPlayer;
 
-  public Messages(Path configDir, String language, Logger log) {
+  public Messages(Path configDir, String language, boolean perPlayer, Logger log) {
     for (var name : BUNDLED) export(configDir, name, log);
-    load(configDir, "en_us", log);
-    if (!language.equals("en_us")) load(configDir, language, log);
+    var names = new TreeSet<>(BUNDLED);
+    names.add(language);
+    try (var s = Files.list(configDir.resolve("lang"))) {
+      s.map(f -> f.getFileName().toString()).filter(f -> f.matches("[a-z]{2,3}_[a-z0-9]{2,4}\\.yml")).forEach(f -> names.add(f.substring(0, f.length() - 4)));
+    } catch (IOException e) {
+      // 沒有 lang/ 時只有內建的
+    }
+    var english = load(configDir, "en_us", log);
+    for (var name : names) {
+      var m = new HashMap<>(english);
+      if (!name.equals("en_us")) m.putAll(load(configDir, name, log));
+      languages.put(name, m);
+    }
+    if (!BUNDLED.contains(language) && !Files.isRegularFile(configDir.resolve("lang/" + language + ".yml")))
+      log.warning("config.yml language: " + language + " has no lang/" + language + ".yml; missing messages are shown in English");
+    this.language = language;
+    this.perPlayer = perPlayer;
+  }
+
+  /** 給這位玩家看的語言；{@code null}（主控台）時是 {@code language}。 */
+  public String language(ServerPlayer p) {
+    if (p == null || !perPlayer) return language;
+    var code = p.clientInformation().language().toLowerCase(Locale.ROOT);
+    if (languages.containsKey(code)) return code;
+    var base = code.split("_")[0] + "_";
+    if (language.startsWith(base)) return language;
+    for (var name : new TreeSet<>(languages.keySet())) if (name.startsWith(base)) return name;
+    return language;
+  }
+
+  private Map<String, String> of(ServerPlayer p) {
+    return languages.getOrDefault(language(p), languages.get("en_us"));
   }
 
   /**
@@ -65,19 +103,30 @@ public final class Messages {
     }
   }
 
-  private void load(Path configDir, String language, Logger log) {
+  private static Map<String, String> load(Path configDir, String language, Logger log) {
+    var result = new HashMap<String, String>();
     String name = "lang/" + language + ".yml";
     try (var in = Messages.class.getResourceAsStream("/" + name)) {
-      if (in != null) messages.putAll(Yaml.load(in).strings());
+      if (in != null) result.putAll(Yaml.load(in).strings());
     } catch (IOException | RuntimeException e) {
-      log.warning("無法讀取內建語言檔 " + name);
+      log.warning("Cannot read the bundled " + name);
     }
     Path custom = configDir.resolve(name);
-    if (Files.isRegularFile(custom)) messages.putAll(Yaml.load(custom).strings());
+    if (Files.isRegularFile(custom)) result.putAll(Yaml.load(custom).strings());
+    return result;
+  }
+
+  /** 用 {@code language}（主控台、對所有人的訊息）。 */
+  public Component get(String key, Object... placeholders) {
+    return get((ServerPlayer) null, key, placeholders);
+  }
+
+  public Component get(Sender to, String key, Object... placeholders) {
+    return get(to == null ? null : to.player(), key, placeholders);
   }
 
   /** @param placeholders 名稱與值交替；值以純文字插入，不解析標籤 */
-  public Component get(String key, Object... placeholders) {
+  public Component get(ServerPlayer to, String key, Object... placeholders) {
     var resolvers = new TagResolver[placeholders.length / 2];
     for (int i = 0; i + 1 < placeholders.length; i += 2) {
       var value = placeholders[i + 1];
@@ -86,22 +135,65 @@ public final class Messages {
               ? Placeholder.component((String) placeholders[i], c)
               : Placeholder.unparsed((String) placeholders[i], String.valueOf(value));
     }
-    var template = messages.getOrDefault(key, key);
+    var template = of(to).getOrDefault(key, key);
     return MINI.deserialize(template, resolvers);
   }
 
   /** 未經 MiniMessage 解析的原文；沒有時是空字串。 */
   public String raw(String key) {
-    return messages.getOrDefault(key, "");
+    return raw((ServerPlayer) null, key);
+  }
+
+  public String raw(Sender to, String key) {
+    return raw(to == null ? null : to.player(), key);
+  }
+
+  public String raw(ServerPlayer to, String key) {
+    return of(to).getOrDefault(key, "");
   }
 
   /** 加上前綴。 */
   public Component prefixed(Component body) {
-    var prefix = messages.get("prefix");
+    return prefixed((ServerPlayer) null, body);
+  }
+
+  public Component prefixed(Sender to, Component body) {
+    return prefixed(to == null ? null : to.player(), body);
+  }
+
+  public Component prefixed(ServerPlayer to, Component body) {
+    var prefix = of(to).get("prefix");
     return prefix == null ? body : MINI.deserialize(prefix).append(body);
   }
 
   public void send(Sender to, String key, Object... placeholders) {
-    to.send(prefixed(get(key, placeholders)));
+    to.send(prefixed(to, get(to, key, placeholders)));
+  }
+
+  /** 給某位玩家（{@code null}：主控台）的訊息。 */
+  public To to(ServerPlayer p) {
+    return new To(this, p);
+  }
+
+  public To to(Sender s) {
+    return new To(this, s == null ? null : s.player());
+  }
+
+  public record To(Messages messages, ServerPlayer player) {
+    public Component get(String key, Object... placeholders) {
+      return messages.get(player, key, placeholders);
+    }
+
+    public String raw(String key) {
+      return messages.raw(player, key);
+    }
+
+    public Component prefixed(Component body) {
+      return messages.prefixed(player, body);
+    }
+
+    public void send(Sender to, String key, Object... placeholders) {
+      messages.send(to, key, placeholders);
+    }
   }
 }

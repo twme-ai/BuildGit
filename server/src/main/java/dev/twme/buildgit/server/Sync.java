@@ -125,7 +125,7 @@ final class Sync {
           if (player == null) return;
           msg().send(s(player), "sync-pulled", "name", name, "kb", (data.length + 1023) / 1024);
           // 用戶端的 /bgc 指令：離開伺服器、在單人世界打開
-          s(player).send(msg().get("sync-open-button").clickEvent(ClickEvent.runCommand("/bgc open " + name)));
+          s(player).send(msg().get(player, "sync-open-button").clickEvent(ClickEvent.runCommand("/bgc open " + name)));
         }));
       } catch (IOException | RuntimeException e) {
         ws.sync(() -> failed(uuid, e));
@@ -272,7 +272,7 @@ final class Sync {
     msg().send(s(p), "sync-edited", "count", found.size());
     Component line = Component.empty();
     for (var n : found)
-      line = line.append(msg().get("sync-push-button", "name", n).clickEvent(ClickEvent.runCommand("/bg push " + n))).append(Component.text(" "));
+      line = line.append(msg().get(p, "sync-push-button", "name", n).clickEvent(ClickEvent.runCommand("/bg push " + n))).append(Component.text(" "));
     s(p).send(line);
   }
 
@@ -403,8 +403,8 @@ final class Sync {
           if (dropped > 0) msg().send(s(p), "sync-push-dropped", "count", dropped);
           // 在別的世界時要先進去才能 /bg go
           if (ws == bg.worlds().of(p.level()))
-            s(p).send(msg().get("sync-go-button", "draft", up.draft()).clickEvent(ClickEvent.runCommand("/bg go " + up.draft())));
-          else s(p).send(msg().get("sync-open-world-button", "world", ws.label()).clickEvent(ClickEvent.runCommand("/bg open " + ws.label())));
+            s(p).send(msg().get(p, "sync-go-button", "draft", up.draft()).clickEvent(ClickEvent.runCommand("/bg go " + up.draft())));
+          else s(p).send(msg().get(p, "sync-open-world-button", "world", ws.label()).clickEvent(ClickEvent.runCommand("/bg open " + ws.label())));
         });
       } catch (IOException | RuntimeException e) {
         ws.sync(() -> {

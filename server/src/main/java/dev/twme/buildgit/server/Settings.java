@@ -13,6 +13,7 @@ import net.minecraft.world.level.GameType;
 /** config.yml 的內容。實體類型以 id（{@code minecraft:item}）表示。 */
 public record Settings(
     String language,
+    boolean languagePerPlayer,
     long cascadeWindow,
     int maxDistance,
     Set<String> ignoredEntities,
@@ -162,7 +163,8 @@ public record Settings(
 
   public static Settings of(Yaml c, Logger log) {
     return new Settings(
-        c.getString("language", "zh_tw"),
+        c.getString("language", "en_us"),
+        c.getBoolean("language-per-player", true),
         Math.max(1, c.getLong("tracking.cascade-window", 200)),
         Math.max(1, c.getInt("tracking.max-distance", 256)),
         types(c.getStringList("tracking.ignored-entities"), log),

@@ -37,7 +37,7 @@ final class Menu {
 
   /** @param page 草稿太多時的第幾頁（{@code /bg menu <頁>}） */
   void open(ServerPlayer p, int page) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var ws = bg.workspace(p.level());
     var platform = bg.platform();
     var wt = ws.worktree(p.level());
@@ -86,7 +86,7 @@ final class Menu {
         var label = name.equals(Repository.MAIN) ? msg.get("branch-main") : msg.get("menu-draft", "name", name);
         var item = here ? "lime_stained_glass" : name.equals(Repository.MAIN) ? "grass_block" : "paper";
         var action = !here && platform.hasPermission(p, "buildgit.go") ? "go " + name : null;
-        var lore = draftLore(ws, e.getValue());
+        var lore = draftLore(p, ws, e.getValue());
         lore.add(msg.get(here ? "menu-draft-here" : "menu-draft-go"));
         list.add(new Platform.MenuItem(0, item, label, lore, action));
       }
@@ -123,7 +123,7 @@ final class Menu {
    * {@code new … confirm}。有範本時多一個範本的選項，選了範本就照它，類型、地形、規則不看。沒開放的類型、地形不列（管理員都列）。
    */
   void openCreate(ServerPlayer p, BgCommand.NewWorld o) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var pw = bg.settings().playerWorlds();
     boolean admin = bg.realms().admin(p);
     var inputs = new ArrayList<com.google.gson.JsonObject>();
@@ -248,8 +248,8 @@ final class Menu {
   }
 
   /** 給玩家看的目前的值。 */
-  Component settingValue(Workspace ws, String key) {
-    var msg = bg.messages();
+  Component settingValue(ServerPlayer p, Workspace ws, String key) {
+    var msg = bg.messages().to(p);
     var c = ws.config();
     var v = current(ws, key);
     return switch (key) {
@@ -274,7 +274,7 @@ final class Menu {
 
   /** {@code /bg world settings}：每格一個設定，點一下換成下一個值（沒有值的設成自己站的位置），改完重開選單。 */
   void openSettings(ServerPlayer p, Workspace ws) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var items = new ArrayList<Platform.MenuItem>();
     var header = new ArrayList<>(List.of(msg.get("settings-header-lore")));
     if (!bg.worlds().kept(ws).isEmpty()) header.add(msg.get("settings-kept", "branches", String.join("、", bg.worlds().kept(ws))));
@@ -302,7 +302,7 @@ final class Menu {
             next = values.get((values.indexOf(next) + 1) % values.size());
         action = "world settings " + key + " " + next + " menu";
       }
-      var lore = List.of(msg.get("settings-current", "value", settingValue(ws, key)), msg.get("setting-" + key + "-lore"),
+      var lore = List.of(msg.get("settings-current", "value", settingValue(p, ws, key)), msg.get("setting-" + key + "-lore"),
           key.equals("kit-member") || key.equals("kit-visitor") ? msg.get("settings-click-kit", "key", key)
               : TEXT_SETTINGS.contains(key) ? msg.get("settings-click-text", "key", key)
               : key.equals("icon") ? msg.get("settings-click-icon")
@@ -317,7 +317,7 @@ final class Menu {
 
   /** {@code /bg world submissions}：還沒處理的提出，點一下進去看（和草稿一樣）。最多 36 個。 */
   void openSubmissions(ServerPlayer p, Workspace ws, List<Submissions.Submission> list) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var items = new ArrayList<Platform.MenuItem>();
     for (int i = 0; i < Math.min(36, list.size()); i++) {
       var s = list.get(i);
@@ -345,7 +345,7 @@ final class Menu {
    * 最下排左邊是分頁（我的：自己的與受邀的；公開：依最近存檔；最近去過），右邊是建立、回收區、這個世界的設定與回去。
    */
   void openWorlds(ServerPlayer p, String tab, int page) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var realms = bg.realms();
     List<Workspace> list = switch (tab) {
       case "public" -> bg.worlds().buildWorlds().stream().filter(ws -> ws.config() != null && ws.config().open)
@@ -388,7 +388,7 @@ final class Menu {
 
   /** 清單上的一個世界：圖示、顯示名稱、名稱、簡介、擁有者與自己的角色、人數、最後存檔。 */
   private Platform.MenuItem worldItem(ServerPlayer p, Workspace ws, int slot) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var c = ws.config();
     var lore = new ArrayList<Component>();
     lore.add(msg.get("worlds-item-label", "world", ws.label()));
@@ -434,7 +434,7 @@ final class Menu {
    * 下一排是線上還不是成員的玩家（點一下邀請成建造者），最下排回設定。
    */
   void openMembers(ServerPlayer p, Workspace ws) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var c = ws.access();
     boolean server = ws.buildWorld() == null;
     var role = server ? ws.serverRole(p.getUUID()) : ws.role(p.getUUID());
@@ -471,7 +471,7 @@ final class Menu {
 
   /** 一位成員：設成建造者、管理者（只有擁有者能設），或移出成員。 */
   void openMember(ServerPlayer p, Workspace ws, UUID member) {
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     var m = ws.access().members.get(member);
     boolean owner = ws.role(p.getUUID()) == WorldConfig.Role.OWNER || bg.realms().admin(p);
     var items = new ArrayList<Platform.MenuItem>();
@@ -488,13 +488,13 @@ final class Menu {
     bg.platform().openMenu(p, msg.get("member-menu-title", "player", m.name(), "world", ws.label()), items);
   }
 
-  private void label(List<Platform.MenuItem> items, int slot, String item, String key) {
-    items.add(new Platform.MenuItem(slot, item, bg.messages().get(key), bg.messages().get(key + "-lore"), null));
+  private void label(ServerPlayer p, List<Platform.MenuItem> items, int slot, String item, String key) {
+    items.add(new Platform.MenuItem(slot, item, bg.messages().get(p, key), bg.messages().get(p, key + "-lore"), null));
   }
 
   /** 最後編輯時間與最近的里程碑，由新到舊、顏色漸暗。 */
-  private List<Component> draftLore(Workspace ws, ObjectId head) throws IOException {
-    var msg = bg.messages();
+  private List<Component> draftLore(ServerPlayer p, Workspace ws, ObjectId head) throws IOException {
+    var msg = bg.messages().to(p);
     var repo = ws.repo();
     var lore = new ArrayList<Component>();
     lore.add(msg.get("menu-draft-time", "time", BgCommand.TIME.format(Instant.ofEpochMilli(repo.commit(head).time()))));
@@ -510,7 +510,7 @@ final class Menu {
 
   private void put(List<Platform.MenuItem> items, int slot, String item, String key, String command, ServerPlayer p, String permission) {
     if (permission != null && !bg.platform().hasPermission(p, permission)) return; // 格子空著，其他動作不移位
-    var msg = bg.messages();
+    var msg = bg.messages().to(p);
     items.add(new Platform.MenuItem(slot, item, msg.get(key), msg.get(key + "-lore"), command));
   }
 
