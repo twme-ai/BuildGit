@@ -60,7 +60,7 @@ final class Restore {
     if (name == null) name = names.getLast();
     else if (!names.contains(name)) throw new Workspace.Refused("error-restore-no-snapshot", "name", name);
     var snapshotBytes = s3.get(prefix + "snapshots/" + name + ".yml");
-    if (snapshotBytes == null) throw new IOException("讀不到快照 " + name);
+    if (snapshotBytes == null) throw new IOException("Cannot read snapshot " + name);
     var snapshot = Yaml.load(new ByteArrayInputStream(snapshotBytes));
     String dataVersion = snapshot.getString("data-version", "");
     checkVersion(dataVersion, upgrader.current());
@@ -97,7 +97,7 @@ final class Restore {
     int objects = ObjectFetch.fetch(store, heads, false, source(s3, prefix), pool);
     var repo = Repository.open(staging, objectsDir, upgrader);
     var walk = ObjectWalk.collect(repo, heads, Set.of());
-    var main = repo.refs().get(Repository.MAIN).orElseThrow(() -> new IOException("快照沒有 main 分支"));
+    var main = repo.refs().get(Repository.MAIN).orElseThrow(() -> new IOException("The snapshot has no main branch"));
     var mainTree = repo.commit(main).tree();
 
     // 起點世界的檔案
@@ -136,11 +136,11 @@ final class Restore {
       if (Boolean.TRUE.equals(entry.get("lazy"))) {
         // 延遲複製：起點世界缺的 chunk 只在主世界存檔裡，世界資料夾不換，由管理員用同一時間的世界備份
         if (levelDir != null) Files.writeString(genesisDir.resolve("lazy"), levelDir.toAbsolutePath().normalize().toString());
-        warnings.add(dim + " 用了延遲複製：世界資料夾不換，請用同一時間的世界備份");
+        warnings.add(dim + " uses a deferred copy: the world folder is kept; use a world backup from the same time");
         continue;
       }
       if (levelDir == null) {
-        warnings.add(dim + " 的世界沒有載入，也找不到原本的位置：只還原版本，世界資料夾不換");
+        warnings.add(dim + " is not loaded and its location is unknown: only the history is restored, the world folder is kept");
         continue;
       }
 
@@ -175,8 +175,8 @@ final class Restore {
           levelFiles.put(target, line.substring(0, line.indexOf(' ')));
         }
       } else if (seed != null && ws.mainSeed(dim) != null && !String.valueOf(seed).equals(String.valueOf(ws.mainSeed(dim)))) {
-        warnings.add(dim + " 的種子是 " + ws.mainSeed(dim) + "，備份是 " + seed + "：起點世界以外的地方會生成不同的地形；"
-            + "要相同的話，在新世界產生前把 level-seed 設成 " + seed);
+        warnings.add(dim + " has seed " + ws.mainSeed(dim) + " but the backup has " + seed + ": terrain outside the genesis world will generate differently; "
+            + "to match, set level-seed to " + seed + " before the new world is generated");
       }
     }
     int n = 0;
@@ -185,7 +185,7 @@ final class Restore {
       fetch(s3, prefix, e.getValue(), source);
       plan.add(move(e.getKey().toAbsolutePath().normalize(), source));
     }
-    if (!sameVersion && !levelFiles.isEmpty()) warnings.add("備份來自不同的 Minecraft 版本，level.dat 不換");
+    if (!sameVersion && !levelFiles.isEmpty()) warnings.add("The backup is from a different Minecraft version, so level.dat is kept");
 
     // 草稿與檢視世界：由新的版本重建
     for (var world : platform.levelFolders())
@@ -251,7 +251,7 @@ final class Restore {
     if (name == null) name = names.getLast();
     else if (!names.contains(name)) throw new Workspace.Refused("error-restore-no-snapshot", "name", name);
     var bytes = store.get(prefix + "snapshots/" + name + ".yml");
-    if (bytes == null) throw new IOException("讀不到快照 " + name);
+    if (bytes == null) throw new IOException("Cannot read snapshot " + name);
     var snapshot = Yaml.load(new ByteArrayInputStream(bytes));
     checkVersion(snapshot.getString("data-version", ""), upgrader.current());
     // 本機沒有這個世界：資料夾與路徑照本機的設定重算，不採信快照裡的
@@ -343,12 +343,12 @@ final class Restore {
     if (name == null) name = names.getLast();
     else if (!names.contains(name)) throw new Workspace.Refused("error-restore-no-snapshot", "name", name);
     var bytes = store.get(prefix + "snapshots/" + name + ".yml");
-    if (bytes == null) throw new IOException("讀不到快照 " + name);
+    if (bytes == null) throw new IOException("Cannot read snapshot " + name);
     var manifest = Yaml.load(new ByteArrayInputStream(bytes));
     int version = manifest.getInt("minecraft-data-version", 0), current = ws.upgrader().current();
     if (version > current)
       throw new Workspace.Refused("error-restore-newer", "version", version, "current", current);
-    if (version < current) warnings.add("備份來自較舊的 Minecraft（資料版本 " + version + "）：換上後由 Minecraft 照一般的流程升級世界");
+    if (version < current) warnings.add("The backup is from an older Minecraft (data version " + version + "): Minecraft will upgrade the world as usual after the swap");
 
     // 版本庫：分支指向的存檔要在本機
     var repoRel = manifest.getString("repo", null);
@@ -378,12 +378,12 @@ final class Restore {
     var downloads = new ArrayList<Future<?>>();
     for (var e : WorldBackup.entries(manifest)) {
       var target = files.resolve(e.path()).normalize();
-      if (!target.startsWith(files)) throw new IOException("快照裡的路徑不對：" + e.path());
+      if (!target.startsWith(files)) throw new IOException("Invalid path in the snapshot: " + e.path());
       downloads.add(pool.submit(() -> {
         var key = WorldBackup.key(prefix, storage, snapshot, e);
         var data = e.version() != null && store instanceof S3 s3 ? s3.getVersion(key, e.version()) : store.get(key);
-        if (data == null) throw new IOException("備份缺少檔案 " + e.path());
-        if (!S3.hex(S3.sha256(data)).equals(e.sha())) throw new IOException("檔案雜湊不符：" + e.path());
+        if (data == null) throw new IOException("The backup is missing file " + e.path());
+        if (!S3.hex(S3.sha256(data)).equals(e.sha())) throw new IOException("File hash mismatch: " + e.path());
         Files.createDirectories(target.getParent());
         Files.write(target, data);
         return null;
@@ -403,7 +403,7 @@ final class Restore {
       if (!Files.isRegularFile(source.resolve("level.dat"))
           || (Files.exists(target) ? !Files.isRegularFile(target.resolve("level.dat")) : !target.getParent().equals(server)))
       {
-        warnings.add(world + " 看起來不是世界資料夾，不換");
+        warnings.add(world + " does not look like a world folder, so it is kept");
         continue;
       }
       // 世界裡沒有備份的世界（exclude-worlds，例如 Fabric 放在 world/dimensions/ 裡的建築世界）：先搬進要換上的世界，原樣留著
@@ -411,7 +411,7 @@ final class Restore {
         if (ex.startsWith(target) && !ex.equals(target) && Files.isDirectory(ex)) plan.add(move(source.resolve(target.relativize(ex)), ex));
       plan.add(move(target, source));
     }
-    for (var skipped : manifest.getStringList("skipped")) warnings.add(skipped + " 從來沒有玩家進去過，沒有備份，不換");
+    for (var skipped : manifest.getStringList("skipped")) warnings.add(skipped + " was never visited, so it has no backup and is kept");
     if (repoRel != null && Files.isDirectory(inside(files, repoRel))) {
       var from = inside(files, repoRel);
       for (var item : List.of("refs", "branches.yml", "data-version", "worktree", "players.yml", "players"))
@@ -480,8 +480,8 @@ final class Restore {
 
   private static void fetch(BackupStore s3, String prefix, String hash, Path target) throws IOException {
     var bytes = s3.get(prefix + "files/" + hash);
-    if (bytes == null) throw new IOException("備份缺少檔案 " + hash);
-    if (!S3.hex(S3.sha256(bytes)).equals(hash)) throw new IOException("檔案雜湊不符：" + hash);
+    if (bytes == null) throw new IOException("The backup is missing file " + hash);
+    if (!S3.hex(S3.sha256(bytes)).equals(hash)) throw new IOException("File hash mismatch: " + hash);
     Files.createDirectories(target.getParent());
     Files.write(target, bytes);
   }
@@ -570,7 +570,7 @@ final class Restore {
     if (!Files.exists(planFile)) return;
     var y = Yaml.load(planFile);
     String suffix = ".before-restore-" + STAMP.format(Instant.now());
-    log.info("從備份還原：" + y.getString("snapshot", "?"));
+    log.info("Restoring from backup: " + y.getString("snapshot", "?"));
     try {
       // 中途當機時重來：已經換上的（來源不在了）略過
       for (var m : list(y.get("replace"))) {
@@ -580,7 +580,7 @@ final class Restore {
         if (Files.exists(target)) {
           var aside = target.resolveSibling(target.getFileName() + suffix);
           Files.move(target, aside);
-          log.info("  原本的 " + target + " 改名為 " + aside.getFileName());
+          log.info("  renamed the old " + target + " to " + aside.getFileName());
         }
         if (source != null) {
           Files.createDirectories(target.getParent());
@@ -596,9 +596,9 @@ final class Restore {
         Files.move(planFile, repoDir.resolve("restored.yml"), StandardCopyOption.REPLACE_EXISTING);
         delete(staging);
       }
-      log.info("還原完成。確認沒問題後，可以刪掉名稱含 " + suffix + " 的資料夾");
+      log.info("Restore done. Once everything looks right, you can delete the folders whose names contain " + suffix);
     } catch (IOException e) {
-      throw new IllegalStateException("還原失敗：" + e.getMessage() + "；修正後重新啟動會從中斷的地方繼續", e);
+      throw new IllegalStateException("Restore failed: " + e.getMessage() + "; fix it and restart to continue where it stopped", e);
     }
   }
 

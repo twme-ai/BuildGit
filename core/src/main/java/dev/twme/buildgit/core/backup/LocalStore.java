@@ -16,7 +16,7 @@ public final class LocalStore implements BackupStore {
 
   private Path file(String key) {
     var f = root.resolve(key).normalize();
-    if (!f.startsWith(root)) throw new IllegalArgumentException("鍵超出備份資料夾：" + key);
+    if (!f.startsWith(root)) throw new IllegalArgumentException("Key is outside the backup folder: " + key);
     return f;
   }
 

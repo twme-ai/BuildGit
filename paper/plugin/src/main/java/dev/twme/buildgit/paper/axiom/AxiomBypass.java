@@ -64,11 +64,11 @@ final class AxiomBypass {
       queueField.set(axiomPlugin, new Queue());
       axiom = axiomPlugin;
     } catch (ReflectiveOperationException | RuntimeException e) {
-      log.log(Level.WARNING, "無法記錄有 " + PERMISSION + " 的玩家（AxiomPaper 版本不相容？）", e);
+      log.log(Level.WARNING, "Cannot record players with " + PERMISSION + " (incompatible AxiomPaper version?)", e);
       return false;
     }
     plugin.getServer().getMessenger().registerIncomingPluginChannel(plugin, SET_BLOCK, (channel, player, data) -> setBlock(player, data));
-    log.info("記錄有 " + PERMISSION + " 的玩家的 Axiom 方塊編輯");
+    log.info("Recording Axiom block edits of players with " + PERMISSION);
     return true;
   }
 
@@ -78,7 +78,7 @@ final class AxiomBypass {
     try {
       queueField.set(axiom, original);
     } catch (ReflectiveOperationException e) {
-      log.log(Level.WARNING, "無法換回 AxiomPaper 的操作佇列", e);
+      log.log(Level.WARNING, "Cannot restore the AxiomPaper operation queue", e);
     }
     axiom = null;
   }
@@ -131,7 +131,7 @@ final class AxiomBypass {
   private void warnOnce(Exception e) {
     if (failed) return;
     failed = true;
-    log.log(Level.WARNING, "讀不到 AxiomPaper 的編輯內容（版本不相容？），有 " + PERMISSION + " 的玩家的方塊編輯不會被記錄", e);
+    log.log(Level.WARNING, "Cannot read AxiomPaper edits (incompatible version?); block edits of players with " + PERMISSION + " will not be recorded", e);
   }
 
   /** 換上 AxiomPaper 的操作佇列：只包住 bypass 玩家的方塊緩衝區，其餘原樣交給父類別。 */

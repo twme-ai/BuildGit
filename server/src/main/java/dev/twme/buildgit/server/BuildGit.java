@@ -193,9 +193,9 @@ public final class BuildGit {
       workspace().open();
     } catch (IOException e) {
       openError = e.getMessage();
-      platform.log().log(Level.SEVERE, "無法開啟版本庫，記錄停用", e);
+      platform.log().log(Level.SEVERE, "Cannot open the repository; recording is off", e);
     }
-    if (!workspace().isOpen() && openError == null) platform.log().info("尚未初始化版本控制；用 /bg init 開始");
+    if (!workspace().isOpen() && openError == null) platform.log().info("Version control is not set up yet; start with /bg init");
     worlds.open();
     worlds.purge();
     backup.start();

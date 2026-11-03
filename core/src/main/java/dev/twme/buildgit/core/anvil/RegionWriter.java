@@ -24,12 +24,12 @@ public final class RegionWriter implements Closeable {
 
   public RegionWriter(Path path) throws IOException {
     this.path = path;
-    if (!RegionFile.NAME.matcher(path.getFileName().toString()).matches()) throw new IOException("region 檔名無效：" + path);
+    if (!RegionFile.NAME.matcher(path.getFileName().toString()).matches()) throw new IOException("Invalid region file name: " + path);
     Files.createDirectories(path.getParent());
     channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
     try {
       if (channel.size() < 2 * SECTOR) {
-        if (channel.size() != 0) throw new IOException("region 標頭截斷：" + path);
+        if (channel.size() != 0) throw new IOException("Truncated region header: " + path);
         writeFully(ByteBuffer.allocate(2 * SECTOR), 0);
       }
       var header = ByteBuffer.allocate(SECTOR);
@@ -65,7 +65,7 @@ public final class RegionWriter implements Closeable {
     if (sectors > MAX_SECTORS) {
       String name = path.getFileName().toString();
       var m = RegionFile.NAME.matcher(name);
-      if (!m.matches()) throw new IOException("region 檔名無效：" + path);
+      if (!m.matches()) throw new IOException("Invalid region file name: " + path);
       int cx = Integer.parseInt(m.group(1)) * 32 + (index & 31), cz = Integer.parseInt(m.group(2)) * 32 + (index >>> 5);
       Path external = path.resolveSibling("c." + cx + "." + cz + ".mcc");
       Path tmp = external.resolveSibling(external.getFileName() + ".tmp");
@@ -79,7 +79,7 @@ public final class RegionWriter implements Closeable {
     data.clear();
     long end = Math.max(2L * SECTOR, (channel.size() + SECTOR - 1) / SECTOR * SECTOR);
     int offset = (int) (end / SECTOR);
-    if (offset > 0xFFFFFF) throw new IOException("region 檔太大：" + path);
+    if (offset > 0xFFFFFF) throw new IOException("Region file too large: " + path);
     writeFully(data, end);
     channel.force(false);
     int location = offset << 8 | sectors;

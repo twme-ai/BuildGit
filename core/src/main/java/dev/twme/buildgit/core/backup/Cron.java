@@ -28,7 +28,7 @@ public final class Cron {
   /** @throws IllegalArgumentException 格式不對 */
   public static Cron parse(String text) {
     var f = text.strip().split("\\s+");
-    if (f.length != 5) throw new IllegalArgumentException("排程要有五個欄位（分 時 日 月 星期）：" + text);
+    if (f.length != 5) throw new IllegalArgumentException("A schedule needs five fields (minute hour day month weekday): " + text);
     return new Cron(text.strip(), f);
   }
 
@@ -71,7 +71,7 @@ public final class Cron {
     } catch (NumberFormatException e) {
       // 下面一起說明
     }
-    throw new IllegalArgumentException("排程的值要在 " + min + "～" + max + "：" + s);
+    throw new IllegalArgumentException("Schedule values must be " + min + "-" + max + ": " + s);
   }
 
   @Override

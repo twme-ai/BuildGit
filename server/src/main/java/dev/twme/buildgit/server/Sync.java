@@ -385,7 +385,7 @@ final class Sync {
       try {
         var repo = ws.repo();
         var id = repo.commit(new Repository.CommitRequest(up.draft(), base, marks, edited.source(), ws.genesis(), author,
-            System.currentTimeMillis(), "單人世界：" + up.name(), 0, new TreeMap<>()));
+            System.currentTimeMillis(), "Single-player world: " + up.name(), 0, new TreeMap<>()));
         var changes = id.isEmpty() ? null : repo.changeset(repo.commit(id.get()).changeset());
         ws.sync(() -> {
           busy.remove(uuid);
@@ -419,14 +419,14 @@ final class Sync {
     try {
       ws.deleteBranch(name, true);
     } catch (IOException e) {
-      bg.platform().log().log(Level.WARNING, "無法刪除草稿 " + name, e);
+      bg.platform().log().log(Level.WARNING, "Cannot delete draft " + name, e);
     }
   }
 
   private void failed(UUID uuid, Throwable e) {
     busy.remove(uuid);
     if (e instanceof java.util.concurrent.CompletionException c && c.getCause() != null) e = c.getCause();
-    if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "同步失敗", e);
+    if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "Sync failed", e);
     var p = online(uuid);
     if (p != null) msg().send(s(p), "sync-failed", "error", e);
   }

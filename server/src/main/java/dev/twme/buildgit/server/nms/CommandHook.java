@@ -63,7 +63,7 @@ public final class CommandHook {
       for (var child : root.getChildren()) if (!wrapped.contains(child) && !OWN.contains(child.getName())) wrap(child);
     } catch (ReflectiveOperationException | RuntimeException e) {
       failed = true;
-      log.log(Level.WARNING, "無法包裝指令；指令造成的變更只能靠鄰居更新記錄", e);
+      log.log(Level.WARNING, "Cannot wrap commands; changes from commands are only recorded through neighbor updates", e);
     }
   }
 

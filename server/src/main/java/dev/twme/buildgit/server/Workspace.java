@@ -215,8 +215,8 @@ public final class Workspace {
     try {
       var previous = Files.exists(pointer) ? Path.of(Files.readString(pointer).strip()) : fallback;
       if (!same(wanted, previous) && Files.exists(previous) && !Files.exists(wanted)) {
-        log().warning("起點世界還在 " + previous.toAbsolutePath() + "，設定的 init.genesis-dir 是 " + wanted.toAbsolutePath()
-            + "：關服後把那個資料夾搬過去才會改用新位置，這次繼續用原本的位置");
+        log().warning("The genesis world is still at " + previous.toAbsolutePath() + " but init.genesis-dir is " + wanted.toAbsolutePath()
+            + ": move that folder there while the server is stopped to use the new location; keeping the old one for now");
         return previous;
       }
       if (same(wanted, fallback)) Files.deleteIfExists(pointer);
@@ -225,7 +225,7 @@ public final class Workspace {
         Files.writeString(pointer, setting.strip());
       }
     } catch (IOException e) {
-      log().log(Level.SEVERE, "無法讀寫 " + pointer, e);
+      log().log(Level.SEVERE, "Cannot read or write " + pointer, e);
     }
     return wanted;
   }
@@ -285,7 +285,7 @@ public final class Workspace {
       try {
         r.run();
       } catch (RuntimeException e) {
-        log().log(Level.SEVERE, "BuildGit 主執行緒工作失敗", e);
+        log().log(Level.SEVERE, "A BuildGit main thread task failed", e);
       }
     });
   }
@@ -420,7 +420,7 @@ public final class Workspace {
       try {
         return Files.exists(f) ? Optional.of(Path.of(Files.readString(f).strip())) : Optional.empty();
       } catch (IOException e) {
-        log().log(Level.SEVERE, "無法讀取 " + f, e);
+        log().log(Level.SEVERE, "Cannot read " + f, e);
         return Optional.empty();
       }
     }).orElse(null);
@@ -454,10 +454,10 @@ public final class Workspace {
     try {
       var copy = new GenesisCopy(dim, platform.levelDirectory(world), genesisDir(dim), log());
       copies.put(dim, copy);
-      log().warning("上次沒有複製完 " + platform.levelName(world) + " 的起點世界，在背景補完；之後改過又存回的 chunk 會以目前的樣子當作起點");
+      log().warning("The genesis world of " + platform.levelName(world) + " was not fully copied last time; finishing in the background, and chunks changed and saved before then take their current state as genesis");
       startCopy(world, copy, () -> {});
     } catch (IOException e) {
-      log().log(Level.SEVERE, "無法補完起點世界 " + platform.levelName(world), e);
+      log().log(Level.SEVERE, "Cannot finish the genesis world of " + platform.levelName(world), e);
     }
   }
 
@@ -473,7 +473,7 @@ public final class Workspace {
           owners.put(w, wt);
         }
     } catch (IOException | RuntimeException e) {
-      log().log(Level.WARNING, "無法為草稿開啟世界 " + platform.levelName(world), e);
+      log().log(Level.WARNING, "Cannot open a draft world for " + platform.levelName(world), e);
     }
   }
 
@@ -503,7 +503,7 @@ public final class Workspace {
     owners.remove(world);
     sources.remove(world);
     main().removeWorld(world);
-    if (this.world == null) log().info("受版本控制的世界 " + platform.levelName(world) + " 已卸載；再次載入前，不能併回、撤銷或還原到主世界");
+    if (this.world == null) log().info("Versioned world " + platform.levelName(world) + " was unloaded; until it is loaded again, nothing can be merged, reverted or restored into main");
   }
 
   /** 已初始化（有起點世界）的維度。 */
@@ -597,7 +597,7 @@ public final class Workspace {
         Files.copy(source.dir.resolve("data-version"), dir.resolve("data-version"));
         Files.createDirectories(dir.resolve("refs").resolve("branches"));
         if (!Repository.open(dir, objectsDir, upgrader).refs().compareAndSet(Repository.MAIN, null, head))
-          throw new IOException("main 已存在");
+          throw new IOException("main already exists");
         done.complete(null);
       } catch (Throwable t) {
         done.completeExceptionally(t);
@@ -755,7 +755,7 @@ public final class Workspace {
         var source = sources.remove(world);
         wt.removeWorld(world);
         if (!platform.unloadLevel(world, true)) {
-          log().warning("無法卸載世界 " + platform.levelName(world) + "，" + wt.branch() + " 保持載入");
+          log().warning("Cannot unload world " + platform.levelName(world) + "; " + wt.branch() + " stays loaded");
           wt.addWorld(dim, world);
           owners.put(world, wt);
           if (source != null) sources.put(world, source);
@@ -764,13 +764,13 @@ public final class Workspace {
       }
       if (main) {
         idleSince.remove(wt.branch());
-        log().info("已卸載沒有玩家的建築世界：" + label());
+        log().info("Unloaded empty build world: " + label());
         return true;
       }
       worktrees.remove(wt.branch());
       idleSince.remove(wt.branch());
       wt.close();
-      log().info("已卸載沒有玩家的分支世界：" + wt.branch());
+      log().info("Unloaded empty branch world: " + wt.branch());
       return true;
     } finally {
       wt.unlock();
@@ -820,7 +820,7 @@ public final class Workspace {
           genesis.invalidate();
         } catch (IOException | RuntimeException e) {
           count[2]++;
-          log().log(Level.WARNING, "無法升級起點世界的 " + file + "；這個檔案維持原樣，讀取時照舊升級", e);
+          log().log(Level.WARNING, "Cannot upgrade genesis file " + file + "; it stays as is and is upgraded on read as before", e);
         }
       });
     genesisRecorder.execute(() -> {
@@ -920,11 +920,11 @@ public final class Workspace {
       copies.remove(dim);
       if (repo == null) return;
       genesis.invalidate();
-      log().info("起點世界複製完成：" + platform.levelName(world) + "（" + size / (1024 * 1024) + " MB）");
+      log().info("Genesis world copied: " + platform.levelName(world) + " (" + size / (1024 * 1024) + " MB)");
       openBranchWorlds(world);
     }), error -> sync(() -> {
       copies.remove(dim);
-      log().log(Level.SEVERE, "起點世界複製失敗：" + platform.levelName(world) + "；重新啟動後會補完", error);
+      log().log(Level.SEVERE, "Genesis world copy failed: " + platform.levelName(world) + "; it will be finished after a restart", error);
     }));
   }
 
@@ -997,7 +997,7 @@ public final class Workspace {
               try {
                 LiveWriter.setCell(world, x, y, z, cell);
               } catch (IOException ex) {
-                log().log(Level.WARNING, "無法套用覆寫 " + x + " " + y + " " + z, ex);
+                log().log(Level.WARNING, "Cannot apply override " + x + " " + y + " " + z, ex);
               }
             });
             if (!e.getValue().biomes().isEmpty()) biomes |= LiveWriter.setBiomes(world, chunk, sy, e.getValue().biomes());
@@ -1005,7 +1005,7 @@ public final class Workspace {
           if (biomes) LiveWriter.resendBiomes(world, List.of(chunk));
         }));
       } catch (IOException e) {
-        log().log(Level.WARNING, "無法讀取 chunk " + cx + "," + cz + " 的覆寫", e);
+        log().log(Level.WARNING, "Cannot read the overrides of chunk " + cx + "," + cz, e);
       }
     });
   }
@@ -1110,8 +1110,8 @@ public final class Workspace {
   }
 
   void createBranch(String name, String from, ObjectId at, boolean scratch, String dimension) throws IOException {
-    if (!BRANCH_NAME.matcher(name).matches() || !RefStore.validName(name)) throw new IOException("名稱只能用小寫英數、底線、連字號：" + name);
-    if (isScratch(name) != scratch) throw new IOException("草稿名稱不能以 " + MERGE_PREFIX + " 開頭");
+    if (!BRANCH_NAME.matcher(name).matches() || !RefStore.validName(name)) throw new Refused("error-branch-name", "name", name);
+    if (isScratch(name) != scratch) throw new Refused("error-draft-name-prefix", "prefix", MERGE_PREFIX);
     if (dimension != null && !covers(from, dimension)) throw new Refused("error-draft-source-missing-world", "from", from);
     var folder = world == null ? null : registry.levelFolder(world, scratch ? "merge-world-name" : "draft-world-name", "{draft}", name);
     repo.createBranch(name, at);
@@ -1290,7 +1290,7 @@ public final class Workspace {
       Platform.Synthesizer entities = (target, rx, rz) -> synthesizer(source).entities(target, rx, rz);
       world = config != null && config.terrain != WorldConfig.Terrain.SERVER ? platform.openLevel(name, config.gen(), blocks, entities)
           : platform.openLevel(name, template, blocks, entities);
-      if (world == null) throw new IOException("無法建立世界 " + name);
+      if (world == null) throw new IOException("Cannot create world " + name);
       tracker.precise(world, dev.twme.buildgit.server.nms.CascadeUpdater.install(platform, world, tracker));
       if (config != null) applyRules(world);
     }
@@ -1391,7 +1391,7 @@ public final class Workspace {
               net.minecraft.core.registries.BuiltInRegistries.BLOCK, config.block == null ? "minecraft:stone" : config.block, false).blockState();
           level.setBlock(pos, state, 3);
           tracker.markBox(level, Box.of(new BlockPos(0, 63, 0), new BlockPos(0, 63, 0)), author);
-          main().save(author, message, 0, r -> {}, e -> log().log(Level.WARNING, "無法存下建築世界 " + label() + " 的第一個存檔", e));
+          main().save(author, message, 0, r -> {}, e -> log().log(Level.WARNING, "Cannot make the first save of build world " + label(), e));
           y = 64;
         } else y = standable(level);
         config.spawn = new WorldConfig.Spawn(0.5, y, 0.5, 0, 0);
@@ -1460,7 +1460,7 @@ public final class Workspace {
   public ServerLevel openView(ObjectId commit, String dimension) throws IOException {
     if (world != null) openMain();
     var template = mainWorld(dimension);
-    if (template == null) throw new IOException("主世界沒有維度 " + dimension);
+    if (template == null) throw new IOException("main has no dimension " + dimension);
     if (copying(dimension)) throw new Refused("error-genesis-copying");
     var tree = repo.commit(commit).tree();
     var world = createWorld(viewName(commit, dimension), template, new Pending(dimension, () -> tree));
@@ -1477,7 +1477,7 @@ public final class Workspace {
   public ServerLevel openPlayback(ObjectId start, String dimension, String tag, TreeSource tree) throws IOException {
     if (world != null) openMain();
     var template = mainWorld(dimension);
-    if (template == null) throw new IOException("主世界沒有維度 " + dimension);
+    if (template == null) throw new IOException("main has no dimension " + dimension);
     if (copying(dimension)) throw new Refused("error-genesis-copying");
     var level = createWorld(viewName(start, dimension, "_" + tag), template, new Pending(dimension, tree));
     views.put(level, new View(start, dimension));
@@ -1528,7 +1528,7 @@ public final class Workspace {
     var from = was;
     // 載入事件中不能改方塊（會等自己載完）：下一刻再寫
     platform.later(1, () -> replay(level, source.dimension(), from, now, k -> k == key).whenComplete((v, e) -> {
-      if (e != null) log().log(Level.WARNING, "播放世界無法補上 chunk " + cx + "," + cz, unwrap(e));
+      if (e != null) log().log(Level.WARNING, "The playback world cannot fill chunk " + cx + "," + cz, unwrap(e));
     }));
   }
 
@@ -1580,7 +1580,7 @@ public final class Workspace {
             if (e.state().isEmpty()) LiveWriter.removeEntity(level, e.uuid());
             else LiveWriter.spawnEntity(level, e.state().get());
           } catch (IOException ex) {
-            log().log(Level.WARNING, "播放時無法寫入實體 " + e.uuid(), ex);
+            log().log(Level.WARNING, "Cannot write entity during playback: " + e.uuid(), ex);
           }
         });
       }
@@ -1604,7 +1604,7 @@ public final class Workspace {
         Files.delete(file);
       }
     } catch (IOException e) {
-      log().log(Level.WARNING, "無法清理舊的檢視世界", e);
+      log().log(Level.WARNING, "Cannot clean up old view worlds", e);
     }
   }
 
@@ -1625,7 +1625,7 @@ public final class Workspace {
     views.remove(world);
     played.remove(world);
     if (!platform.unloadLevel(world, false)) {
-      log().warning("無法卸載世界 " + platform.levelName(world) + "，資料夾保留");
+      log().warning("Cannot unload world " + platform.levelName(world) + "; its folder is kept");
       return;
     }
     deleteLater(folder);
@@ -1667,7 +1667,7 @@ public final class Workspace {
         try {
           deleteRecursively(path);
         } catch (IOException e) {
-          log().log(Level.WARNING, "無法刪除 " + path, e);
+          log().log(Level.WARNING, "Cannot delete " + path, e);
         }
       });
     });
@@ -1738,7 +1738,7 @@ public final class Workspace {
     try {
       yaml.save(playersPath());
     } catch (IOException e) {
-      log().log(Level.WARNING, "無法記錄 " + p.getScoreboardName() + " 離線時的位置", e);
+      log().log(Level.WARNING, "Cannot record where " + p.getScoreboardName() + " logged out", e);
     }
   }
 
@@ -1761,7 +1761,7 @@ public final class Workspace {
       for (int i = 0; i < 5; i++) v[i] = pos.get(i) instanceof Number n ? n.doubleValue() : 0;
       platform.teleport(p, world, v[0], v[1], v[2], (float) v[3], (float) v[4]);
     } catch (IOException | RuntimeException e) {
-      log().log(Level.WARNING, "無法把 " + p.getScoreboardName() + " 送回草稿 " + branch, e);
+      log().log(Level.WARNING, "Cannot send " + p.getScoreboardName() + " back to draft " + branch, e);
     }
   }
 
@@ -1784,7 +1784,7 @@ public final class Workspace {
     try {
       var missing = trackedDimensions().stream().filter(d -> wt.world(d) == null && covers(wt.branch(), d)).toList();
       if (!missing.isEmpty()) {
-        failed.accept(new Refused("error-worlds-not-loaded", "branch", wt.branch(), "missing", String.join("、", missing)));
+        failed.accept(new Refused("error-worlds-not-loaded", "branch", wt.branch(), "missing", String.join(", ", missing)));
         return;
       }
     } catch (IOException e) {
@@ -1792,7 +1792,7 @@ public final class Workspace {
       return;
     }
     if (!wt.lock()) {
-      failed.accept(new IOException("分支正在存檔或併回，請稍後再試：" + wt.branch()));
+      failed.accept(new Refused("error-branch-busy", "branch", wt.branch()));
       return;
     }
     wt.progress().reset(0);
@@ -1820,7 +1820,7 @@ public final class Workspace {
         return;
       }
       apply(wt, plan.writes()).whenComplete((ignored, applyError) -> sync(() -> {
-        if (applyError != null) log().log(Level.SEVERE, "版本已提交，但寫入世界時失敗；未寫入的部分在下次讀取時會不一致", unwrap(applyError));
+        if (applyError != null) log().log(Level.SEVERE, "The save was committed, but writing to the world failed; the unwritten parts will not match until they are read again", unwrap(applyError));
         wt.unlock();
         done.accept(Optional.of(new Applied(plan.commit(), plan.cells(), plan.entities(), plan.biomes())));
       }));
@@ -1964,7 +1964,7 @@ public final class Workspace {
     final ObjectId base, ours, theirs;
 
     ConflictException(ThreeWayMerge.Result result, ObjectId base, ObjectId ours, ObjectId theirs) {
-      super("有 " + result.cellConflicts().size() + " 格、" + result.entityConflicts().size() + " 個實體衝突");
+      super(result.cellConflicts().size() + " blocks and " + result.entityConflicts().size() + " entities conflict");
       this.result = result;
       this.base = base;
       this.ours = ours;
@@ -2042,11 +2042,11 @@ public final class Workspace {
     if (scope == null) {
       parents = List.of(head, theirs);
       trailers.put("Merged-From", source);
-      message = "併回 " + source;
+      message = "Merge " + source;
     } else {
       parents = List.of(head);
       trailers.put("Partial-From", source);
-      message = "部分併回 " + source;
+      message = "Partly merge " + source;
     }
     if (resolvedBy != null) authors.putAll(resolvedBy);
     return repo.commitTree(target, parents, tree, authors.isEmpty() ? null : Repository.Resolution.authors(authors), genesis,
@@ -2125,13 +2125,13 @@ public final class Workspace {
     var scope = ownWorld(wt, null);
     transact(wt, head -> {
       var commit = repo.commit(bad);
-      if (commit.parents().isEmpty()) throw new IOException("不能撤銷初始化的存檔");
-      if (!repo.isAncestor(bad, head)) throw new IOException("這個存檔不在 " + wt.branch() + " 的歷史裡");
+      if (commit.parents().isEmpty()) throw new Refused("error-revert-initial");
+      if (!repo.isAncestor(bad, head)) throw new Refused("error-revert-not-in-history", "branch", wt.branch());
       var parent = commit.parents().getFirst();
       var result = scope == null ? repo.mergeTrees(bad, head, parent, null) : repo.mergeTrees(bad, head, parent, scope.dimension(), scope.box());
       if (!result.clean()) throw new ConflictException(result, bad, head, parent);
       return repo.commitTree(wt.branch(), List.of(head), result.tree(), null, genesis, author, author, System.currentTimeMillis(),
-          "撤銷 " + bad.abbrev(), 0, new TreeMap<>(Map.of("Reverts", bad.hex())));
+          "Revert " + bad.abbrev(), 0, new TreeMap<>(Map.of("Reverts", bad.hex())));
     }, done, failed);
   }
 
@@ -2142,7 +2142,7 @@ public final class Workspace {
     transact(wt, head -> {
       var tree = scope == null ? repo.restoreTree(head, target, null) : repo.restoreTree(head, target, scope.dimension(), scope.box());
       return repo.commitTree(wt.branch(), List.of(head), tree, null, genesis, author, author, System.currentTimeMillis(),
-          "還原到 " + target.abbrev() + (requested == null ? "" : "（範圍）"), 0, new TreeMap<>(Map.of("Restored-From", target.hex())));
+          "Restore to " + target.abbrev() + (requested == null ? "" : " (area)"), 0, new TreeMap<>(Map.of("Restored-From", target.hex())));
     }, done, failed);
   }
 

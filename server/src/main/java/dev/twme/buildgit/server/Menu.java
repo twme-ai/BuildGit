@@ -277,7 +277,7 @@ final class Menu {
     var msg = bg.messages().to(p);
     var items = new ArrayList<Platform.MenuItem>();
     var header = new ArrayList<>(List.of(msg.get("settings-header-lore")));
-    if (!bg.worlds().kept(ws).isEmpty()) header.add(msg.get("settings-kept", "branches", String.join("、", bg.worlds().kept(ws))));
+    if (!bg.worlds().kept(ws).isEmpty()) header.add(msg.get("settings-kept", "branches", String.join(msg.raw("list-separator"), bg.worlds().kept(ws))));
     items.add(new Platform.MenuItem(4, "name_tag", msg.get("settings-header", "world", ws.label()), header, null));
     var slots = java.util.stream.IntStream.range(9, 36).boxed().toList();
     var icons = Map.ofEntries(Map.entry("time", "clock"), Map.entry("weather", "water_bucket"), Map.entry("difficulty", "iron_sword"),

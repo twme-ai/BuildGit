@@ -99,7 +99,7 @@ public final class Bin {
 
     public int count() throws IOException {
       int n = in.readInt();
-      if (n < 0 || n > length) throw new IOException("物件內的數量無效：" + n);
+      if (n < 0 || n > length) throw new IOException("Invalid count in object: " + n);
       return n;
     }
 
@@ -116,7 +116,7 @@ public final class Bin {
     public byte[] nullableBytes() throws IOException {
       int n = in.readInt();
       if (n == -1) return null;
-      if (n < 0 || n > length) throw new IOException("物件內的長度無效：" + n);
+      if (n < 0 || n > length) throw new IOException("Invalid length in object: " + n);
       byte[] b = new byte[n];
       in.readFully(b);
       return b;
@@ -133,7 +133,7 @@ public final class Bin {
     }
 
     public void end() throws IOException {
-      if (in.available() != 0) throw new IOException("物件結尾有多餘位元組");
+      if (in.available() != 0) throw new IOException("Extra bytes at the end of the object");
     }
   }
 }

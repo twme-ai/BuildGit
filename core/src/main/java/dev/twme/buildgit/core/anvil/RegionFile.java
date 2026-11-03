@@ -19,12 +19,12 @@ public final class RegionFile implements Closeable {
 
   public RegionFile(Path path) throws IOException {
     this.path = path;
-    if (!NAME.matcher(path.getFileName().toString()).matches()) throw new IOException("region 檔名無效：" + path);
+    if (!NAME.matcher(path.getFileName().toString()).matches()) throw new IOException("Invalid region file name: " + path);
     channel = FileChannel.open(path, StandardOpenOption.READ);
     try {
       // 第一次寫入前會留下 0 byte 的 .mca：視為沒有任何 chunk。
       if (channel.size() == 0) return;
-      if (channel.size() < 8192) throw new IOException("region 標頭截斷：" + path);
+      if (channel.size() < 8192) throw new IOException("Truncated region header: " + path);
       var header = ByteBuffer.allocate(4096);
       readFully(header, 0);
       header.flip();
@@ -33,7 +33,7 @@ public final class RegionFile implements Closeable {
         if (locations[i] == 0) continue;
         int offset = locations[i] >>> 8, count = locations[i] & 255;
         if (offset < 2 || count == 0 || (long) offset * 4096 + 5 > channel.size())
-          throw new IOException("region sector 無效：" + path + " index=" + i);
+          throw new IOException("Invalid region sector: " + path + " index=" + i);
       }
     } catch (Throwable t) {
       channel.close();
@@ -51,7 +51,7 @@ public final class RegionFile implements Closeable {
   }
 
   private void readFully(ByteBuffer b, long offset) throws IOException {
-    while (b.hasRemaining()) if (channel.read(b, offset + b.position()) < 0) throw new EOFException("region 截斷：" + path);
+    while (b.hasRemaining()) if (channel.read(b, offset + b.position()) < 0) throw new EOFException("Truncated region: " + path);
   }
 
   public boolean has(int index) {
@@ -74,15 +74,15 @@ public final class RegionFile implements Closeable {
     head.flip();
     int length = head.getInt();
     int compression = head.get() & 255;
-    if (length < 1 || length > (location & 255) * 4096 - 4) throw new IOException("chunk 長度無效：" + path + " index=" + index);
+    if (length < 1 || length > (location & 255) * 4096 - 4) throw new IOException("Invalid chunk length: " + path + " index=" + index);
     byte[] bytes;
     if ((compression & 128) != 0) {
       String name = path.getFileName().toString();
       var m = NAME.matcher(name);
-      if (!m.matches()) throw new IOException("region 檔名無效：" + path);
+      if (!m.matches()) throw new IOException("Invalid region file name: " + path);
       int cx = Integer.parseInt(m.group(1)) * 32 + (index & 31), cz = Integer.parseInt(m.group(2)) * 32 + (index >>> 5);
       Path external = path.resolveSibling("c." + cx + "." + cz + ".mcc");
-      if (Files.size(external) > Nbt.MAX_BYTES) throw new IOException("外部 chunk 太大：" + external);
+      if (Files.size(external) > Nbt.MAX_BYTES) throw new IOException("External chunk too large: " + external);
       bytes = Files.readAllBytes(external);
     } else {
       var body = ByteBuffer.allocate(length - 1);
@@ -100,11 +100,11 @@ public final class RegionFile implements Closeable {
           case 2 -> new InflaterInputStream(raw);
           case 3 -> raw;
           // LZ4 需要額外函式庫；伺服器預設是 deflate，起點世界由 BuildGit 自己複製，所以這裡直接說明原因。
-          case 4 -> throw new IOException("不支援 LZ4 壓縮的 region；請把 region-file-compression 設為 deflate");
-          default -> throw new IOException("未知的 Anvil 壓縮：" + compression);
+          case 4 -> throw new IOException("LZ4-compressed regions are not supported; set region-file-compression to deflate");
+          default -> throw new IOException("Unknown Anvil compression: " + compression);
         }) {
       byte[] b = in.readNBytes(Nbt.MAX_BYTES + 1);
-      if (b.length > Nbt.MAX_BYTES) throw new IOException("chunk 解壓後超過限制");
+      if (b.length > Nbt.MAX_BYTES) throw new IOException("Chunk is over the limit once decompressed");
       return b;
     }
   }

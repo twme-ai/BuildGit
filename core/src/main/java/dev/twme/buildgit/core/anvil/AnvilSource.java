@@ -74,7 +74,7 @@ public final class AnvilSource implements StateSource, Closeable {
       if (data == null) return palette[0];
       int perLong = 64 / bits;
       int v = (int) (data[cell / perLong] >>> (cell % perLong) * bits & (1L << bits) - 1);
-      if (v >= palette.length) throw new IOException("section 調色盤索引超出範圍");
+      if (v >= palette.length) throw new IOException("Section palette index out of range");
       return palette[v];
     }
   }
@@ -150,9 +150,9 @@ public final class AnvilSource implements StateSource, Closeable {
       long[] packed = null;
       int bits = 0;
       if (names.length > 1) {
-        if (!(states.get("data") instanceof long[] data)) throw new IOException("section 缺少方塊資料");
+        if (!(states.get("data") instanceof long[] data)) throw new IOException("Section is missing block data");
         bits = bits(names.length);
-        if (data.length < (4096 + 64 / bits - 1) / (64 / bits)) throw new IOException("section 方塊資料長度不足");
+        if (data.length < (4096 + 64 / bits - 1) / (64 / bits)) throw new IOException("Section block data is too short");
         packed = data;
       }
       sections.put((int) y, new Section(names, packed, bits));
@@ -180,12 +180,12 @@ public final class AnvilSource implements StateSource, Closeable {
       Arrays.fill(result, names[0]);
       return result;
     }
-    if (!(container.get("data") instanceof long[] data)) throw new IOException("section 缺少生態域資料");
+    if (!(container.get("data") instanceof long[] data)) throw new IOException("Section is missing biome data");
     int bits = biomeBits(names.length), perLong = 64 / bits;
-    if (data.length < (64 + perLong - 1) / perLong) throw new IOException("section 生態域資料長度不足");
+    if (data.length < (64 + perLong - 1) / perLong) throw new IOException("Section biome data is too short");
     for (int i = 0; i < 64; i++) {
       int v = (int) (data[i / perLong] >>> (i % perLong) * bits & (1L << bits) - 1);
-      if (v >= names.length) throw new IOException("生態域調色盤索引超出範圍");
+      if (v >= names.length) throw new IOException("Biome palette index out of range");
       result[i] = names[v];
     }
     return result;
@@ -204,12 +204,12 @@ public final class AnvilSource implements StateSource, Closeable {
   static int[] unpack(long[] data, int paletteSize) throws IOException {
     int bits = bits(paletteSize);
     int perLong = 64 / bits;
-    if (data.length < (4096 + perLong - 1) / perLong) throw new IOException("section 方塊資料長度不足");
+    if (data.length < (4096 + perLong - 1) / perLong) throw new IOException("Section block data is too short");
     long mask = (1L << bits) - 1;
     var result = new int[4096];
     for (int i = 0; i < 4096; i++) {
       int v = (int) (data[i / perLong] >>> (i % perLong) * bits & mask);
-      if (v >= paletteSize) throw new IOException("section 調色盤索引超出範圍");
+      if (v >= paletteSize) throw new IOException("Section palette index out of range");
       result[i] = v;
     }
     return result;

@@ -81,7 +81,7 @@ final class LocalSync {
       try {
         load(player, name, folder);
       } catch (IOException | RuntimeException e) {
-        bg.platform().log().log(Level.WARNING, "無法載入範圍 " + name, e);
+        bg.platform().log().log(Level.WARNING, "Cannot load area " + name, e);
         msg().send(bg.platform().sender(player), "sync-failed", "error", e);
       }
     }));
@@ -117,7 +117,7 @@ final class LocalSync {
     CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> platform.sync(() -> {
       var player = platform.server().getPlayerList().getPlayer(uuid);
       try {
-        if (error != null) throw new IOException("無法載入範圍內的 chunk", error);
+        if (error != null) throw new IOException("Cannot load the chunks in the area", error);
         int failed = paste(level, bundle);
         var y = new Yaml();
         y.set("world", worldId());
@@ -127,7 +127,7 @@ final class LocalSync {
         Files.deleteIfExists(folder.resolve(name + SyncClient.EDITED));
         if (player != null) msg().send(platform.sender(player), "sync-loaded", "name", name, "failed", failed);
       } catch (IOException | RuntimeException e) {
-        platform.log().log(Level.WARNING, "無法載入範圍 " + name, e);
+        platform.log().log(Level.WARNING, "Cannot load area " + name, e);
         if (player != null) msg().send(platform.sender(player), "sync-failed", "error", e);
       }
     }));
@@ -174,13 +174,13 @@ final class LocalSync {
         try {
           pack(folder, name, y.getString("dimension"));
         } catch (IOException | RuntimeException e) {
-          bg.platform().log().log(Level.WARNING, "無法打包範圍 " + name, e);
+          bg.platform().log().log(Level.WARNING, "Cannot pack area " + name, e);
         }
       }
     } catch (NoSuchFileException e) {
       // 沒有範圍
     } catch (IOException e) {
-      bg.platform().log().log(Level.WARNING, "無法讀取範圍資料夾 " + folder, e);
+      bg.platform().log().log(Level.WARNING, "Cannot read area folder " + folder, e);
     }
   }
 
@@ -209,6 +209,6 @@ final class LocalSync {
     var tmp = folder.resolve(name + SyncClient.EDITED + ".tmp");
     Files.write(tmp, edited.encode());
     Files.move(tmp, folder.resolve(name + SyncClient.EDITED), StandardCopyOption.REPLACE_EXISTING);
-    bg.platform().log().info("已把範圍 " + name + " 存成改過的版本，連上伺服器後用 /bg push " + name + " 送回");
+    bg.platform().log().info("Saved the changed area " + name + "; after joining the server, send it back with /bg push " + name);
   }
 }

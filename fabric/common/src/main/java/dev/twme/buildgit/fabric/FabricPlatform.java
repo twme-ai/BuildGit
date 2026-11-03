@@ -167,7 +167,7 @@ final class FabricPlatform implements Platform {
       try {
         task.run();
       } catch (RuntimeException e) {
-        log.log(java.util.logging.Level.SEVERE, "排程的工作失敗", e);
+        log.log(java.util.logging.Level.SEVERE, "A scheduled task failed", e);
       }
     }
   }
@@ -300,7 +300,7 @@ final class FabricPlatform implements Platform {
     } catch (RuntimeException e) {
       Synthesis.unregister(dir.resolve("region"));
       Synthesis.unregister(dir.resolve("entities"));
-      throw new IOException("無法建立世界 " + name + "：" + e.getMessage(), e);
+      throw new IOException("Cannot create world " + name + ": " + e.getMessage(), e);
     }
   }
 

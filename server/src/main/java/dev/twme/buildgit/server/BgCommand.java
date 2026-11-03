@@ -356,7 +356,7 @@ public final class BgCommand {
     try {
       sub.handler().run(sender, args);
     } catch (IOException | RuntimeException e) {
-      if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "/bg " + name + " 失敗", e);
+      if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "/bg " + name + " failed", e);
       failed(sender, e);
     }
     return 1;
@@ -472,7 +472,7 @@ public final class BgCommand {
       return;
     }
     boolean started = wt.save(author(sender), "autosave", Commit.AUTO, r -> next.run(), e -> {
-      bg.platform().log().log(Level.WARNING, "自動存檔失敗", e);
+      bg.platform().log().log(Level.WARNING, "Autosave failed", e);
       done(sender);
       msg().send(sender, "save-failed", "error", e);
     });
@@ -595,7 +595,7 @@ public final class BgCommand {
     } catch (Workspace.Refused e) {
       msg().send(sender, "init-failed", "error", e);
     } catch (IOException e) {
-      bg.platform().log().log(Level.SEVERE, "init 失敗", e);
+      bg.platform().log().log(Level.SEVERE, "init failed", e);
       msg().send(sender, "init-failed", "error", e);
     }
   }
@@ -631,7 +631,7 @@ public final class BgCommand {
         },
         e -> {
           done(sender);
-          bg.platform().log().log(Level.WARNING, "存檔失敗", e);
+          bg.platform().log().log(Level.WARNING, "Save failed", e);
           msg().send(sender, "save-failed", "error", e);
         });
     if (!started) {
@@ -859,7 +859,7 @@ public final class BgCommand {
           }
           before = flipStates(level, cells);
         } catch (IOException e) {
-          bg.platform().log().log(java.util.logging.Level.WARNING, "無法讀取存檔時的方塊", e);
+          bg.platform().log().log(java.util.logging.Level.WARNING, "Cannot read the blocks at the save", e);
         }
         var flip = before;
         ws.sync(() -> {
@@ -1100,7 +1100,7 @@ public final class BgCommand {
               "kind", msg(s(player)).get(kind(b.kind())));
         });
       } catch (IOException ex) {
-        bg.platform().log().log(Level.WARNING, "blame 失敗", ex);
+        bg.platform().log().log(Level.WARNING, "blame failed", ex);
       }
     });
   }
@@ -1150,7 +1150,7 @@ public final class BgCommand {
         var draft = ws.openBranch(name);
         if (sender.player() instanceof ServerPlayer p) ws.teleport(p, draft);
       } catch (IOException | RuntimeException e) {
-        bg.platform().log().log(Level.WARNING, "try 失敗", e);
+        bg.platform().log().log(Level.WARNING, "try failed", e);
         failed(sender, e);
       }
     });
@@ -1570,7 +1570,7 @@ public final class BgCommand {
       if (error instanceof Workspace.ConflictException c)
         startSession(ws, sender, scope == null ? MergeSessions.Kind.MERGE : MergeSessions.Kind.PARTIAL, target.branch(), source, scope, c);
       else {
-        bg.platform().log().log(Level.WARNING, "併回失敗", error);
+        bg.platform().log().log(Level.WARNING, "Merge failed", error);
         failed(sender, error);
       }
     });
@@ -1594,7 +1594,7 @@ public final class BgCommand {
         failed(s(p), e);
       }
     }, e -> {
-      bg.platform().log().log(Level.WARNING, "無法開始衝突整合", e);
+      bg.platform().log().log(Level.WARNING, "Cannot start conflict resolution", e);
       failed(sender, e);
     });
   }
@@ -1918,7 +1918,7 @@ public final class BgCommand {
           if (wt != null) for (var world : wt.worlds().values()) for (var p : world.players()) players.add(p.getScoreboardName());
           msg().send(sender, "branch-entry", "branch", branchLabel(sender, e.getKey()), "head", e.getValue().abbrev(),
               "time", TIME.format(Instant.ofEpochMilli(ws.repo().commit(e.getValue()).time())),
-              "players", players.isEmpty() ? Component.empty() : msg(sender).get("branch-players", "names", String.join("、", players)));
+              "players", players.isEmpty() ? Component.empty() : msg(sender).get("branch-players", "names", String.join(msg(sender).raw("list-separator"), players)));
         }
         for (var s : ws.merges().all())
           msg().send(sender, "merge-entry", "id", s.id(), "source", s.source() == null ? s.base().abbrev() : s.source(), "target", s.target());
@@ -2427,7 +2427,7 @@ public final class BgCommand {
       send.run();
     }, e -> {
       done(sender);
-      bg.platform().log().log(Level.WARNING, "存檔失敗", e);
+      bg.platform().log().log(Level.WARNING, "Save failed", e);
       msg().send(sender, "save-failed", "error", e);
     });
     if (!started) {
@@ -2923,7 +2923,7 @@ public final class BgCommand {
         else if (Menu.TIMES.containsKey(value)) c.time = Menu.TIMES.get(value);
         else {
           int t = number(value);
-          if (t < 0 || t > 23999) throw new Workspace.Refused("error-setting-time", "value", String.join("、", Menu.SETTINGS.get("time")));
+          if (t < 0 || t > 23999) throw new Workspace.Refused("error-setting-time", "value", String.join(", ", Menu.SETTINGS.get("time")));
           c.time = t;
         }
       }
@@ -3056,7 +3056,7 @@ public final class BgCommand {
   }
 
   private static Workspace.Refused badValue(String key) {
-    return new Workspace.Refused("error-setting-choices", "value", key, "value2", String.join("、", Menu.SETTINGS.get(key)));
+    return new Workspace.Refused("error-setting-choices", "value", key, "value2", String.join(", ", Menu.SETTINGS.get(key)));
   }
 
   private net.kyori.adventure.text.Component roleName(Sender sender, WorldConfig.Role role) {

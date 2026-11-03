@@ -1,32 +1,32 @@
-# BuildGit 備份工作：每個工作自己決定備份什麼、送到哪裡、何時、留幾份。
-# S3 的連線（網址、金鑰）在 s3.yml；這個檔案沒有金鑰。外掛更新時不會改動這個檔案。
-# 改完用 /bg reload 生效；/bg backup status 看狀態，/bg backup now [工作] 立刻執行。
+# BuildGit backup jobs: each job decides what to back up, where to, when, and how many copies to keep.
+# The S3 connections (URLs, keys) are in s3.yml; this file has no keys. Plugin updates never change this file.
+# Run /bg reload after changes; /bg backup status shows the state, /bg backup now [job] runs right away.
 #
-# 每個工作的設定：
-#   what          history：版本紀錄（存檔、分支、起點世界）；world：世界資料夾（玩家資料、地圖畫、沒存檔的變更…）
-#   target        s3:<s3.yml 裡的連線名稱>，或 local:<資料夾>（相對伺服器根目錄或絕對路徑）
-#   path          在目的地裡的位置（S3 的 prefix）；同一個目的地有多台伺服器或多個工作時，每個用不同的名稱
-#   schedule      cron 排程「分 時 日 月 星期」，例如 "0 * * * *" 每小時整點、"0 4 * * *" 每天 4 點、"*/30 * * * *" 每 30 分鐘
-#   idle-minutes  伺服器沒有玩家滿幾分鐘後備份一次（上次備份之後有玩家上線過才會）；0 為不用
-#                 schedule 與 idle-minutes 可以只設一個，也可以都設
-#   keep          保留幾份快照
-#   enabled       false 暫停這個工作
-#   exclude-worlds 不備份的世界：世界資料夾（相對伺服器根目錄，例如 world_nether）或建築世界的「擁有者/名稱」，
-#                 例如 [world_nether, "alice/test"]。版本紀錄的工作只能排除建築世界。建築世界照目前的名稱比對，改名後要跟著改
-# 版本紀錄的工作另有：
-#   genesis-hours 起點世界已經傳過的檔案有變時，最多每幾小時重傳一次（預設 24；0 為每次）。延遲複製的大世界在玩家探索時
-#                 region 檔一直在變，每次都整個重傳很花流量。之間的快照沿用上次傳的內容，新出現的檔案照常每次傳
-# 世界資料夾的工作另有：
-#   storage       auto：本機用 folders；S3 的 bucket 有開版本控制時用 versioned，沒有時用 hashed
-#                 folders：每份快照一個完整的資料夾，任何工具都能直接取用（本機用硬連結，不佔空間）
-#                 versioned：只有 S3，用 bucket 的版本控制，只多存變動的檔案
-#                 hashed：檔案以內容的雜湊命名，一樣的內容只存一份；要用 BuildGit 還原
-#   announce      開始與結束時在聊天室提示玩家（沒有玩家時不提示）
-#   exclude       額外不備份的路徑（相對伺服器根目錄，* 萬用字元），例如 "world/stats/*"
-# 世界資料夾只處理上次備份之後有玩家進去過的世界；從來沒有玩家進去過的世界不備份。
-# 放在同一顆硬碟的本機備份只防得了誤刪與損毀，防不了硬碟壞掉。
+# Settings of each job:
+#   what          history: version history (saves, branches, genesis world); world: world folders (player data, maps, unsaved changes...)
+#   target        s3:<connection name in s3.yml>, or local:<folder> (relative to the server root, or absolute)
+#   path          the place inside the destination (the S3 prefix); give each server or job sharing a destination its own name
+#   schedule      cron schedule "minute hour day month weekday", e.g. "0 * * * *" every hour, "0 4 * * *" daily at 4:00, "*/30 * * * *" every 30 minutes
+#   idle-minutes  back up once after the server has had no players for this many minutes (only if someone joined since the last backup); 0 turns it off
+#                 you can set just one of schedule and idle-minutes, or both
+#   keep          how many snapshots to keep
+#   enabled       false pauses this job
+#   exclude-worlds worlds not to back up: world folders (relative to the server root, e.g. world_nether) or build worlds as "owner/name",
+#                 e.g. [world_nether, "alice/test"]. History jobs can only exclude build worlds. Build worlds match by their current name, so update it after a rename
+# History jobs also have:
+#   genesis-hours when genesis world files already sent have changed, resend them at most every this many hours (default 24; 0 every time). In large lazily copied worlds
+#                 region files keep changing as players explore, and resending them all every time costs a lot of traffic. Snapshots in between reuse what was sent last, and new files are sent every time as usual
+# World folder jobs also have:
+#   storage       auto: folders for local; versioned for S3 when the bucket has versioning on, hashed when not
+#                 folders: one complete folder per snapshot that any tool can use directly (local copies use hard links and take no space)
+#                 versioned: S3 only, uses the bucket's versioning and only stores changed files again
+#                 hashed: files are named by the hash of their content, so the same content is stored once; restore with BuildGit
+#   announce      tell players in chat when it starts and ends (not when nobody is online)
+#   exclude       extra paths not to back up (relative to the server root, * wildcard), e.g. "world/stats/*"
+# World folder jobs only handle worlds someone has been in since the last backup; worlds nobody has ever been in are not backed up.
+# A local backup on the same disk only protects against mistakes and corruption, not against the disk failing.
 
-# cron 用的時區，例如 Asia/Taipei；空白用伺服器的時區
+# The time zone for cron, e.g. Europe/Berlin; empty uses the server's time zone
 timezone: ""
 
 jobs:
@@ -48,7 +48,7 @@ jobs:
     announce: true
     exclude: []
     enabled: true
-  # 範例：每 6 小時在本機另一顆硬碟留 4 份世界資料夾
+  # Example: keep 4 copies of the world folders on another local disk every 6 hours
   # world-local:
   #   what: world
   #   target: local:/mnt/backup/minecraft

@@ -41,7 +41,7 @@ public final class CascadeUpdater extends CollectingNeighborUpdater {
       platform.neighborUpdater(level, new CascadeUpdater(level, platform.maxChainedNeighborUpdates(current), tracker, current));
       return true;
     } catch (RuntimeException | LinkageError e) {
-      platform.log().log(Level.WARNING, "無法掛上鄰居更新器（" + platform.levelName(level) + "）；連帶變化只會以事件近似記錄", e);
+      platform.log().log(Level.WARNING, "Cannot hook the neighbor updater (" + platform.levelName(level) + "); knock-on changes are only approximated from events", e);
       return false;
     }
   }

@@ -32,7 +32,7 @@ public final class LuckPermsContexts<T> implements ContextCalculator<T> {
     var calculator = new LuckPermsContexts<>(bg.contexts(), id);
     manager.registerCalculator(calculator);
     bg.contexts().signal(p -> manager.signalContextUpdate(subject.apply(p)));
-    bg.platform().log().info("已向 LuckPerms 提供情境 " + Contexts.LOCATION + "、" + Contexts.BRANCH + "、" + Contexts.WORLD + "、" + Contexts.ROLE);
+    bg.platform().log().info("Providing LuckPerms contexts " + Contexts.LOCATION + ", " + Contexts.BRANCH + ", " + Contexts.WORLD + ", " + Contexts.ROLE);
   }
 
   @Override

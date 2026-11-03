@@ -153,20 +153,20 @@ public final class BuildWorlds {
       try {
         e = entry(yaml, id, id);
       } catch (RuntimeException ex) {
-        platform.log().warning(INDEX + " 裡的建築世界 " + id + " 格式不對，略過：" + ex.getMessage());
+        platform.log().warning(INDEX + ": build world " + id + " is malformed, skipped: " + ex.getMessage());
         skipped = true;
         continue;
       }
       var ws = workspace(e);
       try {
         ws.open();
-        if (!ws.isOpen()) platform.log().warning("找不到建築世界 " + e.label() + " 的版本庫：" + path(e.repo(), e, null));
+        if (!ws.isOpen()) platform.log().warning("Repository of build world " + e.label() + " not found: " + path(e.repo(), e, null));
       } catch (IOException | RuntimeException ex) {
-        platform.log().log(Level.SEVERE, "無法開啟建築世界 " + e.label(), ex);
+        platform.log().log(Level.SEVERE, "Cannot open build world " + e.label(), ex);
       }
       worlds.put(id, ws);
     }
-    if (!worlds.isEmpty()) platform.log().info("建築世界：" + worlds.size() + " 個");
+    if (!worlds.isEmpty()) platform.log().info("Build worlds: " + worlds.size());
     var t = Yaml.load(platform.repoDir().resolve(TRASH));
     for (var id : t.keys())
       try {
@@ -175,7 +175,7 @@ public final class BuildWorlds {
           moved.add(new Moved(Path.of(t.getString(id + ".moved." + i + ".from")), Path.of(t.getString(id + ".moved." + i + ".to"))));
         trash.put(id, new Deleted(entry(t, id + ".entry", id), t.getLong(id + ".time", 0), moved));
       } catch (RuntimeException ex) {
-        platform.log().warning(TRASH + " 裡的 " + id + " 格式不對，略過：" + ex.getMessage());
+        platform.log().warning(TRASH + ": " + id + " is malformed, skipped: " + ex.getMessage());
         skipped = true;
       }
   }
@@ -194,7 +194,7 @@ public final class BuildWorlds {
         yaml.getString(key + ".folder"), yaml.getString(key + ".paths.repo"), yaml.getString(key + ".paths.objects"),
         yaml.getString(key + ".paths.genesis"), yaml.getLong(key + ".created", 0));
     if (e.name() == null || e.folder() == null || e.repo() == null || e.objects() == null || e.genesis() == null)
-      throw new IllegalArgumentException("缺少欄位");
+      throw new IllegalArgumentException("Missing field");
     return e;
   }
 
@@ -236,7 +236,7 @@ public final class BuildWorlds {
     ws.create(tracker.author(owner), config);
     worlds.put(e.id(), ws);
     save();
-    platform.log().info(owner.getScoreboardName() + " 建立了建築世界 " + e.label() + "（" + e.folder() + "）");
+    platform.log().info(owner.getScoreboardName() + " created build world " + e.label() + " (" + e.folder() + ")");
     return ws;
   }
 
@@ -281,7 +281,7 @@ public final class BuildWorlds {
           ws.create(tracker.author(owner), config);
           worlds.put(e.id(), ws);
           save();
-          platform.log().info(source + "，建立了 " + owner.getScoreboardName() + " 的建築世界 " + e.label() + "（" + e.folder() + "）");
+          platform.log().info(source + ": created build world " + e.label() + " of " + owner.getScoreboardName() + " (" + e.folder() + ")");
           done.complete(ws);
         } catch (Throwable ex) {
           worlds.remove(e.id());
@@ -334,10 +334,10 @@ public final class BuildWorlds {
         ws.open();
         worlds.put(e.id(), ws);
         save();
-        platform.log().info(owner.getScoreboardName() + (template ? " 從範本 " : " fork 了 ") + source.label() + " 建立建築世界 " + e.label() + "（" + e.folder() + "）");
+        platform.log().info(owner.getScoreboardName() + " created build world " + e.label() + " (" + e.folder() + ") " + (template ? "from template " : "by forking ") + source.label());
         done.complete(ws);
       } catch (Throwable t) {
-        platform.log().log(java.util.logging.Level.WARNING, "fork " + source.label() + " 失敗", t);
+        platform.log().log(java.util.logging.Level.WARNING, "fork " + source.label() + " failed", t);
         ws.closeRepo();
         deleteTree(ws.dir());
         deleteTree(ws.genesisRoot());
@@ -373,11 +373,11 @@ public final class BuildWorlds {
       }
     var ownerName = owner.getScoreboardName().toLowerCase(Locale.ROOT);
     checkName(name, owner.getUUID(), null);
-    if (!pw.worldName().contains("{name}")) throw misconfigured("player-worlds.world-name 必須包含 {name}");
+    if (!pw.worldName().contains("{name}")) throw misconfigured("player-worlds.world-name must contain {name}");
     if (!pw.repo().contains("{id}") && !pw.repo().contains("{world-folder}"))
-      throw misconfigured("player-worlds.paths.repo 必須包含 {id} 或 {world-folder}，否則每個建築世界會用到同一個版本庫");
+      throw misconfigured("player-worlds.paths.repo must contain {id} or {world-folder}, or every build world would use the same repository");
     if (!pw.genesis().contains("{id}") && !pw.genesis().contains("{world-folder}") && !pw.genesis().contains("{repo}"))
-      throw misconfigured("player-worlds.paths.genesis 必須包含 {id}、{world-folder} 或 {repo}");
+      throw misconfigured("player-worlds.paths.genesis must contain {id}, {world-folder} or {repo}");
     String id;
     var bytes = new byte[4];
     do {
@@ -409,10 +409,10 @@ public final class BuildWorlds {
       default -> pw.viewWorldName();
     };
     if (!template.contains(key) || !template.contains("{world}") && !template.contains("{id}"))
-      throw misconfigured("player-worlds." + setting + " 必須包含 " + key + "，以及 {world} 或 {id}");
+      throw misconfigured("player-worlds." + setting + " must contain " + key + " and {world} or {id}");
     var name = template.replace("{world}", e.folder()).replace("{name}", e.name()).replace("{owner-name}", e.ownerName())
         .replace("{owner}", e.owner().toString()).replace("{id}", e.id()).replace(key, value);
-    if (!name.matches("[a-z0-9][a-z0-9_.-]{0,99}")) throw misconfigured("player-worlds." + setting + " 算出來的資料夾名稱不合法：" + name);
+    if (!name.matches("[a-z0-9][a-z0-9_.-]{0,99}")) throw misconfigured("player-worlds." + setting + " gives an invalid folder name: " + name);
     for (var ws : worlds.values()) {
       var other = ws.buildWorld();
       if (name.equals(other.folder()) || !other.id().equals(e.id()) && ws.ownsDraftFolder(name))
@@ -427,7 +427,7 @@ public final class BuildWorlds {
   }
 
   private Workspace.Refused misconfigured(String problem) {
-    platform.log().warning("config.yml 的建築世界設定有誤：" + problem);
+    platform.log().warning("The build world settings in config.yml are wrong: " + problem);
     return new Workspace.Refused("error-world-settings-broken");
   }
 
@@ -556,7 +556,7 @@ public final class BuildWorlds {
     replaced.open();
     worlds.put(e.id(), replaced);
     save();
-    platform.log().info("建築世界 " + e.label() + " 從備份還原：" + p.result().snapshot() + "（原本的資料改名為 *" + suffix + "）");
+    platform.log().info("Restored build world " + e.label() + " from backup " + p.result().snapshot() + " (the old data was renamed to *" + suffix + ")");
     return replaced;
   }
 
@@ -599,7 +599,7 @@ public final class BuildWorlds {
       }
       // 伺服器世界的 main 本來就一直載入
       if (ws == null || ws.buildWorld() == null && branch.equals(Repository.MAIN)) {
-        if (ws == null && keepWarned.add(spec)) platform.log().warning("worlds.keep-loaded：找不到世界 " + name);
+        if (ws == null && keepWarned.add(spec)) platform.log().warning("worlds.keep-loaded: world not found: " + name);
         continue;
       }
       result.computeIfAbsent(ws, k -> new HashSet<>()).add(branch);
@@ -610,7 +610,7 @@ public final class BuildWorlds {
         else ws.openBranch(branch);
         keepWarned.remove(spec);
       } catch (IOException | RuntimeException e) {
-        if (keepWarned.add(spec)) platform.log().warning("worlds.keep-loaded：無法載入 " + spec + "：" + e.getMessage());
+        if (keepWarned.add(spec)) platform.log().warning("worlds.keep-loaded: cannot load " + spec + ": " + e.getMessage());
       } finally {
         keeping = false;
       }
@@ -620,7 +620,7 @@ public final class BuildWorlds {
       try {
         ids.save(file);
       } catch (IOException e) {
-        platform.log().log(Level.WARNING, "無法寫入 keep-loaded.yml", e);
+        platform.log().log(Level.WARNING, "Cannot write keep-loaded.yml", e);
       }
   }
 
@@ -745,7 +745,7 @@ public final class BuildWorlds {
       replaced.open();
       worlds.put(e.id(), replaced);
       save();
-      platform.log().info("建築世界 " + e.label() + " 改成 " + next.label() + "（" + next.folder() + "）");
+      platform.log().info("Build world " + e.label() + " is now " + next.label() + " (" + next.folder() + ")");
       return replaced;
     });
   }
@@ -787,7 +787,7 @@ public final class BuildWorlds {
     worlds.remove(e.id());
     trash.put(e.id(), new Deleted(e, System.currentTimeMillis(), moved));
     save();
-    platform.log().info("建築世界 " + e.label() + " 已刪除，放進回收區（" + settings.get().playerWorlds().trashDays() + " 天後真正刪掉）");
+    platform.log().info("Build world " + e.label() + " was deleted into the trash (removed for good in " + settings.get().playerWorlds().trashDays() + " days)");
   }
 
   /** 回收區裡的世界：自己的（寫名稱），或 {@code 擁有者/名稱}。 */
@@ -816,7 +816,7 @@ public final class BuildWorlds {
     ws.open();
     worlds.put(e.id(), ws);
     save();
-    platform.log().info("建築世界 " + e.label() + " 已從回收區找回");
+    platform.log().info("Build world " + e.label() + " was taken back from the trash");
     return ws;
   }
 
@@ -829,13 +829,13 @@ public final class BuildWorlds {
     try {
       save();
     } catch (IOException e) {
-      platform.log().log(Level.WARNING, "無法更新 " + TRASH, e);
+      platform.log().log(Level.WARNING, "Cannot update " + TRASH, e);
       return;
     }
     platform.async(() -> {
       for (var d : expired) {
         for (var m : d.moved()) deleteTree(m.to());
-        platform.log().info("回收區的建築世界 " + d.entry().label() + " 已過期，刪掉了");
+        platform.log().info("Build world " + d.entry().label() + " expired in the trash and was deleted");
       }
     });
   }

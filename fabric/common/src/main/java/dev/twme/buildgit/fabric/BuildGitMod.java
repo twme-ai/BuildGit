@@ -43,7 +43,7 @@ public final class BuildGitMod implements ModInitializer {
         try {
           LuckPermsContexts.<ServerPlayer>register(bg, ServerPlayer::getUUID, p -> p);
         } catch (LinkageError | IllegalStateException e) {
-          platform.log().log(Level.WARNING, "無法向 LuckPerms 提供情境（版本不相容？）", e);
+          platform.log().log(Level.WARNING, "Cannot provide contexts to LuckPerms (incompatible version?)", e);
         }
       }
     });
@@ -90,7 +90,7 @@ public final class BuildGitMod implements ModInitializer {
         worldEdit.register();
       } catch (LinkageError e) {
         worldEdit = null;
-        platform.log().log(Level.WARNING, "無法掛上 WorldEdit（版本不相容？）", e);
+        platform.log().log(Level.WARNING, "Cannot hook into WorldEdit (incompatible version?)", e);
       }
     }
     if (bg.settings().axiom() && FabricLoader.getInstance().isModLoaded("axiom")) AxiomRecorder.check(platform.log());

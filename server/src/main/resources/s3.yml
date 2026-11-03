@@ -1,20 +1,20 @@
-# BuildGit 備份的 S3 連線（AWS S3、MinIO、Backblaze B2 等 S3 相容的物件儲存）。
-# 這個檔案有金鑰：請不要分享，也不要放進公開的版本控制。外掛更新時不會改動這個檔案。
-# 要備份什麼、多久一次、留幾份，在 backup.yml 設定。改完用 /bg reload 生效；/bg backup status 看狀態。
+# S3 connections for BuildGit backups (AWS S3, MinIO, Backblaze B2 and other S3-compatible object storage).
+# This file holds keys: do not share it or put it in public version control. Plugin updates never change this file.
+# What to back up, how often and how many to keep is set in backup.yml. Run /bg reload after changes; /bg backup status shows the state.
 #
-# 可以有好幾組連線（例如另一個 bucket 或另一家服務），backup.yml 的工作用 target: s3:<名稱> 指定。
+# You can have several connections (e.g. another bucket or another provider); jobs in backup.yml pick one with target: s3:<name>.
 
 connections:
   default:
-    # 服務的網址，例如：
-    #   AWS：https://s3.ap-northeast-1.amazonaws.com
-    #   MinIO：http://127.0.0.1:9000
-    #   Backblaze B2：https://s3.us-west-004.backblazeb2.com
+    # The service URL, for example:
+    #   AWS: https://s3.ap-northeast-1.amazonaws.com
+    #   MinIO: http://127.0.0.1:9000
+    #   Backblaze B2: https://s3.us-west-004.backblazeb2.com
     endpoint: ""
-    # 區域；沒有區域的服務（MinIO 等）填 us-east-1
+    # Region; use us-east-1 for services without regions (MinIO and others)
     region: us-east-1
     bucket: ""
-    # bucket 放在網址的路徑而不是主機名稱（MinIO 等需要）
+    # Put the bucket in the URL path instead of the host name (needed by MinIO and others)
     path-style: false
     access-key: ""
     secret-key: ""

@@ -24,7 +24,7 @@ public final class RefStore {
   }
 
   private Path path(String name) {
-    if (!validName(name)) throw new IllegalArgumentException("分支名稱無效：" + name);
+    if (!validName(name)) throw new IllegalArgumentException("Invalid branch name: " + name);
     return dir.resolve(name);
   }
 

@@ -6,7 +6,7 @@ public record Box(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
   public static final Box ALL = new Box(-(1 << 30), -(1 << 30), -(1 << 30), 1 << 30, 1 << 30, 1 << 30);
 
   public Box {
-    if (minX > maxX || minY > maxY || minZ > maxZ) throw new IllegalArgumentException("範圍的最小值大於最大值");
+    if (minX > maxX || minY > maxY || minZ > maxZ) throw new IllegalArgumentException("The box minimum is larger than its maximum");
   }
 
   public static Box of(BlockPos a, BlockPos b) {

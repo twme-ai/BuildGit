@@ -190,7 +190,7 @@ public final class MarkJournal implements Closeable {
               case SECTION -> {
                 var key = new SectionKey(dims.get(in.readInt()), in.readInt(), in.readInt(), in.readInt());
                 int n = in.readUnsignedShort();
-                if (n > 64) throw new IOException("標記日誌損毀：" + file);
+                if (n > 64) throw new IOException("Corrupt mark journal: " + file);
                 long[] bits = new long[n];
                 for (int i = 0; i < n; i++) bits[i] = in.readLong();
                 var cells = BitSet.valueOf(bits);
@@ -213,12 +213,12 @@ public final class MarkJournal implements Closeable {
                 if (type == ENTITY_REMOVED) gone.add(uuid);
                 else gone.remove(uuid);
               }
-              default -> throw new IOException("標記日誌損毀：" + file);
+              default -> throw new IOException("Corrupt mark journal: " + file);
             }
           } catch (EOFException e) {
             break; // 當機時寫到一半的最後一筆
           } catch (IndexOutOfBoundsException e) {
-            throw new IOException("標記日誌損毀：" + file, e);
+            throw new IOException("Corrupt mark journal: " + file, e);
           }
         }
       }
@@ -227,7 +227,7 @@ public final class MarkJournal implements Closeable {
   }
 
   private static short check(int author, List<Author> authors) throws IOException {
-    if (author < 0 || author >= authors.size()) throw new IOException("標記日誌的作者索引無效");
+    if (author < 0 || author >= authors.size()) throw new IOException("Invalid author index in the mark journal");
     return (short) author;
   }
 
@@ -244,7 +244,7 @@ public final class MarkJournal implements Closeable {
 
   private static String readString(DataInputStream in) throws IOException {
     int n = in.readInt();
-    if (n < 0 || n > 65536) throw new IOException("標記日誌字串長度無效");
+    if (n < 0 || n > 65536) throw new IOException("Invalid string length in the mark journal");
     byte[] b = new byte[n];
     in.readFully(b);
     return new String(b, StandardCharsets.UTF_8);

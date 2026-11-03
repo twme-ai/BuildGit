@@ -72,7 +72,7 @@ final class GenesisRecorder {
         writer.write(index, snapshot.call());
         genesis.invalidate(dimension, x, z);
       } catch (Exception e) {
-        log.log(Level.WARNING, "無法把新生成的 chunk " + x + "," + z + " 寫進起點世界；那裡的變更會被當成新增", e);
+        log.log(Level.WARNING, "Cannot write the newly generated chunk " + x + "," + z + " into the genesis world; changes there will count as additions", e);
       }
     });
   }
@@ -95,7 +95,7 @@ final class GenesisRecorder {
         blocks.write(index, region);
         genesis.invalidate(dimension, x, z);
       } catch (Exception e) {
-        log.log(Level.WARNING, "無法把 chunk " + x + "," + z + " 複製進起點世界；之後改過又存回的話，起點會變成改過的樣子", e);
+        log.log(Level.WARNING, "Cannot copy chunk " + x + "," + z + " into the genesis world; if it is changed and saved later, the changed version becomes its genesis", e);
       }
     });
   }
@@ -146,14 +146,14 @@ final class GenesisRecorder {
     try {
       io.submit(() -> {}).get(60, TimeUnit.SECONDS);
     } catch (Exception e) {
-      log.log(Level.WARNING, "等待起點世界寫入逾時", e);
+      log.log(Level.WARNING, "Timed out waiting for genesis world writes", e);
     }
   }
 
   void close() {
     io.shutdown();
     try {
-      if (!io.awaitTermination(30, TimeUnit.SECONDS)) log.warning("起點世界寫入尚未完成就關閉");
+      if (!io.awaitTermination(30, TimeUnit.SECONDS)) log.warning("Shut down before genesis world writes finished");
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }

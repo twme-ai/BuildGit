@@ -43,7 +43,7 @@ public record EntityOverlay(SortedMap<UUID, Optional<EntityState>> entities) {
     int dataVersion = switch (in.u8()) {
       case 1 -> legacy;
       case VERSION -> in.i32();
-      default -> throw new IOException("不支援的實體分片版本");
+      default -> throw new IOException("Unsupported entity overlay version");
     };
     boolean upgrade = dataVersion < upgrader.current();
     int n = in.count();
@@ -56,7 +56,7 @@ public record EntityOverlay(SortedMap<UUID, Optional<EntityState>> entities) {
           var nbt = in.bytes();
           yield Optional.of(new EntityState(uuid, upgrade ? upgrader.entity(nbt, dataVersion) : nbt));
         }
-        default -> throw new IOException("實體分片標記無效");
+        default -> throw new IOException("Invalid entity overlay tag");
       });
     }
     in.end();

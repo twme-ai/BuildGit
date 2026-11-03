@@ -35,9 +35,9 @@ public final class Nbt {
     public ListTag {
       values = List.copyOf(values);
       if (type < 0 || type > 12 || (type == 0 && !values.isEmpty()))
-        throw new IllegalArgumentException("NBT list 型別無效");
+        throw new IllegalArgumentException("Invalid NBT list type");
       for (Object value : values)
-        if (Nbt.type(value) != type) throw new IllegalArgumentException("NBT list 混合型別");
+        if (Nbt.type(value) != type) throw new IllegalArgumentException("Mixed types in NBT list");
     }
   }
 
@@ -73,30 +73,30 @@ public final class Nbt {
       case Compound v -> 10;
       case int[] v -> 11;
       case long[] v -> 12;
-      default -> throw new IllegalArgumentException("不支援的 NBT 型別：" + value);
+      default -> throw new IllegalArgumentException("Unsupported NBT type: " + value);
     };
   }
 
   public static Compound read(byte[] bytes) throws IOException {
-    if (bytes.length > MAX_BYTES) throw new IOException("NBT 超過 32 MiB");
+    if (bytes.length > MAX_BYTES) throw new IOException("NBT is over 32 MiB");
     try (var in = new DataInputStream(new ByteArrayInputStream(bytes))) {
-      if (in.readUnsignedByte() != 10) throw new IOException("NBT 根節點必須是 compound");
+      if (in.readUnsignedByte() != 10) throw new IOException("The NBT root must be a compound");
       in.readUTF();
       var result = (Compound) read(in, 10, 0, new int[1]);
-      if (in.available() != 0) throw new IOException("NBT 有多餘位元組");
+      if (in.available() != 0) throw new IOException("Extra bytes after NBT");
       return result;
     }
   }
 
   private static int length(DataInputStream in, int width) throws IOException {
     int n = in.readInt();
-    if (n < 0 || (long) n * width > in.available()) throw new IOException("NBT 長度無效：" + n);
+    if (n < 0 || (long) n * width > in.available()) throw new IOException("Invalid NBT length: " + n);
     return n;
   }
 
   private static Object read(DataInputStream in, int type, int depth, int[] nodes)
       throws IOException {
-    if (depth > MAX_DEPTH || ++nodes[0] > MAX_NODES) throw new IOException("NBT 深度或節點數超過限制");
+    if (depth > MAX_DEPTH || ++nodes[0] > MAX_NODES) throw new IOException("NBT is too deep or has too many nodes");
     return switch (type) {
       case 1 -> in.readByte();
       case 2 -> in.readShort();
@@ -123,7 +123,7 @@ public final class Nbt {
       case 9 -> {
         int element = in.readUnsignedByte(), n = in.readInt();
         if (element > 12 || n < 0 || n > in.available() || (element == 0 && n != 0))
-          throw new IOException("NBT list 長度或型別無效");
+          throw new IOException("Invalid NBT list length or type");
         var values = new ArrayList<Object>(n);
         for (int i = 0; i < n; i++) values.add(read(in, element, depth + 1, nodes));
         yield new ListTag(element, values);
@@ -134,11 +134,11 @@ public final class Nbt {
         while ((t = in.readUnsignedByte()) != 0) {
           String key = in.readUTF();
           if (c.put(key, read(in, t, depth + 1, nodes)) != null)
-            throw new IOException("NBT 重複鍵：" + key);
+            throw new IOException("Duplicate NBT key: " + key);
         }
         yield c;
       }
-      default -> throw new IOException("NBT tag 無效：" + type);
+      default -> throw new IOException("Invalid NBT tag: " + type);
     };
   }
 
@@ -190,7 +190,7 @@ public final class Nbt {
         }
         out.writeByte(0);
       }
-      default -> throw new IOException("NBT 型別無效");
+      default -> throw new IOException("Invalid NBT type");
     }
   }
 

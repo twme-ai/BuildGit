@@ -11,7 +11,7 @@ public final class ObjectId implements Comparable<ObjectId> {
   private final byte[] bytes;
 
   private ObjectId(byte[] bytes) {
-    if (bytes.length != LENGTH) throw new IllegalArgumentException("ObjectId 長度必須是 32 位元組");
+    if (bytes.length != LENGTH) throw new IllegalArgumentException("ObjectId must be 32 bytes");
     this.bytes = bytes;
   }
 

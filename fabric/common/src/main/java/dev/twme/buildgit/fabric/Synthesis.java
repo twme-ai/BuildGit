@@ -50,7 +50,7 @@ public final class Synthesis {
       synth.synthesize(target, regionX, regionZ);
     } catch (IOException | RuntimeException e) {
       // 讓伺服器照常處理（生成新的 chunk）並清楚記錄；同一個 region 不重試，避免洗版。
-      log.log(Level.SEVERE, "無法合成 " + target + "；這個 region 會以產生器生成", e);
+      log.log(Level.SEVERE, "Cannot synthesize " + target + "; this region will be made by the generator", e);
     }
   }
 }

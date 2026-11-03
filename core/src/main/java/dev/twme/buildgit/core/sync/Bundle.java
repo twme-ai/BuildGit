@@ -25,7 +25,7 @@ public record Bundle(String name, String dimension, Box box, int dataVersion, St
   public Bundle {
     Objects.requireNonNull(name);
     Objects.requireNonNull(dimension);
-    if (cells.length != volume(box)) throw new IllegalArgumentException("格子數與範圍不符");
+    if (cells.length != volume(box)) throw new IllegalArgumentException("Cell count does not match the box");
     entities = List.copyOf(entities);
   }
 
@@ -209,26 +209,26 @@ public record Bundle(String name, String dimension, Box box, int dataVersion, St
    */
   public static Bundle decode(byte[] compressed, Upgrader upgrader, long maxRaw) throws IOException {
     long size = Zstd.getFrameContentSize(compressed);
-    if (size <= 0 || size > maxRaw || size > Integer.MAX_VALUE - 16) throw new IOException("資料損壞或太大");
+    if (size <= 0 || size > maxRaw || size > Integer.MAX_VALUE - 16) throw new IOException("Data is corrupt or too large");
     byte[] raw;
     try {
       raw = Zstd.decompress(compressed, (int) size);
     } catch (RuntimeException e) {
-      throw new IOException("資料損壞", e);
+      throw new IOException("Data is corrupt", e);
     }
     try (var in = new DataInputStream(new ByteArrayInputStream(raw))) {
-      if (in.readInt() != MAGIC) throw new IOException("不是 BuildGit 的範圍資料");
-      if (in.readInt() != VERSION) throw new IOException("範圍資料的格式版本不支援");
+      if (in.readInt() != MAGIC) throw new IOException("Not BuildGit area data");
+      if (in.readInt() != VERSION) throw new IOException("Unsupported area data format version");
       String name = in.readUTF(), dimension = in.readUTF();
       var box = new Box(in.readInt(), in.readInt(), in.readInt(), in.readInt(), in.readInt(), in.readInt());
       int dataVersion = in.readInt();
       if (dataVersion > upgrader.current() && upgrader != Upgrader.NONE)
-        throw new IOException("範圍資料來自較新的 Minecraft（資料版本 " + dataVersion + "），這裡無法讀取");
+        throw new IOException("The area data is from a newer Minecraft (data version " + dataVersion + ") and cannot be read here");
       String base = in.readUTF();
       long volume = volume(box);
-      if (volume * 4 > raw.length) throw new IOException("資料損壞");
+      if (volume * 4 > raw.length) throw new IOException("Data is corrupt");
       int paletteSize = in.readInt();
-      if (paletteSize < 0 || paletteSize > volume) throw new IOException("資料損壞");
+      if (paletteSize < 0 || paletteSize > volume) throw new IOException("Data is corrupt");
       var palette = new Cell[paletteSize];
       for (int i = 0; i < paletteSize; i++) {
         String state = in.readUTF();
@@ -241,17 +241,17 @@ public record Bundle(String name, String dimension, Box box, int dataVersion, St
       var cells = new Cell[(int) volume];
       for (int i = 0; i < cells.length; i++) {
         int p = in.readInt();
-        if (p < 0 || p >= paletteSize) throw new IOException("資料損壞");
+        if (p < 0 || p >= paletteSize) throw new IOException("Data is corrupt");
         cells[i] = palette[p];
       }
       int n = in.readInt();
-      if (n < 0 || n > raw.length) throw new IOException("資料損壞");
+      if (n < 0 || n > raw.length) throw new IOException("Data is corrupt");
       var entities = new ArrayList<EntityState>(n);
       for (int i = 0; i < n; i++) {
         var uuid = new UUID(in.readLong(), in.readLong());
         int len = in.readInt();
         byte[] nbt = in.readNBytes(len);
-        if (len < 0 || nbt.length != len) throw new IOException("資料損壞");
+        if (len < 0 || nbt.length != len) throw new IOException("Data is corrupt");
         if (dataVersion < upgrader.current()) nbt = upgrader.entity(nbt, dataVersion);
         entities.add(new EntityState(uuid, nbt));
       }

@@ -48,7 +48,7 @@ public final class BuildGitClient implements ClientModInitializer {
       try {
         for (var reply : sync.receive(Frame.decode(payload.data()))) outgoing.add(reply.encode());
       } catch (IOException e) {
-        log.warn("收到無法解讀的同步封包", e);
+        log.warn("Received a sync packet that cannot be read", e);
       }
     });
     // /bgc open <名稱>：伺服器的「在單人世界打開」按鈕

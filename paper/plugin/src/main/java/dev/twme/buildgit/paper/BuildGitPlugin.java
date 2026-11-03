@@ -90,7 +90,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     // 每個 Minecraft 版本各有一個 jar（內部程式碼不相容）；版本不符時直接停用，而不是之後在奇怪的地方出錯。
     String built = builtFor();
     if (!Bukkit.getMinecraftVersion().equals(built)) {
-      getLogger().severe("這個 BuildGit 是給 Minecraft " + built + " 的，伺服器是 " + Bukkit.getMinecraftVersion() + "；請下載對應版本的 jar。");
+      getLogger().severe("This BuildGit is for Minecraft " + built + ", but the server is " + Bukkit.getMinecraftVersion() + "; download the jar for your version.");
       Bukkit.getPluginManager().disablePlugin(this);
       return;
     }
@@ -104,7 +104,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
     pm.registerEvents(new EntityListener(tracker), this);
     pm.registerEvents(this, this);
     getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, e -> e.registrar().register(
-        bg.command().<CommandSourceStack>build(s -> platform.sender(s.getSender())), "BuildGit 版本控制", List.of("buildgit")));
+        bg.command().<CommandSourceStack>build(s -> platform.sender(s.getSender())), "BuildGit version control", List.of("buildgit")));
 
     var settings = bg.settings();
     if (settings.worldEdit() && (pm.getPlugin("FastAsyncWorldEdit") != null || pm.getPlugin("WorldEdit") != null)) {
@@ -114,10 +114,10 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
           return p != null && bg.hud().readOnly(handle(p));
         });
         worldEdit.register();
-        getLogger().info("已掛上 WorldEdit/FAWE 記錄");
+        getLogger().info("Hooked into WorldEdit/FAWE recording");
       } catch (LinkageError e) {
         worldEdit = null;
-        getLogger().log(Level.WARNING, "無法掛上 WorldEdit/FAWE（版本不相容？）", e);
+        getLogger().log(Level.WARNING, "Cannot hook into WorldEdit/FAWE (incompatible version?)", e);
       }
     }
     if (settings.axiom() && pm.getPlugin("AxiomPaper") != null) {
@@ -127,7 +127,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
             p -> bg.hud().readOnly(handle(p)));
         axiom.register(this, getLogger());
       } catch (LinkageError e) {
-        getLogger().log(Level.WARNING, "無法掛上 AxiomPaper（版本不相容？）", e);
+        getLogger().log(Level.WARNING, "Cannot hook into AxiomPaper (incompatible version?)", e);
       }
     }
     if (settings.debugStickPro() && pm.getPlugin("DebugStickPro") != null) {
@@ -135,14 +135,14 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
         new DebugStickProHook(tracker).register(this, bg.tracker(), getLogger());
       } catch (LinkageError e) {
         bg.tracker().setHeld(null);
-        getLogger().log(Level.WARNING, "無法掛上 DebugStickPro（版本不相容？）", e);
+        getLogger().log(Level.WARNING, "Cannot hook into DebugStickPro (incompatible version?)", e);
       }
     }
     if (settings.luckPermsContexts() && pm.getPlugin("LuckPerms") != null) {
       try {
         LuckPermsContexts.<Player>register(bg, Player::getUniqueId, p -> p.getBukkitEntity());
       } catch (LinkageError | IllegalStateException e) {
-        getLogger().log(Level.WARNING, "無法向 LuckPerms 提供情境（版本不相容？）", e);
+        getLogger().log(Level.WARNING, "Cannot provide contexts to LuckPerms (incompatible version?)", e);
       }
     }
     getServer().getServicesManager().register(BuildGitApi.class, new ApiImpl(tracker), this, ServicePriority.Normal);
@@ -203,7 +203,7 @@ public final class BuildGitPlugin extends JavaPlugin implements Listener {
   public void onWorldUnload(WorldUnloadEvent e) {
     if (bg.levelUnloading(PaperPlatform.level(e.getWorld()))) return;
     e.setCancelled(true);
-    getLogger().warning("世界 " + e.getWorld().getName() + " 受版本控制，它或它的草稿世界還有玩家、或正在存檔，BuildGit 先不讓它卸載");
+    getLogger().warning("World " + e.getWorld().getName() + " is under version control and it or its draft worlds still have players or are saving, so BuildGit keeps it loaded");
   }
 
   @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

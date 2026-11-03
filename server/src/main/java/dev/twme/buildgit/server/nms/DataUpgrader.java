@@ -139,7 +139,7 @@ public final class DataUpgrader implements Upgrader {
     var cached = paletteStates.get(entry);
     if (cached != null) return cached;
     var parsed = BlockState.CODEC.parse(NbtOps.INSTANCE, toTag(entry)).result();
-    if (parsed.isEmpty()) throw new IOException("調色盤項目無效：" + entry);
+    if (parsed.isEmpty()) throw new IOException("Invalid palette entry: " + entry);
     var state = LiveReader.state(parsed.get());
     paletteStates.put(entry instanceof Nbt.Compound c ? Nbt.copy(c) : entry, state);
     return state;

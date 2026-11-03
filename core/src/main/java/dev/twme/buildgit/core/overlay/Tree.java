@@ -39,7 +39,7 @@ public record Tree(SortedMap<String, Entry> entries) {
 
   public static Tree decode(byte[] data) throws IOException {
     var in = new Bin.In(data);
-    if (in.u8() != VERSION) throw new IOException("不支援的 tree 版本");
+    if (in.u8() != VERSION) throw new IOException("Unsupported tree version");
     int n = in.count();
     var map = new TreeMap<String, Entry>();
     for (int i = 0; i < n; i++) map.put(in.str(), new Entry(ObjectType.of(in.u8()), in.id()));

@@ -37,11 +37,11 @@ public final class DebugStickProHook implements Listener {
         return FreezeBlockManager.isFreezeBlock(new Location(level.getWorld(), x, y, z));
       } catch (LinkageError e) { // DebugStickPro 改了內部類別：不要讓存檔跟著失敗
         raw.setHeld(null);
-        log.log(java.util.logging.Level.WARNING, "無法詢問 DebugStickPro 的凍結方塊，之後凍結中的屏障可能被存進版本", e);
+        log.log(java.util.logging.Level.WARNING, "Cannot ask DebugStickPro for frozen blocks; barriers of frozen blocks may get saved", e);
         return false;
       }
     });
-    log.info("已掛上 DebugStickPro 記錄");
+    log.info("Hooked into DebugStickPro recording");
   }
 
   @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

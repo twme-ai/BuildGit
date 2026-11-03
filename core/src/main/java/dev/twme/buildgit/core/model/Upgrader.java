@@ -71,7 +71,7 @@ public interface Upgrader {
    * 26.3 起預設狀態只存方塊 ID，由伺服器以原版的方塊狀態格式實作。
    */
   default String paletteState(Object entry) throws IOException {
-    if (!(entry instanceof Nbt.Compound p)) throw new IOException("調色盤項目無效");
+    if (!(entry instanceof Nbt.Compound p)) throw new IOException("Invalid palette entry");
     var props = new TreeMap<String, String>();
     p.compound("Properties").forEach((k, v) -> props.put(k, String.valueOf(v)));
     return BlockStates.format(p.string("Name"), props);

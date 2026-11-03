@@ -79,7 +79,7 @@ final class Dialogs {
     noButton.add("label", json(no));
     d.add("no", noButton);
     var ops = RegistryOps.create(JsonOps.INSTANCE, bg.platform().server().registryAccess());
-    var dialog = Dialog.DIRECT_CODEC.parse(ops, d).getOrThrow(e -> new IllegalStateException("對話框格式不對：" + e));
+    var dialog = Dialog.DIRECT_CODEC.parse(ops, d).getOrThrow(e -> new IllegalStateException("Malformed dialog: " + e));
     p.openDialog(Holder.direct(dialog));
   }
 

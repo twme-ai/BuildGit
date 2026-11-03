@@ -60,10 +60,10 @@ public final class Repository {
       legacy = Integer.parseInt(props.getProperty("legacy", String.valueOf(current)));
       newest = Integer.parseInt(props.getProperty("newest", String.valueOf(current)));
     } catch (NumberFormatException e) {
-      throw new IOException("data-version 格式錯誤", e);
+      throw new IOException("Malformed data-version", e);
     }
     if (newest > current)
-      throw new IOException("這個版本庫曾由較新的 Minecraft（資料版本 " + newest + "）寫入，目前伺服器是 " + current + "；Minecraft 不能降級，請用相同或更新的版本");
+      throw new IOException("This repository was written by a newer Minecraft (data version " + newest + "), and the server is " + current + "; Minecraft cannot be downgraded, so use the same or a newer version");
     if (Files.exists(file) && newest == current) return legacy;
     props.setProperty("legacy", String.valueOf(legacy));
     props.setProperty("newest", String.valueOf(current));
@@ -92,7 +92,7 @@ public final class Repository {
 
   /** @param objectsDir 物件目錄；多個儲存庫可以共用（物件以內容命名，不會互相覆寫） */
   public static Repository init(Path dir, Path objectsDir, Author author, long time, Upgrader upgrader) throws IOException {
-    if (exists(dir)) throw new IOException("儲存庫已存在：" + dir);
+    if (exists(dir)) throw new IOException("Repository already exists: " + dir);
     var repo = new Repository(dir, objectsDir, upgrader);
     var tree = repo.overlays.putRoot(Tree.EMPTY);
     var changeset = repo.put(new Changeset(List.of(), List.of(), List.of()));
@@ -110,7 +110,7 @@ public final class Repository {
   }
 
   public static Repository open(Path dir, Path objectsDir, Upgrader upgrader) throws IOException {
-    if (!exists(dir)) throw new IOException("找不到儲存庫：" + dir);
+    if (!exists(dir)) throw new IOException("Repository not found: " + dir);
     return new Repository(dir, objectsDir, upgrader);
   }
 
@@ -145,7 +145,7 @@ public final class Repository {
   }
 
   public ObjectId head(String branch) throws IOException {
-    return refs.get(branch).orElseThrow(() -> new IOException("找不到分支：" + branch));
+    return refs.get(branch).orElseThrow(() -> new IOException("Branch not found: " + branch));
   }
 
   public OverlayReader reader(ObjectId commit) throws IOException {
@@ -156,12 +156,12 @@ public final class Repository {
 
   public void createBranch(String name, ObjectId from) throws IOException {
     commit(from);
-    if (!refs.compareAndSet(name, null, from)) throw new IOException("分支已存在：" + name);
+    if (!refs.compareAndSet(name, null, from)) throw new IOException("Branch already exists: " + name);
   }
 
   public void deleteBranch(String name) throws IOException {
-    if (name.equals(MAIN)) throw new IOException("不能刪除 main");
-    if (!refs.delete(name, head(name))) throw new IOException("分支在刪除時被更新：" + name);
+    if (name.equals(MAIN)) throw new IOException("main cannot be deleted");
+    if (!refs.delete(name, head(name))) throw new IOException("Branch was updated while being deleted: " + name);
   }
 
   // ---- 提交 ----
@@ -321,7 +321,7 @@ public final class Repository {
       if (ofA.contains(id)) common.add(id);
       else stack.addAll(commit(id).parents());
     }
-    if (common.isEmpty()) throw new IOException("兩個提交沒有共同祖先");
+    if (common.isEmpty()) throw new IOException("The two commits have no common ancestor");
     var best = new ArrayList<>(common);
     for (var c : common) for (var other : common) if (!c.equals(other) && isAncestor(c, other)) best.remove(c);
     best.sort(Comparator.comparingLong((ObjectId id) -> {
@@ -524,7 +524,7 @@ public final class Repository {
 
   public static final class ConcurrentUpdateException extends IOException {
     public ConcurrentUpdateException(String branch) {
-      super("分支 " + branch + " 已被其他操作更新，請重試");
+      super("Branch " + branch + " was updated by another operation; try again");
     }
   }
 

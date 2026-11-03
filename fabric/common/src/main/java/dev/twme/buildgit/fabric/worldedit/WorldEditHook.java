@@ -32,7 +32,7 @@ public final class WorldEditHook {
 
   public void register() {
     WorldEdit.getInstance().getEventBus().register(this);
-    log.info("記錄 WorldEdit 的編輯");
+    log.info("Recording WorldEdit edits");
   }
 
   public void unregister() {

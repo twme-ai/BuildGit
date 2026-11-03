@@ -72,7 +72,7 @@ public final class AxiomHook implements Listener {
   public void register(Plugin plugin, Logger log) {
     Integration.registerCustomIntegration(plugin, new Recorder());
     plugin.getServer().getPluginManager().registerEvents(this, plugin);
-    log.info("記錄 Axiom 的編輯");
+    log.info("Recording Axiom edits");
     var candidate = new AxiomBypass(tracker, FULL, log);
     if (candidate.install(plugin, plugin.getServer().getPluginManager().getPlugin("AxiomPaper"))) bypass = candidate;
   }

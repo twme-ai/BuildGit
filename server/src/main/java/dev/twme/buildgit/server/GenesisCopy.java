@@ -83,7 +83,7 @@ final class GenesisCopy {
         int index = RegionFile.index(x, z);
         if (!w.has(index)) w.write(index, snapshot.call());
       } catch (Exception e) {
-        log.log(Level.WARNING, "無法把新生成的 chunk " + x + "," + z + " 寫進起點世界", e);
+        log.log(Level.WARNING, "Cannot write the newly generated chunk " + x + "," + z + " into the genesis world", e);
       }
     });
   }
@@ -148,11 +148,11 @@ final class GenesisCopy {
           var bytes = r.readBytes(i);
           if (bytes != null) w.write(i, bytes);
         } catch (IOException e) {
-          log.log(Level.WARNING, "複製起點世界時讀不到 " + file + " 的第 " + i + " 個 chunk", e);
+          log.log(Level.WARNING, "While copying the genesis world, cannot read chunk " + i + " of " + file, e);
         }
       }
     } catch (IOException e) {
-      log.log(Level.WARNING, "複製起點世界時讀不到 " + file, e);
+      log.log(Level.WARNING, "While copying the genesis world, cannot read " + file, e);
     }
   }
 
@@ -170,7 +170,7 @@ final class GenesisCopy {
       }
       if (bytes != null) w.write(index, bytes);
     } catch (IOException e) {
-      log.log(Level.WARNING, "複製起點世界時讀不到 " + dimension + " 的 chunk " + x + "," + z + "（" + sub + "）", e);
+      log.log(Level.WARNING, "While copying the genesis world, cannot read chunk " + x + "," + z + " of " + dimension + " (" + sub + ")", e);
     }
   }
 

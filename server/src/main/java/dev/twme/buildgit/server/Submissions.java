@@ -92,7 +92,7 @@ final class Submissions {
           y.set(name + ".submit.message", message);
           y.set(name + ".submit.time", System.currentTimeMillis());
           source.saveBranchInfo(y);
-          bg.platform().log().info(p.getScoreboardName() + (update ? " 更新了對 " : " 對 ") + source.label() + " 的提出 " + name + "（" + head.abbrev() + "）");
+          bg.platform().log().info(p.getScoreboardName() + (update ? " updated submission " : " submitted ") + name + " to " + source.label() + " (" + head.abbrev() + ")");
           for (var reviewer : reviewers(source))
             bg.realms().notify(reviewer, update ? "submit-updated" : "submit-received", "player", p.getScoreboardName(), "world", source.label(),
                 "branch", name, "message", message);
@@ -127,8 +127,8 @@ final class Submissions {
   /** 拒絕（主執行緒）：刪掉分支（在裡面的人送回主世界），告訴提出的人。 */
   void reject(Workspace source, Submission s, String reason, String by) throws IOException {
     source.deleteBranch(s.branch(), true);
-    bg.platform().log().info(by + " 拒絕了 " + s.name() + " 對 " + source.label() + " 的提出 " + s.branch());
-    bg.realms().notify(s.player(), "submit-rejected", "world", source.label(), "by", by, "reason", reason.isBlank() ? "（沒寫理由）" : reason);
+    bg.platform().log().info(by + " rejected submission " + s.branch() + " by " + s.name() + " to " + source.label());
+    bg.realms().notify(s.player(), "submit-rejected", "world", source.label(), "by", by, "reason", reason.isBlank() ? bg.messages().raw("submit-no-reason") : reason);
   }
 
   /** 已經整份併進主世界的提出（主執行緒）：告訴提出的人並刪掉分支。併回、衝突整合完成、看清單時檢查。 */
@@ -140,11 +140,11 @@ final class Submissions {
         ObjectId head = source.repo().head(s.branch());
         if (!source.repo().isAncestor(head, main)) continue;
         source.deleteBranch(s.branch(), true);
-        bg.platform().log().info(s.name() + " 對 " + source.label() + " 的提出 " + s.branch() + " 已併回");
+        bg.platform().log().info("Submission " + s.branch() + " by " + s.name() + " to " + source.label() + " was merged");
         bg.realms().notify(s.player(), "submit-merged", "world", source.label(), "branch", s.branch());
       }
     } catch (IOException e) {
-      bg.platform().log().log(Level.WARNING, "無法整理 " + source.label() + " 的提出", e);
+      bg.platform().log().log(Level.WARNING, "Cannot tidy the submissions of " + source.label(), e);
     }
   }
 }

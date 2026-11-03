@@ -16,6 +16,6 @@ public enum ObjectType {
 
   public static ObjectType of(int code) {
     for (var t : values()) if (t.code == code) return t;
-    throw new IllegalArgumentException("未知的物件種類：" + code);
+    throw new IllegalArgumentException("Unknown object type: " + code);
   }
 }

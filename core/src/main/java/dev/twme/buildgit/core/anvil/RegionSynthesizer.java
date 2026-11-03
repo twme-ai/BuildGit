@@ -141,7 +141,7 @@ public final class RegionSynthesizer {
   /** 先寫到暫存目錄再搬過去：伺服器不會看到寫了一半的檔案。 */
   /** {@code sources} 依序打開交給 {@code body}；null 的位置是 null。 */
   private static boolean write(Path target, Body body, Path... sources) throws IOException {
-    if (Files.exists(target)) throw new IOException("region 檔已存在：" + target);
+    if (Files.exists(target)) throw new IOException("Region file already exists: " + target);
     Path tmpDir = target.resolveSibling(".buildgit-tmp");
     Files.createDirectories(tmpDir);
     Path tmp = tmpDir.resolve(target.getFileName());

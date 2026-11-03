@@ -83,7 +83,7 @@ final class ObjectCleanup {
       var store = new dev.twme.buildgit.core.store.ObjectStore(dir);
       var marked = ObjectGc.mark(store, roots);
       var r = ObjectGc.sweep(dir, marked, cutoff);
-      log.accept(dir + "：保留 " + r.kept() + " 個，刪除 " + r.deleted() + " 個（" + r.bytes() / 1024 + " KB）");
+      log.accept(dir + ": kept " + r.kept() + ", deleted " + r.deleted() + " (" + r.bytes() / 1024 + " KB)");
       dirs++;
       deleted += r.deleted();
       bytes += r.bytes();

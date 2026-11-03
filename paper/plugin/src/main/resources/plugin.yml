@@ -2,108 +2,108 @@ name: BuildGit
 version: "${version}"
 main: dev.twme.buildgit.paper.BuildGitPlugin
 api-version: "1.21"
-# 這個 jar 對應的 Minecraft 版本；伺服器版本不同時插件會自行停用
+# The Minecraft version this jar is for; the plugin disables itself on a different server version
 buildgit-minecraft: "${minecraft}"
-description: 給建築伺服器的版本控制：只記玩家造成的變更，像 git 一樣存檔、比較與還原。
+description: "Version control for build servers: records only the changes players make, and saves, compares and restores them like git."
 website: https://twme.dev
 libraries:
   - com.github.luben:zstd-jni:${zstd}
 softdepend: [WorldEdit, FastAsyncWorldEdit, AxiomPaper, DebugStickPro, LuckPerms]
-# 每個指令一個節點、彼此不包含；權限集的包含關係在程式裡判斷（PermissionSets），兩個平台相同，所以這裡不寫 children。
+# One node per command, none containing another; which sets include which is decided in code (PermissionSets), the same on both platforms, so there are no children here.
 permissions:
   buildgit.role.viewer:
-    description: 權限集：看歷史與方塊來源、進出草稿與舊版本，不能改
+    description: "Permission set: view history and block sources, enter and leave drafts and old versions; no changes"
     default: op
   buildgit.role.builder:
-    description: 權限集：viewer＋開草稿、存檔、帶到單人世界改；不能併回主世界
+    description: "Permission set: viewer + open drafts, save, take areas to single-player; cannot merge into main"
     default: op
   buildgit.role.manager:
-    description: 權限集：builder＋併回、撤銷、還原、處理衝突、建立與刪除草稿、手動補記
+    description: "Permission set: builder + merge, revert, restore, resolve conflicts, create and delete drafts, mark manually"
     default: op
   buildgit.admin:
-    description: 權限集：manager＋init、reload、disk、genesis、backup、world.admin
+    description: "Permission set: manager + init, reload, disk, genesis, backup, world.admin"
     default: op
   buildgit.menu:
-    description: 只輸入 /bg 時打開選單
+    description: "Open the menu when typing just /bg"
     default: op
   buildgit.status:
-    description: 目前的分支與未存的變更（status），自動存檔通知
+    description: "Current branch and unsaved changes (status), autosave notices"
     default: op
   buildgit.log:
-    description: 存檔歷史（log）
+    description: "Save history (log)"
     default: op
   buildgit.diff:
-    description: 在世界裡標出差異（diff）
+    description: "Show differences in the world (diff)"
     default: op
   buildgit.inspect:
-    description: 檢查模式（inspect）
+    description: "Inspect mode (inspect)"
     default: op
   buildgit.sel:
-    description: 不用 WorldEdit 時的選取範圍（sel）
+    description: "Selection without WorldEdit (sel)"
     default: op
   buildgit.go:
-    description: 到某個草稿或主世界（go）
+    description: "Go to a draft or main (go)"
     default: op
   buildgit.back:
-    description: 回到來源世界（back）
+    description: "Go back to the source world (back)"
     default: op
   buildgit.view:
-    description: 唯讀看舊版本（view）
+    description: "View an old version read-only (view)"
     default: op
   buildgit.try:
-    description: 開草稿（try）
+    description: "Open a draft (try)"
     default: op
   buildgit.save:
-    description: 存檔（save）
+    description: "Save (save)"
     default: op
   buildgit.pull:
-    description: 把選取範圍帶到單人世界（pull）
+    description: "Take the selection to single-player (pull)"
     default: op
   buildgit.push:
-    description: 把單人世界改過的範圍送回成草稿（push）
+    description: "Send an area changed in single-player back as a draft (push)"
     default: op
   buildgit.publish:
-    description: 把草稿併回（publish）
+    description: "Merge a draft back (publish)"
     default: op
   buildgit.merge:
-    description: 底層合併任意分支（merge <分支>）
+    description: "Low-level merge of any branch (merge <branch>)"
     default: op
   buildgit.merge.resolve:
-    description: 處理衝突整合（merge view、take、continue、abort 等）
+    description: "Resolve conflicts (merge view, take, continue, abort and so on)"
     default: op
   buildgit.revert:
-    description: 撤銷某次存檔（revert）
+    description: "Revert a save (revert)"
     default: op
   buildgit.restore:
-    description: 把分支或範圍還原到舊版本（restore）
+    description: "Restore a branch or area to an old version (restore)"
     default: op
   buildgit.mark:
-    description: 手動補記範圍（mark）
+    description: "Mark an area manually (mark)"
     default: op
   buildgit.branch.list:
-    description: 列出草稿（branch list）
+    description: "List drafts (branch list)"
     default: op
   buildgit.branch.delete:
-    description: 刪除草稿與它的世界（branch delete）
+    description: "Delete a draft and its world (branch delete)"
     default: op
   buildgit.init:
-    description: 讓所在的世界開始受版本控制（init）
+    description: "Put the current world under version control (init)"
     default: op
   buildgit.reload:
-    description: 重新讀取設定與語言檔（reload）
+    description: "Reload settings and language files (reload)"
     default: op
   buildgit.disk:
-    description: BuildGit 用掉的磁碟空間（disk）
+    description: "Disk space used by BuildGit (disk)"
     default: op
   buildgit.genesis:
-    description: 把起點世界改寫成目前版本的格式（genesis upgrade）
+    description: "Rewrite the genesis world in the current version's format (genesis upgrade)"
     default: op
   buildgit.backup:
-    description: 異地備份的狀態、立刻備份、列出快照（backup）
+    description: "Offsite backup status, back up now, list snapshots (backup)"
     default: op
   buildgit.world.create:
-    description: 建立自己的建築世界（new，要 player-worlds.enabled）、回伺服器世界（home）
+    description: "Create your own build worlds (new, needs player-worlds.enabled), go back to the server world (home)"
     default: op
   buildgit.world.admin:
-    description: 建立、進出、列出建築世界（new、open、home、worlds）；之後也能管理所有建築世界
+    description: "Create, enter, leave and list build worlds (new, open, home, worlds); also manage all build worlds"
     default: op

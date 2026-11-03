@@ -55,7 +55,7 @@ public record Commit(
 
   public static Commit decode(byte[] data) throws IOException {
     var in = new Bin.In(data);
-    if (in.u8() != VERSION) throw new IOException("不支援的提交版本");
+    if (in.u8() != VERSION) throw new IOException("Unsupported commit version");
     var tree = in.id();
     int n = in.count();
     var parents = new ArrayList<ObjectId>(n);

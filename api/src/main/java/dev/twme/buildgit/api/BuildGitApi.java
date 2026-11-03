@@ -24,6 +24,6 @@ public interface BuildGitApi {
 
   /** @throws IllegalStateException BuildGit 沒有安裝或尚未啟用 */
   static BuildGitApi get() {
-    return find().orElseThrow(() -> new IllegalStateException("BuildGit 未啟用"));
+    return find().orElseThrow(() -> new IllegalStateException("BuildGit is not enabled"));
   }
 }

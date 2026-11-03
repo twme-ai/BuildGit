@@ -34,7 +34,7 @@ final class LongMap<V> {
 
   @SuppressWarnings("unchecked")
   V computeIfAbsent(long key, LongFunction<V> factory) {
-    if (key == EMPTY) throw new IllegalArgumentException("保留鍵");
+    if (key == EMPTY) throw new IllegalArgumentException("Reserved key");
     int mask = keys.length - 1;
     for (int i = mix(key) & mask; ; i = (i + 1) & mask) {
       long k = keys[i];

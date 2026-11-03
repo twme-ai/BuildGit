@@ -309,7 +309,7 @@ final class WorldBackup {
         stamp = after;
       }
       index.remove(rel);
-      log.warning("備份世界資料夾：" + rel + " 複製時一直在寫入，這份可能不完整，下次備份再傳一次");
+      log.warning("World folder backup: " + rel + " kept changing while being copied, so this copy may be incomplete; it will be sent again next backup");
       return true;
     } catch (java.nio.file.NoSuchFileException e) {
       return false;
@@ -328,7 +328,7 @@ final class WorldBackup {
     var manifests = new HashMap<String, Yaml>();
     for (var n : names) {
       var bytes = store.get(prefix + "snapshots/" + n + ".yml");
-      if (bytes == null) throw new IOException("讀不到快照 " + n + "，這次不清理");
+      if (bytes == null) throw new IOException("Cannot read snapshot " + n + "; skipping cleanup this time");
       manifests.put(n, Yaml.load(new ByteArrayInputStream(bytes)));
     }
     var drop = names.size() > job.keep ? names.subList(0, names.size() - job.keep) : List.<String>of();

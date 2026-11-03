@@ -101,7 +101,7 @@ public final class MergeSessions {
             taken.put(session.id(), scopes);
           }
         } catch (RuntimeException e) {
-          ws.log().log(Level.WARNING, "無法讀取進行中的衝突整合 " + f, e);
+          ws.log().log(Level.WARNING, "Cannot read the open conflict resolution " + f, e);
         }
       }
     }
@@ -316,7 +316,7 @@ public final class MergeSessions {
       try {
         ws.awaitGenesis();
         return ws.repo().commitTree(branch, List.of(c.ours), c.result.tree(), null, ws.genesis(), Author.MERGE, committer,
-            System.currentTimeMillis(), "自動合併（衝突格先放 " + target + " 的內容）", Commit.AUTO, new TreeMap<>()).orElse(c.ours);
+            System.currentTimeMillis(), "Auto-merge (conflicting blocks take " + target + " for now)", Commit.AUTO, new TreeMap<>()).orElse(c.ours);
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -439,7 +439,7 @@ public final class MergeSessions {
         try {
           save(s);
         } catch (IOException ex) {
-          ws.log().log(Level.WARNING, "無法記下衝突整合 " + s.id() + " 處理過的範圍", ex);
+          ws.log().log(Level.WARNING, "Cannot record the resolved areas of conflict resolution " + s.id(), ex);
         }
         done.accept(values.getKey().size() + values.getValue().size());
       }));
@@ -467,7 +467,7 @@ public final class MergeSessions {
       var by = repo.authorsSince(resolved, s.start());
       if (s.kind() == Kind.REVERT)
         return repo.commitTree(s.target(), List.of(head), result.tree(), by.isEmpty() ? null : Repository.Resolution.authors(by),
-            ws.genesis(), committer, committer, System.currentTimeMillis(), "撤銷 " + s.base().abbrev(), 0,
+            ws.genesis(), committer, committer, System.currentTimeMillis(), "Revert " + s.base().abbrev(), 0,
             new TreeMap<>(Map.of("Reverts", s.base().hex())));
       return ws.commitMerge(s.target(), s.source(), s.kind() == Kind.PARTIAL ? s.scope() : null, head, s.theirs(), s.base(),
           result.tree(), by, committer);
@@ -483,7 +483,7 @@ public final class MergeSessions {
       return;
     }
     if (!wt.save(author, "autosave", Commit.AUTO, r -> next.run(), failed))
-      failed.accept(new IOException("分支正在存檔或併回，請稍後再試：" + wt.branch()));
+      failed.accept(new Workspace.Refused("error-branch-busy", "branch", wt.branch()));
   }
 
   /** 放棄整合，或完成後收尾（主執行緒）：刪掉整合分支與它的世界，收掉沒人的檢視世界。 */
@@ -495,7 +495,7 @@ public final class MergeSessions {
     try {
       Files.deleteIfExists(dir().resolve(s.id() + ".yml"));
     } catch (IOException e) {
-      ws.log().log(Level.WARNING, "無法刪除整合紀錄 " + s.id(), e);
+      ws.log().log(Level.WARNING, "Cannot delete the resolution record " + s.id(), e);
     }
     var target = ws.worktree(s.target());
     for (var commit : List.of(s.ours(), s.theirs()))
@@ -508,7 +508,7 @@ public final class MergeSessions {
     try {
       ws.deleteBranch(s.branch(), true);
     } catch (IOException e) {
-      ws.log().log(Level.WARNING, "無法刪除整合分支 " + s.branch(), e);
+      ws.log().log(Level.WARNING, "Cannot delete the resolution branch " + s.branch(), e);
     }
   }
 }

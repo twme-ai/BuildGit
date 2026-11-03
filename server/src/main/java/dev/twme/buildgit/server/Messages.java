@@ -110,12 +110,12 @@ public final class Messages {
         });
         if (!text.equals(Files.readString(file))) {
           Yaml.replace(file, text);
-          log.info("lang/" + name + ".yml 換成了新版本的訊息，保留改過的 " + kept[0] + " 則；原本的檔案留在 lang/" + name + ".yml.old");
+          log.info("lang/" + name + ".yml was updated to the new messages, keeping " + kept[0] + " you changed; the old file is lang/" + name + ".yml.old");
         }
       }
       Files.writeString(base, template);
     } catch (IOException e) {
-      log.warning("無法更新語言檔 " + file + "：" + e.getMessage());
+      log.warning("Cannot update language file " + file + ": " + e.getMessage());
     }
   }
 

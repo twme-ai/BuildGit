@@ -112,7 +112,7 @@ public record Settings(
     var set = EnumSet.noneOf(type);
     for (var s : c.getStringList(path)) {
       var e = WorldConfig.parse(type, s);
-      if (e == null) log.warning(path + " 裡的 " + s + " 不認得，略過");
+      if (e == null) log.warning(path + ": unknown " + s + ", skipped");
       else set.add(e);
     }
     return Collections.unmodifiableSet(set);
@@ -129,7 +129,7 @@ public record Settings(
         else update(file, template, log);
       }
     } catch (IOException e) {
-      log.warning("無法寫入設定檔 " + file + "：" + e.getMessage());
+      log.warning("Cannot write config file " + file + ": " + e.getMessage());
     }
     return of(Yaml.load(file), log);
   }
@@ -143,7 +143,7 @@ public record Settings(
     try {
       user = Yaml.read(file);
     } catch (IOException e) {
-      log.warning("config.yml 讀不懂，沒有補上新的設定：" + e.getMessage());
+      log.warning("Cannot read config.yml, so new settings were not added: " + e.getMessage());
       return;
     }
     var known = Yaml.load(new java.io.ByteArrayInputStream(template.getBytes(StandardCharsets.UTF_8))).paths();
@@ -154,11 +154,11 @@ public record Settings(
     boolean renamed = RENAMED.stream().anyMatch(user::contains);
     if (!added.isEmpty() || renamed) {
       Yaml.replace(file, Yaml.fill(template, path -> value(user, path)));
-      if (!added.isEmpty()) log.info("config.yml 補上了新的設定 " + String.join("、", added) + "；原本的檔案留在 config.yml.old");
-      if (renamed) log.info("config.yml 的 separate-inventories、allow-inventory-isolation 換成了 inventory-isolation；原本的檔案留在 config.yml.old");
+      if (!added.isEmpty()) log.info("Added new settings to config.yml: " + String.join(", ", added) + "; the old file is config.yml.old");
+      if (renamed) log.info("Replaced separate-inventories and allow-inventory-isolation in config.yml with inventory-isolation; the old file is config.yml.old");
     }
     for (var path : unknown)
-      log.warning("config.yml 裡的 " + path + " 不認得（打錯字或放錯層？），沒有作用" + (!added.isEmpty() || renamed ? "，已從檔案拿掉（原本的在 config.yml.old）" : ""));
+      log.warning("Unknown " + path + " in config.yml (typo or wrong level?), so it has no effect" + (!added.isEmpty() || renamed ? "; removed it from the file (the old one is config.yml.old)" : ""));
   }
 
   public static Settings of(Yaml c, Logger log) {
@@ -210,7 +210,7 @@ public record Settings(
   private static String folderTemplate(Yaml c, String key, String fallback, String required, Logger log) {
     var t = c.getString("player-worlds." + key, fallback).strip();
     if (!t.contains(required) || !t.contains("{world}") && !t.contains("{id}"))
-      log.warning("player-worlds." + key + " 必須包含 " + required + "，以及 {world} 或 {id}（現在是 " + t + "）；建立這種世界時會失敗");
+      log.warning("player-worlds." + key + " must contain " + required + " and {world} or {id} (it is " + t + "); creating these worlds will fail");
     return t;
   }
 
@@ -218,7 +218,7 @@ public record Settings(
   private static String isolation(Yaml c, Logger log) {
     var v = String.valueOf(Objects.requireNonNullElse(value(c, "player-worlds.inventory-isolation"), "owner")).strip().toLowerCase(Locale.ROOT);
     if (List.of("owner", "always", "never").contains(v)) return v;
-    log.warning("player-worlds.inventory-isolation 只能是 owner、always 或 never（現在是 " + v + "），用 owner");
+    log.warning("player-worlds.inventory-isolation must be owner, always or never (it is " + v + "); using owner");
     return "owner";
   }
 
@@ -226,11 +226,11 @@ public record Settings(
     var p = "player-worlds.defaults.";
     var rules = WorldConfig.parse(WorldConfig.Rules.class, c.getString(p + "rules", "build"));
     if (rules == null) {
-      log.warning(p + "rules 只能是 build 或 vanilla，用 build");
+      log.warning(p + "rules must be build or vanilla; using build");
       rules = WorldConfig.Rules.BUILD;
     }
     var visibility = c.getString(p + "visibility", "private").strip().toLowerCase(Locale.ROOT);
-    if (!visibility.equals("public") && !visibility.equals("private")) log.warning(p + "visibility 只能是 public 或 private，用 private");
+    if (!visibility.equals("public") && !visibility.equals("private")) log.warning(p + "visibility must be public or private; using private");
     return new Defaults(rules, mode(c, p + "member-mode", WorldConfig.MEMBER_MODES, log), mode(c, p + "visitor-mode", WorldConfig.VISITOR_MODES, log),
         c.getBoolean(p + "visitor-interact", false), c.getBoolean(p + "inventory-member", false), c.getBoolean(p + "inventory-visitor", false),
         visibility.equals("public"), c.getBoolean(p + "allow-fork", true), c.getBoolean(p + "accept-submissions", true), c.getBoolean(p + "respawn", true));
@@ -242,7 +242,7 @@ public record Settings(
     var m = name == null ? null : GameType.byName(name.strip().toLowerCase(Locale.ROOT), null);
     if (m != null && allowed.contains(m)) return m;
     if (name != null)
-      log.warning(path + " 只能是 " + String.join("、", allowed.stream().map(GameType::getName).toList()) + "，用 " + allowed.getFirst().getName());
+      log.warning(path + " must be " + String.join(", ", allowed.stream().map(GameType::getName).toList()) + "; using " + allowed.getFirst().getName());
     return allowed.getFirst();
   }
 
@@ -251,7 +251,7 @@ public record Settings(
     for (var s : c.getStringList("player-worlds.unmanaged-settings")) {
       var key = s.strip().toLowerCase(Locale.ROOT);
       if (PlayerWorlds.UNMANAGEABLE.contains(key)) set.add(key);
-      else log.warning("player-worlds.unmanaged-settings 裡的 " + s + " 不認得，略過（可以寫 " + String.join("、", PlayerWorlds.UNMANAGEABLE) + "）");
+      else log.warning("Unknown " + s + " in player-worlds.unmanaged-settings, skipped (allowed: " + String.join(", ", PlayerWorlds.UNMANAGEABLE) + ")");
     }
     return Set.copyOf(set);
   }
@@ -265,7 +265,7 @@ public record Settings(
     var result = new HashSet<String>();
     for (var name : names) {
       var id = Identifier.tryParse(name.toLowerCase(Locale.ROOT));
-      if (id == null || BuiltInRegistries.ENTITY_TYPE.getOptional(id).isEmpty()) log.warning("config.yml：未知的實體類型 " + name);
+      if (id == null || BuiltInRegistries.ENTITY_TYPE.getOptional(id).isEmpty()) log.warning("config.yml: unknown entity type " + name);
       else result.add(id.toString());
     }
     return Set.copyOf(result);

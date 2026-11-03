@@ -55,7 +55,7 @@ public final class Worktree {
     journal = new MarkJournal(dir);
     Files.writeString(lockFile(), String.valueOf(ProcessHandle.current().pid()));
     lastSaveTick = platform.tick();
-    if (table.cellCount() > 0) ws.log().info(branch + "：從標記日誌恢復 " + table.cellCount() + " 格未存的變更");
+    if (table.cellCount() > 0) ws.log().info(branch + ": recovered " + table.cellCount() + " unsaved block changes from the mark journal");
   }
 
   private Path lockFile() {
@@ -112,7 +112,7 @@ public final class Worktree {
       journal.close();
       Files.deleteIfExists(lockFile());
     } catch (IOException e) {
-      ws.log().log(Level.SEVERE, "無法寫入標記日誌（" + branch + "）", e);
+      ws.log().log(Level.SEVERE, "Cannot write the mark journal (" + branch + ")", e);
     }
   }
 
@@ -121,7 +121,7 @@ public final class Worktree {
     try {
       journal.flush(table);
     } catch (IOException e) {
-      ws.log().log(Level.SEVERE, "無法寫入標記日誌（" + branch + "）", e);
+      ws.log().log(Level.SEVERE, "Cannot write the mark journal (" + branch + ")", e);
     }
   }
 
@@ -174,7 +174,7 @@ public final class Worktree {
           // 要生成到完整狀態：合成的 chunk 沒有光照資料，載入時要補完最後的步驟。
           // 從未生成的 chunk 也照常生成，讀到的就是玩家會看到的內容。讀不到絕不能當成空氣。
           futures.add(ws.platform().loadChunk(world, key.x, key.z).thenAccept(chunk -> {
-            if (chunk == null) throw new IllegalStateException("無法載入 chunk " + key.x + "," + key.z);
+            if (chunk == null) throw new IllegalStateException("Cannot load chunk " + key.x + "," + key.z);
             read(world, chunk, entry.getValue(), marks, snapshot);
             progress.step();
           }));
@@ -217,7 +217,7 @@ public final class Worktree {
           try {
             journal.restore(table, drained);
           } catch (IOException e) {
-            ws.log().log(Level.SEVERE, "存檔失敗後無法寫回標記", e);
+            ws.log().log(Level.SEVERE, "Cannot restore the marks after a failed save", e);
           }
           failed.accept(error instanceof java.util.concurrent.CompletionException c && c.getCause() != null ? c.getCause() : error);
         }));
@@ -333,7 +333,7 @@ public final class Worktree {
     @Override
     public Cell[] readSection(SectionKey key, BitSet wanted) {
       var c = cells.get(key);
-      if (c == null) throw new IllegalStateException("存檔時沒有讀到 " + key);
+      if (c == null) throw new IllegalStateException("Not read while saving: " + key);
       return c;
     }
 
@@ -359,6 +359,6 @@ public final class Worktree {
     boolean overdue = settings.autosaveMaxTicks() > 0 && now - lastSaveTick >= settings.autosaveMaxTicks();
     if (!idle && !overdue) return;
     save(Author.SYSTEM, "autosave", dev.twme.buildgit.core.repo.Commit.AUTO, done,
-        e -> ws.log().log(Level.WARNING, "自動存檔失敗（" + branch + "）", e));
+        e -> ws.log().log(Level.WARNING, "Autosave failed (" + branch + ")", e));
   }
 }

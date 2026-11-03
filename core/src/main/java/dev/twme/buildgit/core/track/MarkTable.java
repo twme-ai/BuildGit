@@ -52,7 +52,7 @@ public final class MarkTable {
   private short author(Author author) {
     var index = authorIndex.get(author);
     if (index != null) return index.shortValue();
-    if (authors.size() >= Short.MAX_VALUE) throw new IllegalStateException("作者數量超過上限");
+    if (authors.size() >= Short.MAX_VALUE) throw new IllegalStateException("Too many authors");
     authors.add(author);
     authorIndex.put(author, authors.size() - 1);
     return (short) (authors.size() - 1);

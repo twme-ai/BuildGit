@@ -93,7 +93,7 @@ final class Playback {
       s.busy = false;
       s.next = System.currentTimeMillis() + s.seconds * 1000L;
       if (e != null) {
-        bg.platform().log().log(Level.WARNING, "播放歷史時無法寫入世界", Workspace.unwrap(e));
+        bg.platform().log().log(Level.WARNING, "Cannot write to the world while playing back history", Workspace.unwrap(e));
         s.paused = true;
       }
       var p = bg.platform().server().getPlayerList().getPlayer(s.player);

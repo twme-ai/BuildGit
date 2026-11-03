@@ -51,13 +51,13 @@ final class ApiImpl implements BuildGitApi, Recorder {
   public void recordBox(Actor actor, World world, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
     var box = new Box(Math.min(minX, maxX), Math.min(minY, maxY), Math.min(minZ, maxZ), Math.max(minX, maxX), Math.max(minY, maxY), Math.max(minZ, maxZ));
     long volume = (long) (box.maxX() - box.minX() + 1) * (box.maxY() - box.minY() + 1) * (box.maxZ() - box.minZ() + 1);
-    if (volume > MAX_BOX) throw new IllegalArgumentException("範圍太大：" + volume + " 格（上限 " + MAX_BOX + "）");
+    if (volume > MAX_BOX) throw new IllegalArgumentException("Area too large: " + volume + " blocks (limit " + MAX_BOX + ")");
     tracker.markBox(world, box, author(actor));
   }
 
   @Override
   public void recordSection(Actor actor, World world, int chunkX, int sectionY, int chunkZ, BitSet cells) {
-    if (cells.length() > 4096) throw new IllegalArgumentException("section 只有 4096 格");
+    if (cells.length() > 4096) throw new IllegalArgumentException("A section has only 4096 blocks");
     tracker.markSection(world, chunkX, sectionY, chunkZ, (BitSet) cells.clone(), author(actor));
   }
 

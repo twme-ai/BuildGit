@@ -48,6 +48,6 @@ final class FaweSupport {
       copy.add(type.getPackageName());
       settings.ALLOWED_PLUGINS = copy;
     }
-    log.info("已將 " + type.getPackageName() + " 加入 FAWE 的 allowed-plugins（只在記憶體中，不改設定檔）");
+    log.info("Added " + type.getPackageName() + " to FAWE allowed-plugins (in memory only; the config file is unchanged)");
   }
 }

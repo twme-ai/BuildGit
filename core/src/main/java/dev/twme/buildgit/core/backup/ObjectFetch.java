@@ -65,7 +65,7 @@ public final class ObjectFetch {
 
   private static Void download(ObjectStore store, ObjectId id, Source source) throws IOException {
     var bytes = source.get(id);
-    if (bytes == null) throw new IOException("備份缺少物件 " + id.hex());
+    if (bytes == null) throw new IOException("The backup is missing object " + id.hex());
     var file = store.file(id);
     Files.createDirectories(file.getParent());
     var tmp = file.resolveSibling(".fetch-" + file.getFileName());

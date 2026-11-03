@@ -50,10 +50,10 @@ public final class AxiomRecorder {
       AxiomServerboundManipulateEntity.class.getDeclaredField("entries");
       AxiomServerboundDeleteEntity.class.getDeclaredField("delete");
       enabled = true;
-      log.info("記錄 Axiom 的編輯");
+      log.info("Recording Axiom edits");
     } catch (ReflectiveOperationException | LinkageError e) {
       enabled = false;
-      log.warning("這個版本的 Axiom 和 BuildGit 對不上（" + e + "），Axiom 的編輯不會被記錄");
+      log.warning("This Axiom version does not match BuildGit (" + e + "); Axiom edits will not be recorded");
     }
   }
 

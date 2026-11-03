@@ -62,7 +62,7 @@ public record Frame(int type, String name, int index, int total, byte[] data) {
     var in = new DataInputStream(new ByteArrayInputStream(bytes));
     int type = in.readUnsignedByte();
     String name = in.readUTF();
-    if (!NAME.matcher(name).matches()) throw new IOException("名稱不正確");
+    if (!NAME.matcher(name).matches()) throw new IOException("Invalid name");
     int index = in.readInt(), total = in.readInt();
     return new Frame(type, name, index, total, in.readAllBytes());
   }
@@ -98,11 +98,11 @@ public record Frame(int type, String name, int index, int total, byte[] data) {
     public byte[] add(Frame f) throws IOException {
       if (total < 0) {
         // 段數在第一段就固定，宣告的總量超過上限立刻拒絕
-        if (f.total <= 0 || (long) f.total * f.data.length > limit + f.data.length) throw new IOException("資料超過上限");
+        if (f.total <= 0 || (long) f.total * f.data.length > limit + f.data.length) throw new IOException("Data is over the limit");
         total = f.total;
       }
-      if (!f.name.equals(name) || f.index != next || f.total != total || f.data.length == 0) throw new IOException("傳輸順序錯誤");
-      if (out.size() + (long) f.data.length > limit) throw new IOException("資料超過上限");
+      if (!f.name.equals(name) || f.index != next || f.total != total || f.data.length == 0) throw new IOException("Transfer out of order");
+      if (out.size() + (long) f.data.length > limit) throw new IOException("Data is over the limit");
       out.write(f.data);
       next++;
       return next == total ? out.toByteArray() : null;

@@ -159,7 +159,7 @@ final class PaperPlatform implements Platform, Listener {
     } finally {
       creating.remove(name);
     }
-    if (world == null) throw new IOException("無法建立世界 " + name);
+    if (world == null) throw new IOException("Cannot create world " + name);
     return level(world);
   }
 
@@ -183,7 +183,7 @@ final class PaperPlatform implements Platform, Listener {
     } finally {
       creating.remove(name);
     }
-    if (world == null) throw new IOException("無法建立世界 " + name);
+    if (world == null) throw new IOException("Cannot create world " + name);
     return level(world);
   }
 
@@ -224,7 +224,7 @@ final class PaperPlatform implements Platform, Listener {
       skipSpawnSearch(level, pending.template());
     } catch (ReflectiveOperationException | RuntimeException ex) {
       // 沒有合成讀取的世界會變成全新生成的世界：拒絕使用比給錯內容好。
-      throw new IllegalStateException("無法在 " + e.getWorld().getName() + " 掛上合成讀取", ex);
+      throw new IllegalStateException("Cannot hook synthesized reads into " + e.getWorld().getName(), ex);
     }
   }
 

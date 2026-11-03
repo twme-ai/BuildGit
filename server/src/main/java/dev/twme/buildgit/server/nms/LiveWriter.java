@@ -69,7 +69,7 @@ public final class LiveWriter {
       try {
         state = BlockStateParser.parseForBlock(level.registryAccess().lookupOrThrow(Registries.BLOCK), cell.state(), false).blockState();
       } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) {
-        throw new IOException("無法解析方塊狀態：" + cell.state(), e);
+        throw new IOException("Cannot parse block state: " + cell.state(), e);
       }
       parsed.put(cell.state(), state);
     }
@@ -134,7 +134,7 @@ public final class LiveWriter {
     var tag = read(state.nbt());
     var input = TagValueInput.create(ProblemReporter.DISCARDING, level.registryAccess(), tag);
     var entity = EntityType.loadEntityRecursive(input, level, EntitySpawnReason.LOAD, EntityProcessor.NOP);
-    if (entity == null) throw new IOException("無法建立實體：" + state.uuid());
+    if (entity == null) throw new IOException("Cannot create entity: " + state.uuid());
     level.tryAddFreshEntityWithPassengers(entity);
   }
 

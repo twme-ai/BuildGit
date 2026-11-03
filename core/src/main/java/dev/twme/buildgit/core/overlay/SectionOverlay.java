@@ -18,8 +18,8 @@ public record SectionOverlay(SortedMap<Integer, Cell> cells, SortedMap<Integer, 
   public static final SectionOverlay EMPTY = new SectionOverlay(new TreeMap<>());
 
   public SectionOverlay {
-    for (int i : cells.keySet()) if (i < 0 || i > 4095) throw new IllegalArgumentException("格子索引超出範圍：" + i);
-    for (int i : biomes.keySet()) if (i < 0 || i > 63) throw new IllegalArgumentException("生態域索引超出範圍：" + i);
+    for (int i : cells.keySet()) if (i < 0 || i > 4095) throw new IllegalArgumentException("Cell index out of range: " + i);
+    for (int i : biomes.keySet()) if (i < 0 || i > 63) throw new IllegalArgumentException("Biome index out of range: " + i);
     cells = Collections.unmodifiableSortedMap(new TreeMap<>(cells));
     biomes = Collections.unmodifiableSortedMap(new TreeMap<>(biomes));
   }
@@ -79,7 +79,7 @@ public record SectionOverlay(SortedMap<Integer, Cell> cells, SortedMap<Integer, 
     int dataVersion = switch (version) {
       case 1 -> legacy;
       case VERSION, WITH_BIOMES -> in.i32();
-      default -> throw new IOException("不支援的 section 版本");
+      default -> throw new IOException("Unsupported section version");
     };
     boolean upgrade = dataVersion < upgrader.current();
     int paletteSize = in.count();
@@ -92,7 +92,7 @@ public record SectionOverlay(SortedMap<Integer, Cell> cells, SortedMap<Integer, 
     var map = new TreeMap<Integer, Cell>();
     for (int i = 0; i < n; i++) {
       int index = in.i32(), p = in.i32();
-      if (p < 0 || p >= palette.size()) throw new IOException("section 調色盤索引無效");
+      if (p < 0 || p >= palette.size()) throw new IOException("Invalid section palette index");
       map.put(index, palette.get(p));
     }
     var biomes = new TreeMap<Integer, String>();
@@ -100,7 +100,7 @@ public record SectionOverlay(SortedMap<Integer, Cell> cells, SortedMap<Integer, 
       int nb = in.count();
       for (int i = 0; i < nb; i++) {
         int index = in.u8();
-        if (index > 63) throw new IOException("生態域索引無效");
+        if (index > 63) throw new IOException("Invalid biome index");
         var biome = in.str();
         biomes.put(index, upgrade ? upgrader.biome(biome, dataVersion) : biome);
       }

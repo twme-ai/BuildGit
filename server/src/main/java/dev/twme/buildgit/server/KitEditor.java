@@ -136,7 +136,7 @@ final class KitEditor {
           Inventories.writeKit(p, file, out);
         } catch (IOException e) {
           // 存不了時箱子裡的物品放回玩家的背包，放不下的掉在腳下
-          bg.platform().log().log(Level.WARNING, "無法存下 " + ws.label() + " 的起始物品", e);
+          bg.platform().log().log(Level.WARNING, "Cannot save the starting kit of " + ws.label(), e);
           giveBack(p, out);
           msg.send(bg.platform().sender(p), "kit-save-failed");
           return;

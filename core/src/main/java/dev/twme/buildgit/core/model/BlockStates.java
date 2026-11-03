@@ -27,12 +27,12 @@ public final class BlockStates {
     var props = new TreeMap<String, String>();
     int open = state.indexOf('[');
     if (open < 0) return new Parsed(state, props);
-    if (!state.endsWith("]")) throw new IllegalArgumentException("方塊狀態格式錯誤：" + state);
+    if (!state.endsWith("]")) throw new IllegalArgumentException("Malformed block state: " + state);
     String body = state.substring(open + 1, state.length() - 1);
     if (!body.isEmpty())
       for (String pair : body.split(",")) {
         int eq = pair.indexOf('=');
-        if (eq <= 0) throw new IllegalArgumentException("方塊狀態格式錯誤：" + state);
+        if (eq <= 0) throw new IllegalArgumentException("Malformed block state: " + state);
         props.put(pair.substring(0, eq), pair.substring(eq + 1));
       }
     return new Parsed(state.substring(0, open), props);

@@ -103,7 +103,7 @@ public record Changeset(List<Author> authors, List<CellChange> cells, List<Entit
   public static Changeset decode(byte[] data) throws IOException {
     var in = new Bin.In(data);
     int version = in.u8();
-    if (version != VERSION && version != WITH_BIOMES) throw new IOException("不支援的 changeset 版本");
+    if (version != VERSION && version != WITH_BIOMES) throw new IOException("Unsupported changeset version");
     int na = in.count();
     var authors = new ArrayList<Author>(na);
     for (int i = 0; i < na; i++) authors.add(new Author(in.uuid(), in.str()));
@@ -133,7 +133,7 @@ public record Changeset(List<Author> authors, List<CellChange> cells, List<Entit
   }
 
   private static int checkAuthor(int index, int count) throws IOException {
-    if (index < 0 || index >= count) throw new IOException("changeset 作者索引無效");
+    if (index < 0 || index >= count) throw new IOException("Invalid changeset author index");
     return index;
   }
 }

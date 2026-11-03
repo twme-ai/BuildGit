@@ -98,9 +98,9 @@ public final class ObjectStore {
       throw new MissingObjectException(id);
     }
     long size = Zstd.getFrameContentSize(compressed);
-    if (size <= 0 || size > Integer.MAX_VALUE) throw new IOException("物件損毀：" + id);
+    if (size <= 0 || size > Integer.MAX_VALUE) throw new IOException("Corrupt object: " + id);
     byte[] raw = Zstd.decompress(compressed, (int) size);
-    if (!ObjectId.hash(raw).equals(id)) throw new IOException("物件雜湊不符：" + id);
+    if (!ObjectId.hash(raw).equals(id)) throw new IOException("Object hash mismatch: " + id);
     byte[] data = new byte[raw.length - 1];
     System.arraycopy(raw, 1, data, 0, data.length);
     return new Stored(ObjectType.of(raw[0]), data);
@@ -109,7 +109,7 @@ public final class ObjectStore {
   public byte[] get(ObjectId id, ObjectType expected) throws IOException {
     var stored = get(id);
     if (stored.type() != expected)
-      throw new IOException("物件 " + id.abbrev() + " 是 " + stored.type() + "，預期 " + expected);
+      throw new IOException("Object " + id.abbrev() + " is " + stored.type() + ", expected " + expected);
     return stored.data();
   }
 
@@ -135,7 +135,7 @@ public final class ObjectStore {
 
   public static final class MissingObjectException extends IOException {
     public MissingObjectException(ObjectId id) {
-      super("找不到物件：" + id);
+      super("Object not found: " + id);
     }
   }
 }

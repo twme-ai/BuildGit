@@ -75,7 +75,7 @@ final class WorldUpload {
     if (pw.uploadConnection().isEmpty()) throw new Workspace.Refused("error-upload-closed");
     var c = Backup.connection(bg.platform().configDir(), pw.uploadConnection());
     if (c == null) {
-      bg.platform().log().warning("player-worlds.upload.connection 指定的 S3 連線 " + pw.uploadConnection() + " 不在 s3.yml 或沒有填完");
+      bg.platform().log().warning("The S3 connection " + pw.uploadConnection() + " named by player-worlds.upload.connection is not in s3.yml or not filled in");
       throw new Workspace.Refused("error-upload-settings-broken");
     }
     if (pending.containsKey(p.getUUID())) throw new Workspace.Refused("error-upload-running");
@@ -97,12 +97,12 @@ final class WorldUpload {
       case Frame.IMPORT_ERROR -> {
         drop(p.getUUID());
         var code = new String(f.data(), StandardCharsets.UTF_8);
-        String reason = switch (code) {
-          case "no-save" -> "你的 saves 資料夾裡沒有 " + up.save + "（或它沒有主世界的 region）";
-          case "too-big" -> "存檔超過 " + up.max / 1024 / 1024 + " MB";
-          case "pack-failed" -> "用戶端無法打包存檔";
-          case "declined" -> "你在用戶端取消了上傳";
-          default -> "用戶端上傳失敗" + (code.startsWith("upload-failed ") ? "（" + code.substring(14).replaceAll("[^0-9]", "") + "）" : "");
+        var reason = switch (code) {
+          case "no-save" -> new Workspace.Refused("error-upload-no-save", "save", up.save);
+          case "too-big" -> new Workspace.Refused("error-upload-save-too-big", "max", up.max / 1024 / 1024);
+          case "pack-failed" -> new Workspace.Refused("error-upload-pack-failed");
+          case "declined" -> new Workspace.Refused("error-upload-declined");
+          default -> new Workspace.Refused("error-upload-client-failed", "code", code.startsWith("upload-failed ") ? " (" + code.substring(14).replaceAll("[^0-9]", "") + ")" : "");
         };
         msg().send(s, "world-upload-failed", "save", up.save, "error", reason);
       }
@@ -117,7 +117,7 @@ final class WorldUpload {
         up.sha = a[1];
         if (up.size > up.max) {
           drop(p.getUUID());
-          msg().send(s, "world-upload-failed", "save", up.save, "error", "存檔超過 " + up.max / 1024 / 1024 + " MB");
+          msg().send(s, "world-upload-failed", "save", up.save, "error", new Workspace.Refused("error-upload-save-too-big", "max", up.max / 1024 / 1024));
           return;
         }
         var id = new byte[16];
@@ -160,7 +160,7 @@ final class WorldUpload {
       bg.platform().sync(() -> {
         pending.remove(uuid);
         try {
-          bg.worlds().importWorld(up.name, p, up.config, up.admin, staged, "上傳單人世界 " + up.save).whenComplete((ws, e) -> {
+          bg.worlds().importWorld(up.name, p, up.config, up.admin, staged, "Upload single-player world " + up.save).whenComplete((ws, e) -> {
             cleanup(tmp);
             if (e != null) {
               failed(uuid, up, Workspace.unwrap(e));
@@ -234,7 +234,7 @@ final class WorldUpload {
         var result = check(raw, staged, true);
         bg.platform().sync(() -> {
           try {
-            bg.worlds().importWorld(name, owner, config, true, staged, "匯入伺服器上的世界 " + folder).whenComplete((ws, e) -> {
+            bg.worlds().importWorld(name, owner, config, true, staged, "Import server world " + folder).whenComplete((ws, e) -> {
               cleanup(tmp);
               if (e != null) {
                 importFailed(sender, folder, Workspace.unwrap(e));
@@ -257,12 +257,12 @@ final class WorldUpload {
   }
 
   private void importFailed(Sender sender, String folder, Throwable e) {
-    if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "匯入世界 " + folder + " 失敗", e);
+    if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "Importing world " + folder + " failed", e);
     msg().send(sender, "world-import-failed", "folder", folder, "error", e);
   }
 
   private void failed(UUID uuid, Pending up, Throwable e) {
-    if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "上傳單人世界失敗", e);
+    if (!(e instanceof Workspace.Refused)) bg.platform().log().log(Level.WARNING, "Uploading a single-player world failed", e);
     var online = bg.platform().server().getPlayerList().getPlayer(uuid);
     if (online != null) msg().send(bg.platform().sender(online), "world-upload-failed", "save", up.save, "error", e);
   }
@@ -471,7 +471,7 @@ final class WorldUpload {
     try {
       up.s3.purge(up.key);
     } catch (IOException e) {
-      bg.platform().log().warning("無法刪掉 S3 上的上傳 " + up.key + "：" + e.getMessage());
+      bg.platform().log().warning("Cannot delete the upload on S3 " + up.key + ": " + e.getMessage());
     }
   }
 
@@ -484,7 +484,7 @@ final class WorldUpload {
     try {
       bg.realms().enter(p, ws);
     } catch (IOException | RuntimeException e) {
-      bg.platform().log().log(Level.WARNING, "無法送 " + p.getScoreboardName() + " 進建築世界 " + ws.label(), e);
+      bg.platform().log().log(Level.WARNING, "Cannot send " + p.getScoreboardName() + " into build world " + ws.label(), e);
     }
   }
 

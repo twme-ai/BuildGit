@@ -71,16 +71,16 @@ public final class S3 implements BackupStore {
       r = http.send(signed("GET", key, Map.of(), Map.of(), null), HttpResponse.BodyHandlers.ofInputStream());
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IOException("中斷", e);
+      throw new IOException("Interrupted", e);
     }
     try (var in = r.body()) {
       if (r.statusCode() == 404) return false;
-      if (r.statusCode() / 100 != 2) throw new IOException("S3 回應 " + r.statusCode());
+      if (r.statusCode() / 100 != 2) throw new IOException("S3 responded " + r.statusCode());
       try (var out = Files.newOutputStream(to)) {
         var buf = new byte[1 << 16];
         long total = 0;
         for (int n; (n = in.read(buf)) > 0; ) {
-          if ((total += n) > max) throw new IOException("檔案超過上限");
+          if ((total += n) > max) throw new IOException("File is over the limit");
           out.write(buf, 0, n);
         }
       }
@@ -141,7 +141,7 @@ public final class S3 implements BackupStore {
     if (r.body() != null && new String(r.body(), StandardCharsets.UTF_8).contains("<Error>")) {
       var text = new String(r.body(), StandardCharsets.UTF_8);
       var code = Pattern.compile("<Code>(.*?)</Code>").matcher(text);
-      throw new IOException("S3 複製失敗" + (code.find() ? "：" + code.group(1) : ""));
+      throw new IOException("S3 copy failed" + (code.find() ? ": " + code.group(1) : ""));
     }
   }
 
@@ -215,7 +215,7 @@ public final class S3 implements BackupStore {
     if (r.statusCode() / 100 == 2) return;
     var text = r.body() == null ? "" : new String(r.body(), StandardCharsets.UTF_8);
     var code = Pattern.compile("<Code>(.*?)</Code>").matcher(text);
-    throw new IOException("S3 回應 " + r.statusCode() + (code.find() ? " " + code.group(1) : ""));
+    throw new IOException("S3 responded " + r.statusCode() + (code.find() ? " " + code.group(1) : ""));
   }
 
   private HttpResponse<byte[]> request(String method, String key, Map<String, String> query, byte[] body) throws IOException {
@@ -240,7 +240,7 @@ public final class S3 implements BackupStore {
       } catch (IOException e) {
         if (Thread.currentThread().isInterrupted()) throw e;
         if (attempt >= RETRIES)
-          throw new IOException("無法連上 " + config.endpoint() + "：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()), e);
+          throw new IOException("Cannot connect to " + config.endpoint() + ": " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()), e);
         pause(attempt);
       }
     }
@@ -251,7 +251,7 @@ public final class S3 implements BackupStore {
       Thread.sleep(2000L * attempt * attempt); // 2 秒、8 秒
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IOException("中斷", e);
+      throw new IOException("Interrupted", e);
     }
   }
 
@@ -262,7 +262,7 @@ public final class S3 implements BackupStore {
       return http.send(signed(method, key, query, extra, body), HttpResponse.BodyHandlers.ofByteArray());
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IOException("中斷", e);
+      throw new IOException("Interrupted", e);
     }
   }
 

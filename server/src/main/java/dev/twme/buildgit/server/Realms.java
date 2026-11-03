@@ -95,16 +95,16 @@ final class Realms {
   /** 大廳能不能用：有設定、找得到，是建築世界時是公開的，不是伺服器世界本身。能用時為 null，否則是原因。 */
   String lobbyProblem() {
     var spec = bg.settings().lobby();
-    if (spec.isEmpty()) return "還沒有設定大廳（config.yml 的 worlds.lobby）";
+    if (spec.isEmpty()) return "No lobby is set (worlds.lobby in config.yml)";
     if (spec.contains("/")) {
       var ws = lobbyWorld();
-      if (ws == null || !ws.isOpen()) return "找不到大廳 " + spec;
-      if (!ws.config().open) return "大廳 " + spec + " 不是公開的";
+      if (ws == null || !ws.isOpen()) return "Lobby not found: " + spec;
+      if (!ws.config().open) return "Lobby " + spec + " is not public";
       return null;
     }
     var level = plainLobby();
-    if (level == null) return "找不到大廳世界 " + spec + "（要先用多世界插件載入）";
-    if (inServerWorld(level)) return "大廳不能是伺服器世界本身";
+    if (level == null) return "Lobby world not found: " + spec + " (load it with a multiworld plugin first)";
+    if (inServerWorld(level)) return "The lobby cannot be the server world itself";
     return null;
   }
 
@@ -120,7 +120,7 @@ final class Realms {
         problem = e.getMessage();
       }
     if (level == null) {
-      if (!lobbyWarned) bg.platform().log().warning("伺服器世界是私人的，但無法把玩家送到大廳：" + problem);
+      if (!lobbyWarned) bg.platform().log().warning("The server world is private, but players cannot be sent to the lobby: " + problem);
       lobbyWarned = true;
       return;
     }
@@ -170,7 +170,7 @@ final class Realms {
     var sender = bg.platform().sender(p);
     ws.spawn(bg.tracker().author(p), bg.messages().raw("world-first-commit")).whenComplete((spawn, e) -> ws.sync(() -> {
       if (e != null) {
-        bg.platform().log().log(Level.WARNING, "無法決定建築世界 " + ws.label() + " 的出生點", e);
+        bg.platform().log().log(Level.WARNING, "Cannot decide the spawn point of build world " + ws.label(), e);
         bg.messages().send(sender, "branch-failed", "error", Workspace.unwrap(e));
         return;
       }
@@ -272,14 +272,14 @@ final class Realms {
     try {
       next = target == null ? Inventories.load(serverFile) : ws.kitReset(visitor) ? null : Inventories.load(own);
     } catch (IOException e) {
-      bg.platform().log().log(Level.WARNING, "玩家 " + p.getScoreboardName() + " 的背包檔 " + (target == null ? serverFile : own) + " 讀不懂，沒有換背包", e);
+      bg.platform().log().log(Level.WARNING, "Cannot read inventory file " + (target == null ? serverFile : own) + " of player " + p.getScoreboardName() + ", so the inventory was not swapped", e);
       return;
     }
     try {
       if (worn == null) Inventories.write(serverFile, Inventories.capture(p));
       else Inventories.write(inventoryFile(p.getUUID(), worn), Inventories.capture(p)); // 進來時才照「每次重設」決定要不要用
     } catch (IOException e) {
-      bg.platform().log().log(Level.WARNING, "無法收起玩家 " + p.getScoreboardName() + " 的背包", e);
+      bg.platform().log().log(Level.WARNING, "Cannot store the inventory of player " + p.getScoreboardName(), e);
       return;
     }
     state.set("inventory", target);
@@ -447,7 +447,7 @@ final class Realms {
       }
       return true;
     } catch (IOException e) {
-      bg.platform().log().log(Level.WARNING, "無法記錄玩家 " + player + " 進建築世界前的狀態", e);
+      bg.platform().log().log(Level.WARNING, "Cannot record the state of player " + player + " before entering a build world", e);
       return false;
     }
   }

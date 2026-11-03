@@ -44,7 +44,7 @@ public final class WorldEditHook {
   public void register() {
     if (fawe) FaweSupport.allowExtent(MarkingExtent.class, log);
     WorldEdit.getInstance().getEventBus().register(this);
-    log.info(fawe ? "記錄 FastAsyncWorldEdit 的編輯（批次處理器）" : "記錄 WorldEdit 的編輯");
+    log.info(fawe ? "Recording FastAsyncWorldEdit edits (batch processor)" : "Recording WorldEdit edits");
   }
 
   public void unregister() {

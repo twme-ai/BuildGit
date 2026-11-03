@@ -37,7 +37,7 @@ final class Selections {
         if (we.isPresent()) return we;
       } catch (LinkageError | RuntimeException e) {
         worldEditBroken = true;
-        platform.log().log(Level.WARNING, "無法讀取 WorldEdit 選取範圍，改用 /bg sel", e);
+        platform.log().log(Level.WARNING, "Cannot read the WorldEdit selection; using /bg sel instead", e);
       }
     }
     var c = corners.get(player.getUUID());

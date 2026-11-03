@@ -144,11 +144,11 @@ final class Backup {
           values.put("jobs.history-s3.enabled", enabled);
           values.put("jobs.world-s3.enabled", enabled);
           text = Yaml.fill(text, values::get);
-          log.info("已依 " + S3_FILE + " 原本的設定建立 " + FILE + "；" + S3_FILE + " 裡的 enabled、prefix、interval-minutes、keep 之後可以刪掉");
+          log.info("Created " + FILE + " from the old settings in " + S3_FILE + "; enabled, prefix, interval-minutes and keep in " + S3_FILE + " can be removed now");
         }
         Files.writeString(backupFile, text);
       } catch (IOException e) {
-        log.warning("無法寫入 " + backupFile + "：" + e.getMessage());
+        log.warning("Cannot write " + backupFile + ": " + e.getMessage());
       }
     }
     var y = Yaml.load(backupFile);
@@ -156,7 +156,7 @@ final class Backup {
     try {
       zone = tz.isBlank() ? ZoneId.systemDefault() : ZoneId.of(tz);
     } catch (Exception e) {
-      log.warning(FILE + " 的 timezone 不對（" + tz + "）；用伺服器的時區");
+      log.warning(FILE + ": invalid timezone (" + tz + "); using the server time zone");
       zone = ZoneId.systemDefault();
     }
     var root = platform.server().getServerDirectory().toAbsolutePath().normalize();
@@ -165,7 +165,7 @@ final class Backup {
       for (var e : map.entrySet()) {
         String name = String.valueOf(e.getKey()), at = "jobs." + name + ".";
         if (!name.matches("[A-Za-z0-9_-]+")) {
-          log.warning(FILE + "：工作名稱只能用英數、底線、連字號：" + name);
+          log.warning(FILE + ": job names can only use letters, digits, underscores and hyphens: " + name);
           continue;
         }
         if (!y.getBoolean(at + "enabled", true)) continue;
@@ -173,39 +173,39 @@ final class Backup {
           var what = switch (y.getString(at + "what", "")) {
             case "history" -> What.HISTORY;
             case "world" -> What.WORLD;
-            default -> throw new IllegalArgumentException("what 要是 history 或 world");
+            default -> throw new IllegalArgumentException("what must be history or world");
           };
           String scheduleText = y.getString(at + "schedule", "");
           var schedule = scheduleText.isBlank() ? null : Cron.parse(scheduleText);
           int idle = Math.max(0, y.getInt(at + "idle-minutes", 0));
-          if (schedule == null && idle == 0) throw new IllegalArgumentException("schedule 與 idle-minutes 至少要設一個");
+          if (schedule == null && idle == 0) throw new IllegalArgumentException("Set at least one of schedule and idle-minutes");
           String storage = y.getString(at + "storage", "auto");
-          if (!List.of("auto", "folders", "versioned", "hashed").contains(storage)) throw new IllegalArgumentException("storage 要是 auto、folders、versioned 或 hashed");
+          if (!List.of("auto", "folders", "versioned", "hashed").contains(storage)) throw new IllegalArgumentException("storage must be auto, folders, versioned or hashed");
           String target = y.getString(at + "target", "");
           var path = y.getString(at + "path", name).replaceAll("^/+|/+$", "");
           BackupStore store = null;
           String problem = null;
           if (target.startsWith("s3:")) {
             var c = connection(s3, legacy, target.substring(3));
-            problem = c == null ? "s3.yml 沒有連線 " + target.substring(3) : missing(c);
+            problem = c == null ? "s3.yml has no connection " + target.substring(3) : missing(c);
             if (problem == null) store = new S3(c);
           } else if (target.startsWith("local:") && target.length() > 6) {
             store = new LocalStore(root.resolve(target.substring(6)));
-            if (storage.equals("versioned")) throw new IllegalArgumentException("本機的目的地不能用 versioned");
+            if (storage.equals("versioned")) throw new IllegalArgumentException("A local destination cannot use versioned");
           } else {
-            throw new IllegalArgumentException("target 要是 s3:<連線名稱> 或 local:<資料夾>");
+            throw new IllegalArgumentException("target must be s3:<connection> or local:<folder>");
           }
           result.add(new Job(name, what, target, path.isEmpty() ? "" : path + "/", schedule, idle, Math.max(1, y.getInt(at + "keep", 7)),
               Math.max(0, y.getInt(at + "genesis-hours", 24)), storage,
               y.getBoolean(at + "announce", true), y.getStringList(at + "exclude"), y.getStringList(at + "exclude-worlds"), store, problem,
               platform.repoDir().resolve("backup").resolve(name)));
         } catch (IllegalArgumentException ex) {
-          log.warning(FILE + " 的工作 " + name + " 設定不對，不執行：" + ex.getMessage());
+          log.warning(FILE + ": job " + name + " is misconfigured and will not run: " + ex.getMessage());
         }
       }
     // 只有部分填好的連線才警告；完全沒填的（範本）安靜地顯示「未設定」
     for (var j : result)
-      if (j.problem != null && !j.problem.startsWith("endpoint")) log.warning("備份工作 " + j.name + "：" + j.problem + "；不執行");
+      if (j.problem != null && !j.problem.startsWith("endpoint")) log.warning("Backup job " + j.name + ": " + j.problem + "; it will not run");
     jobs = List.copyOf(result);
   }
 
@@ -215,7 +215,7 @@ final class Backup {
       Files.createDirectories(file.getParent());
       if (in != null) Files.write(file, in.readAllBytes());
     } catch (IOException e) {
-      log.warning("無法寫入 " + file + "：" + e.getMessage());
+      log.warning("Cannot write " + file + ": " + e.getMessage());
     }
   }
 
@@ -240,9 +240,9 @@ final class Backup {
   }
 
   private static String missing(S3.Config c) {
-    if (c.endpoint().isBlank()) return "endpoint 還沒填";
-    if (c.bucket().isBlank()) return "bucket 還沒填";
-    if (c.accessKey().isBlank() || c.secretKey().isBlank()) return "access-key / secret-key 還沒填";
+    if (c.endpoint().isBlank()) return "endpoint is not filled in";
+    if (c.bucket().isBlank()) return "bucket is not filled in";
+    if (c.accessKey().isBlank() || c.secretKey().isBlank()) return "access-key / secret-key are not filled in";
     return null;
   }
 
@@ -266,7 +266,7 @@ final class Backup {
       try {
         migrateState(first);
       } catch (IOException e) {
-        bg.platform().log().warning("無法搬移備份的本機紀錄：" + e.getMessage());
+        bg.platform().log().warning("Cannot move the local backup records: " + e.getMessage());
       }
     worker = Executors.newSingleThreadExecutor(r -> daemon(r, "BuildGit-backup"));
     uploads = Executors.newFixedThreadPool(PARALLEL, r -> daemon(r, "BuildGit-backup-upload"));
@@ -307,7 +307,7 @@ final class Backup {
       lastMinute = minute;
       if (visitsChanged) saveVisits();
     } catch (Exception e) {
-      bg.platform().log().log(Level.WARNING, "備份排程檢查失敗", e);
+      bg.platform().log().log(Level.WARNING, "Backup schedule check failed", e);
     }
   }
 
@@ -445,7 +445,7 @@ final class Backup {
       try {
         store.list(job.prefix + "snapshots/");
       } catch (IOException | RuntimeException e) {
-        throw new CompletionException(new IOException("列出失敗：" + e.getMessage(), e));
+        throw new CompletionException(new IOException("Listing failed: " + e.getMessage(), e));
       }
       long t1 = System.nanoTime();
       String versioning = null, versioningError = null;
@@ -455,21 +455,21 @@ final class Backup {
         } catch (IOException | RuntimeException e) {
           versioningError = e.getMessage();
         }
-      String step = "寫入";
+      String step = "write";
       try {
         long t2 = System.nanoTime();
         var key = job.prefix + "buildgit-test-" + System.currentTimeMillis();
         var data = ("BuildGit test " + java.time.Instant.now()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
         store.put(key, data);
         long t3 = System.nanoTime();
-        step = "讀回";
-        if (!java.util.Arrays.equals(store.get(key), data)) throw new IOException("讀回的內容和寫入的不一樣");
+        step = "read back";
+        if (!java.util.Arrays.equals(store.get(key), data)) throw new IOException("What was read back differs from what was written");
         long t4 = System.nanoTime();
-        step = "刪除測試檔案";
+        step = "delete the test file";
         purge(store, key);
         return new TestResult((t1 - t0) / 1_000_000, (t3 - t2) / 1_000_000, (t4 - t3) / 1_000_000, versioning, versioningError, null);
       } catch (IOException | RuntimeException e) {
-        return new TestResult((t1 - t0) / 1_000_000, 0, 0, versioning, versioningError, step + "失敗：" + e.getMessage());
+        return new TestResult((t1 - t0) / 1_000_000, 0, 0, versioning, versioningError, step + " failed: " + e.getMessage());
       }
     }, pool);
   }
@@ -481,7 +481,7 @@ final class Backup {
       try {
         return job.what == What.HISTORY ? Restore.download(bg, job, pool, name) : Restore.downloadWorld(bg, job, history(), pool, name);
       } catch (Exception e) {
-        bg.platform().log().log(Level.WARNING, "下載備份失敗：" + Workspace.unwrap(e).getMessage(), e instanceof IOException ? null : e);
+        bg.platform().log().log(Level.WARNING, "Backup download failed: " + Workspace.unwrap(e).getMessage(), e instanceof IOException ? null : e);
         throw e;
       }
     });
@@ -551,12 +551,12 @@ final class Backup {
       job.lastError = null;
       job.failures = 0;
       if (result.snapshot() != null)
-        log.info("備份 " + job.name + " 完成：" + result.snapshot() + "（上傳 " + (job.what == What.HISTORY ? result.objects() + " 個物件、" : "")
-            + result.files() + " 個檔案" + (job.what == What.WORLD ? "、沿用 " + result.kept() + " 個" : "") + "）");
+        log.info("Backup " + job.name + " done: " + result.snapshot() + " (uploaded " + (job.what == What.HISTORY ? result.objects() + " objects, " : "")
+            + result.files() + " files" + (job.what == What.WORLD ? ", reused " + result.kept() : "") + ")");
       return result;
     } catch (Exception e) {
       job.lastError = String.valueOf(Workspace.unwrap(e).getMessage());
-      log.log(Level.WARNING, "備份 " + job.name + " 失敗：" + job.lastError, e instanceof IOException ? null : e);
+      log.log(Level.WARNING, "Backup " + job.name + " failed: " + job.lastError, e instanceof IOException ? null : e);
       // 連續失敗 3 次起，每次都提醒線上的管理員（只看主控台的話不會發現）
       if (++job.failures >= 3) {
         int count = job.failures;
@@ -623,7 +623,7 @@ final class Backup {
         files += r.files();
         if (snapshot == null) snapshot = r.snapshot();
       } catch (Exception ex) {
-        bg.platform().log().log(Level.WARNING, "備份 " + job.name + "：建築世界 " + e.label() + " 失敗：" + Workspace.unwrap(ex).getMessage(),
+        bg.platform().log().log(Level.WARNING, "Backup " + job.name + ": build world " + e.label() + " failed: " + Workspace.unwrap(ex).getMessage(),
             ex instanceof IOException ? null : ex);
         failed.add(e.label());
       }
@@ -635,7 +635,7 @@ final class Backup {
       Files.delete(tmp);
     }
     job.incomplete = List.copyOf(missing);
-    if (!failed.isEmpty()) throw new IOException(failed.size() + " 個建築世界沒有備份成功：" + String.join("、", failed));
+    if (!failed.isEmpty()) throw new IOException(failed.size() + " build worlds were not backed up: " + String.join(", ", failed));
     return new Result(job, snapshot, objects, files, 0, List.of());
   }
 
@@ -865,7 +865,7 @@ final class Backup {
     var used = new HashSet<String>();
     for (var name : snapshots.subList(snapshots.size() - job.keep, snapshots.size())) {
       var bytes = store.get(prefix + "snapshots/" + name + ".yml");
-      if (bytes == null) throw new IOException("讀不到快照 " + name + "，這次不清理檔案");
+      if (bytes == null) throw new IOException("Cannot read snapshot " + name + "; skipping cleanup this time");
       var y = Yaml.load(new java.io.ByteArrayInputStream(bytes));
       for (var f : y.getStringList("repo-files")) used.add(f.split(" ")[0]);
       if (y.get("dimensions") instanceof List<?> dims)
